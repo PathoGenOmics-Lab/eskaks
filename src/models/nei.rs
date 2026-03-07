@@ -25,19 +25,60 @@ pub fn calculate_syn_nonsyn_from_indices(codon_indices1: &[u8], codon_indices2: 
     let mut sum_syn_sites_seq1 = 0.0;
     let mut sum_syn_sites_seq2 = 0.0;
 
-    for (&c1, &c2) in codon_indices1.iter().zip(codon_indices2.iter()) {
+    // Process 4 codons at a time for branch-free fast path
+    let chunks1 = codon_indices1.chunks_exact(4);
+    let chunks2 = codon_indices2.chunks_exact(4);
+    let rem1 = chunks1.remainder();
+    let rem2 = chunks2.remainder();
+
+    for (ch1, ch2) in chunks1.zip(chunks2) {
+        let a1 = ch1[0] as usize; let a2 = ch1[1] as usize;
+        let a3 = ch1[2] as usize; let a4 = ch1[3] as usize;
+        let b1 = ch2[0] as usize; let b2 = ch2[1] as usize;
+        let b3 = ch2[2] as usize; let b4 = ch2[3] as usize;
+
+        if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize {
+            // SAFETY: all indices verified < 64, which is within AA_ARRAY and SYN_SITE_ARRAY bounds
+            unsafe {
+                count_valid_codons += 4;
+                sum_syn_sites_seq1 += *SYN_SITE_ARRAY.get_unchecked(a1) as f64
+                    + *SYN_SITE_ARRAY.get_unchecked(a2) as f64
+                    + *SYN_SITE_ARRAY.get_unchecked(a3) as f64
+                    + *SYN_SITE_ARRAY.get_unchecked(a4) as f64;
+                sum_syn_sites_seq2 += *SYN_SITE_ARRAY.get_unchecked(b1) as f64
+                    + *SYN_SITE_ARRAY.get_unchecked(b2) as f64
+                    + *SYN_SITE_ARRAY.get_unchecked(b3) as f64
+                    + *SYN_SITE_ARRAY.get_unchecked(b4) as f64;
+                if a1 != b1 { if *AA_ARRAY.get_unchecked(a1) == *AA_ARRAY.get_unchecked(b1) { syn_diffs += 1.0; } else { nonsyn_diffs += 1.0; } }
+                if a2 != b2 { if *AA_ARRAY.get_unchecked(a2) == *AA_ARRAY.get_unchecked(b2) { syn_diffs += 1.0; } else { nonsyn_diffs += 1.0; } }
+                if a3 != b3 { if *AA_ARRAY.get_unchecked(a3) == *AA_ARRAY.get_unchecked(b3) { syn_diffs += 1.0; } else { nonsyn_diffs += 1.0; } }
+                if a4 != b4 { if *AA_ARRAY.get_unchecked(a4) == *AA_ARRAY.get_unchecked(b4) { syn_diffs += 1.0; } else { nonsyn_diffs += 1.0; } }
+            }
+        } else {
+            for (&c1, &c2) in ch1.iter().zip(ch2.iter()) {
+                let i1 = c1 as usize;
+                let i2 = c2 as usize;
+                if i1 >= INVALID_CODON as usize || i2 >= INVALID_CODON as usize { continue; }
+                count_valid_codons += 1;
+                sum_syn_sites_seq1 += SYN_SITE_ARRAY[i1] as f64;
+                sum_syn_sites_seq2 += SYN_SITE_ARRAY[i2] as f64;
+                if i1 != i2 {
+                    if AA_ARRAY[i1] == AA_ARRAY[i2] { syn_diffs += 1.0; } else { nonsyn_diffs += 1.0; }
+                }
+            }
+        }
+    }
+
+    // Handle remainder codons (0-3)
+    for (&c1, &c2) in rem1.iter().zip(rem2.iter()) {
         let idx1 = c1 as usize;
         let idx2 = c2 as usize;
-        if idx1 >= INVALID_CODON as usize || idx2 >= INVALID_CODON as usize {
-            continue;
-        }
+        if idx1 >= INVALID_CODON as usize || idx2 >= INVALID_CODON as usize { continue; }
         count_valid_codons += 1;
         sum_syn_sites_seq1 += SYN_SITE_ARRAY[idx1] as f64;
         sum_syn_sites_seq2 += SYN_SITE_ARRAY[idx2] as f64;
         if idx1 != idx2 {
-            let aa1 = AA_ARRAY[idx1];
-            let aa2 = AA_ARRAY[idx2];
-            if aa1 == aa2 { syn_diffs += 1.0; } else { nonsyn_diffs += 1.0; }
+            if AA_ARRAY[idx1] == AA_ARRAY[idx2] { syn_diffs += 1.0; } else { nonsyn_diffs += 1.0; }
         }
     }
 
