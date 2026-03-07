@@ -12,35 +12,35 @@ use std::sync::Arc;
 use codon::{dna5_to_codon_indices, seq_to_dna5};
 use models::{DsDn, Model};
 
-/// Calcula dN/dS para secuencias usando los modelos Nei-Gojobori o Li (1993).
+/// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
 #[derive(Parser, Debug)]
 #[command(version = "1.0.0", about, long_about = None)]
 struct Args {
-    /// Archivo de entrada con secuencias en formato FASTA
+    /// Input file with aligned sequences in FASTA format
     #[arg(required = true)]
     input_file: String,
 
-    /// Nombre base para los archivos de salida
+    /// Base name for output files
     #[arg(short, long, default_value = "output")]
     output: String,
 
-    /// Numero de procesos paralelos
+    /// Number of parallel threads
     #[arg(short, long, default_value_t = 4)]
     workers: usize,
 
-    /// Calcula la media de dN y dS agrupada por linaje contra todos los demas
+    /// Compute mean dN and dS grouped by lineage against all others
     #[arg(long, group = "output_mode")]
     lineage: bool,
 
-    /// Calcula la media de dN/dS entre grupos predefinidos
+    /// Compute mean dN/dS between predefined groups
     #[arg(long, group = "output_mode")]
     group_average: bool,
 
-    /// En el modo linaje, agrupa por la primera letra del ID
+    /// In lineage mode, group by the first letter of the sequence ID
     #[arg(long, requires = "lineage")]
     first_letter_lineage: bool,
 
-    /// Modelo a utilizar
+    /// Model to use for calculation
     #[arg(long, value_enum, default_value_t = Model::Nei)]
     model: Model,
 }
@@ -54,9 +54,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .stack_size(4 * 1024 * 1024)
         .build_global()?;
 
-    // --- Lectura con deduplicacion basada en sort ---
-    info!("Leyendo secuencias desde: {}", args.input_file);
-    let mut entries: Vec<(Vec<u8>, String)> = Vec::new(); // (dna5_seq, id_string)
+    // --- Read sequences with sort-based deduplication ---
+    info!("Reading sequences from: {}", args.input_file);
+    let mut entries: Vec<(Vec<u8>, String)> = Vec::new();
     let mut reader = parse_fastx_file(&args.input_file)?;
     while let Some(record) = reader.next() {
         let rec = record?;
@@ -65,19 +65,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         entries.push((seq_dna5, id_str));
     }
     if entries.is_empty() {
-        eprintln!("No se encontraron secuencias en el archivo de entrada.");
+        eprintln!("No sequences found in the input file.");
         std::process::exit(1);
     }
-    info!("Se encontraron {} secuencias en total.", entries.len());
+    info!("Found {} total sequences.", entries.len());
 
-    // Ordenar por secuencia para deduplicar sin HashMap
+    // Sort by sequence for deduplication without HashMap
     let original_order: Vec<usize> = (0..entries.len()).collect();
     let mut sorted_indices: Vec<usize> = original_order.clone();
     sorted_indices.sort_unstable_by(|&a, &b| entries[a].0.cmp(&entries[b].0));
 
-    // Asignar indices unicos agrupando secuencias iguales
+    // Assign unique indices by grouping identical sequences
     let mut uidx_by_sorted = Vec::with_capacity(entries.len());
-    let mut unique_repr_indices: Vec<usize> = Vec::new(); // indice del primer representante de cada grupo
+    let mut unique_repr_indices: Vec<usize> = Vec::new();
     let mut current_uidx = 0usize;
     for (pos, &orig_idx) in sorted_indices.iter().enumerate() {
         if pos > 0 && entries[orig_idx].0 != entries[sorted_indices[pos - 1]].0 {
@@ -90,18 +90,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let n_u = unique_repr_indices.len();
 
-    // Mapear indice original -> uidx
+    // Map original index -> unique index
     let mut uidx_by_id: Vec<usize> = vec![0; entries.len()];
     for (pos, &orig_idx) in sorted_indices.iter().enumerate() {
         uidx_by_id[orig_idx] = uidx_by_sorted[pos];
     }
 
-    // Extraer IDs como Vec<String> (en orden original)
     let ids: Vec<String> = entries.iter().map(|(_, id)| id.clone()).collect();
-    info!("Se encontraron {} secuencias unicas.", n_u);
+    info!("Found {} unique sequences.", n_u);
 
-    // --- Codificacion de secuencias unicas ---
-    info!("Codificando secuencias unicas a indices de codones...");
+    // --- Encode unique sequences to codon indices ---
+    info!("Encoding unique sequences to codon indices...");
     let unique_codon_indices: Arc<Vec<Vec<u8>>> = Arc::new(
         unique_repr_indices.par_iter()
             .map(|&orig_idx| dna5_to_codon_indices(&entries[orig_idx].0, args.model))
@@ -109,24 +108,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     drop(entries);
 
-    // --- Precomputacion para modelo Li ---
+    // --- Precomputation for Li model ---
     let li_tables = if args.model == Model::Li {
-        info!("Precalculando tablas para el modelo Li (1993)...");
+        info!("Precomputing lookup tables for Li (1993) model...");
         let tables = models::li::LiTables::new();
-        info!("Precalculacion para Li finalizada.");
+        info!("Li precomputation finished.");
         Some(tables)
     } else {
         None
     };
 
-    // --- Calculo en paralelo de pares unicos ---
+    // --- Parallel computation of unique pairs ---
     let total_unique_pairs = if n_u > 0 { n_u * (n_u - 1) / 2 } else { 0 };
-    info!("Calculando dN/dS para {} pares de secuencias unicas...", total_unique_pairs);
+    info!("Computing dN/dS for {} unique sequence pairs...", total_unique_pairs);
     let mut pair_results: Vec<DsDn> = vec![DsDn { dn: f64::NAN, ds: f64::NAN }; total_unique_pairs];
 
     let pb_calc = ProgressBar::new(n_u as u64);
     pb_calc.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Calculando pares unicos: {pos}/{len} ({eta})")
+        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Computing unique pairs: {pos}/{len} ({eta})")
         .progress_chars("#>-"));
 
     let row_slices: Vec<&mut [DsDn]> = {
@@ -153,9 +152,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         pb_calc.inc(1);
     });
-    pb_calc.finish_with_message("Calculo de pares unicos completado.");
+    pb_calc.finish_with_message("Unique pair computation completed.");
 
-    // --- Generacion de salida ---
+    // --- Output generation ---
     let get_result = |u_i: usize, u_j: usize| -> DsDn {
         if u_i == u_j {
             DsDn { dn: 0.0, ds: 0.0 }
@@ -167,12 +166,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     if args.group_average {
-        info!("Calculando promedios de grupo dN/dS...");
+        info!("Computing group average dN/dS...");
         output::write_group_average(&ids, &uidx_by_id, &get_result, &args.output)?;
-        info!("Resultados guardados en {}_group_avg_dn_ds.tsv", args.output);
+        info!("Results saved to {}_group_avg_dn_ds.tsv", args.output);
     } else if args.lineage {
-        info!("Calculando resumen de dN/dS por linaje...");
-        // Pre-computar indices de lineage para evitar allocaciones en el hot loop
+        info!("Computing dN/dS lineage summary...");
+        // Pre-compute lineage indices to avoid allocations in the hot loop
         let mut lineage_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
         let mut lineage_names: Vec<String> = Vec::new();
         let lineage_indices: Vec<usize> = ids.iter().map(|id| {
@@ -188,13 +187,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
         }).collect();
         output::write_lineage(&ids, &uidx_by_id, &get_result, &args.output, &lineage_indices, &lineage_names)?;
-        info!("Resumen de linaje guardado en {}_lineage_summary.tsv", args.output);
+        info!("Lineage summary saved to {}_lineage_summary.tsv", args.output);
     } else {
-        info!("Generando informe de resultados por pares...");
+        info!("Generating pairwise results...");
         output::write_pairwise(&ids, &uidx_by_id, &get_result, &args.output, args.model)?;
-        info!("Resultados guardados en {}_pairwise_results.tsv", args.output);
+        info!("Results saved to {}_pairwise_results.tsv", args.output);
     }
 
-    info!("Todos los procesos han finalizado con exito.");
+    info!("All processes completed successfully.");
     Ok(())
 }

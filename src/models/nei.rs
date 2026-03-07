@@ -1,6 +1,6 @@
 use crate::codon::INVALID_CODON;
 
-/// Umbral de saturacion de Jukes-Cantor: valores p >= este indican saturacion.
+/// Jukes-Cantor saturation threshold: p-values >= this indicate saturation.
 const JC_SATURATION_THRESHOLD: f64 = 0.749;
 
 const AA_ARRAY: [char; 64] = [
@@ -16,17 +16,18 @@ const SYN_SITE_ARRAY: [usize; 64] = [
     3, 3, 4, 4, 1, 1, 2, 2, 3, 3, 3, 3,
 ];
 
-/// Calcula dN y dS usando el modelo Nei-Gojobori con correccion Jukes-Cantor.
+/// Calculates dN and dS using the Nei-Gojobori model with Jukes-Cantor correction.
+#[inline]
 pub fn calculate_syn_nonsyn_from_indices(codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64) {
-    let mut count_valid_codons = 0;
+    let mut count_valid_codons = 0u32;
     let mut syn_diffs = 0.0;
     let mut nonsyn_diffs = 0.0;
     let mut sum_syn_sites_seq1 = 0.0;
     let mut sum_syn_sites_seq2 = 0.0;
 
-    for k in 0..codon_indices1.len() {
-        let idx1 = codon_indices1[k] as usize;
-        let idx2 = codon_indices2[k] as usize;
+    for (&c1, &c2) in codon_indices1.iter().zip(codon_indices2.iter()) {
+        let idx1 = c1 as usize;
+        let idx2 = c2 as usize;
         if idx1 >= INVALID_CODON as usize || idx2 >= INVALID_CODON as usize {
             continue;
         }

@@ -1,17 +1,17 @@
 use crate::codon::INVALID_CODON;
 
-// --- Constantes del modelo Li ---
+// --- Li model constants ---
 
-/// Codigo genetico: 0 = estandar, != 0 = mitocondrial.
+/// Genetic code: 0 = standard, != 0 = mitochondrial.
 const CODE_MT: i32 = 0;
 
-/// Fraccion 1/3 usada en ponderacion de comparaciones de codones con 2 diferencias.
+/// 1/3 fraction used for weighting codon comparisons with 2 differences.
 const ONE_THIRD: f64 = 1.0 / 3.0;
 
-/// Denominador minimo para evitar division por cero en el modelo Li.
+/// Minimum denominator to avoid division by zero in the Li model.
 const LI_EPSILON: f64 = 1e-15;
 
-/// Matriz de similitud de aminoacidos (Li 1993).
+/// Amino acid similarity matrix (Li 1993).
 static MAT: [[f64; 19]; 19] = [
     [0.382,0.382,0.343,0.382,0.382,0.382,0.382,0.128,0.040,0.128,0.040,0.128,0.040,0.128,0.040,0.128,0.343,0.128,0.040],
     [0.382,0.382,0.128,0.343,0.343,0.343,0.343,0.128,0.040,0.128,0.040,0.128,0.040,0.128,0.040,0.128,0.128,0.040,0.040],
@@ -34,7 +34,7 @@ static MAT: [[f64; 19]; 19] = [
     [0.040,0.040,0.040,0.343,0.040,0.040,0.040,0.040,0.128,0.040,0.128,0.343,0.343,0.343,0.343,0.382,0.128,0.343,0.382],
 ];
 
-// --- Funciones biologicas internas ---
+// --- Internal biological functions ---
 
 fn codon_to_index(cod: &[char; 3]) -> usize {
     let base_to_num = |c: char| match c { 'A' => 0, 'C' => 1, 'G' => 2, 'T' => 3, 'U' => 3, _ => 4 };
@@ -190,11 +190,11 @@ fn count_substitutions_3diff(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mu
     }
 }
 
-// --- LiTables: tablas precomputadas con arrays planos ---
+// --- LiTables: precomputed flat-array lookup tables ---
 
-/// Tablas de lookup precomputadas para el modelo Li (1993).
-/// Usa arrays planos [f64; 4096] (64x64) en lugar de Vec<Vec<f64>>
-/// para eliminar la doble indirection de punteros y mejorar la localidad de cache.
+/// Precomputed lookup tables for the Li (1993) model.
+/// Uses flat arrays [f64; 4096] (64x64) instead of Vec<Vec<f64>>
+/// to eliminate pointer indirection and improve cache locality.
 pub struct LiTables {
     tl: [[f64; 4096]; 3],
     tti: [[f64; 4096]; 3],
@@ -207,9 +207,9 @@ fn idx(i: usize, j: usize) -> usize {
 }
 
 impl LiTables {
-    /// Construye las tablas de lookup. Incluye la construccion de la matriz rl_li.
+    /// Builds the lookup tables. Includes the construction of the rl_li similarity matrix.
     pub fn new() -> Box<Self> {
-        // Construir matriz de similitud rl_li
+        // Build rl_li similarity matrix
         let mut rl_li = vec![vec![0.0; 21]; 21];
         for i in 2..=20 {
             for j in 1..i {
@@ -233,14 +233,14 @@ impl LiTables {
             rl_li[i][0] = minrl;
         }
 
-        // Allocar tablas con ceros
+        // Allocate tables with zeros
         let mut tables = Box::new(LiTables {
             tl: [[0.0; 4096]; 3],
             tti: [[0.0; 4096]; 3],
             ttv: [[0.0; 4096]; 3],
         });
 
-        // Llenar tablas (equivalente a prefastlwl)
+        // Fill tables (equivalent to prefastlwl)
         let mut aa_li_map = [0usize; 64];
         fill_aa(&mut aa_li_map);
 
@@ -290,7 +290,7 @@ impl LiTables {
                     count_substitutions_3diff(&cod1_chars, &cod2_chars, &mut ti_accum, &mut tv_accum, &mut l_accum, &aa_li_map, &rl_li);
                 }
 
-                // Llenar simetricamente usando indexacion plana
+                // Fill symmetrically using flat indexing
                 for k in 0..3 {
                     tables.tl[k][idx(i, j)] = l_accum[k];
                     tables.tl[k][idx(j, i)] = l_accum[k];
@@ -305,16 +305,16 @@ impl LiTables {
         tables
     }
 
-    /// Calcula Ka y Ks para un par de secuencias codificadas como indices de codones.
+    /// Computes Ka and Ks for a pair of sequences encoded as codon indices.
+    #[inline]
     pub fn compute_pair(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64) {
-        let nb_codon = codon_indices1.len();
         let mut l_sum = [0.0; 3];
         let mut ti_sum = [0.0; 3];
         let mut tv_sum = [0.0; 3];
 
-        for k in 0..nb_codon {
-            let num1 = codon_indices1[k] as usize;
-            let num2 = codon_indices2[k] as usize;
+        for (&c1, &c2) in codon_indices1.iter().zip(codon_indices2.iter()) {
+            let num1 = c1 as usize;
+            let num2 = c2 as usize;
             if num1 == INVALID_CODON as usize || num2 == INVALID_CODON as usize { continue; }
             let flat = idx(num1, num2);
             l_sum[0] += self.tl[0][flat]; l_sum[1] += self.tl[1][flat]; l_sum[2] += self.tl[2][flat];
@@ -359,7 +359,7 @@ impl LiTables {
         let a0_li = a_k_val[0]; let a2_li = a_k_val[1]; let a4_li = a_k_val[2];
         let b0_li = b_k_val[0]; let b2_li = b_k_val[1]; let b4_li = b_k_val[2];
 
-        // Calculo robusto de Ka
+        // Robust Ka calculation
         if l0_s > 0.0 && !a0_li.is_nan() && !b0_li.is_nan() {
             if l2_s > 0.0 && !b2_li.is_nan() {
                 ka_val = a0_li + (l0_s * b0_li + l2_s * b2_li) / (l0_s + l2_s);
@@ -368,7 +368,7 @@ impl LiTables {
             }
         }
 
-        // Calculo robusto de Ks
+        // Robust Ks calculation
         if (l2_s + l4_s) > 0.0 && !b4_li.is_nan() {
             let num_l2 = if l2_s > 0.0 && !a2_li.is_nan() { l2_s * a2_li } else { 0.0 };
             let den_l2 = if l2_s > 0.0 && !a2_li.is_nan() { l2_s } else { 0.0 };

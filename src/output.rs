@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::thread;
 
-/// Escribe resultados pairwise usando un hilo escritor dedicado.
+/// Writes pairwise results using a dedicated writer thread.
 pub fn write_pairwise(
     ids: &[String],
     uidx_by_id: &[usize],
@@ -18,7 +18,7 @@ pub fn write_pairwise(
     let total_pairs_to_write = ids.len() * (ids.len() - 1) / 2;
     let pb_write = ProgressBar::new(total_pairs_to_write as u64);
     pb_write.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Escribiendo pares: {pos}/{len} ({eta})")
+        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Writing pairs: {pos}/{len} ({eta})")
         .progress_chars("#>-"));
 
     let (tx, rx) = unbounded::<String>();
@@ -69,11 +69,11 @@ pub fn write_pairwise(
     writer_thread.join()
         .expect("Writer thread panicked")
         .expect("Writer thread encountered an I/O error");
-    pb_write.finish_with_message("Escritura de pares completada.");
+    pb_write.finish_with_message("Pairwise writing completed.");
     Ok(())
 }
 
-/// Escribe resumen de dN/dS por linaje usando indices pre-computados.
+/// Writes dN/dS summary by lineage using pre-computed indices.
 pub fn write_lineage(
     ids: &[String],
     uidx_by_id: &[usize],
@@ -130,14 +130,14 @@ pub fn write_lineage(
     Ok(())
 }
 
-/// Escribe promedios de dN/dS agrupados.
+/// Writes grouped dN/dS averages.
 pub fn write_group_average(
     ids: &[String],
     uidx_by_id: &[usize],
     get_result: impl Fn(usize, usize) -> DsDn + Sync,
     output_prefix: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Pre-computar grupo para cada ID (indice en group_names)
+    // Pre-compute group for each ID (index in group_names)
     let mut group_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
     let mut group_names: Vec<String> = Vec::new();
     let group_by_id: Vec<usize> = ids.iter().map(|id| {
@@ -149,14 +149,14 @@ pub fn write_group_average(
         })
     }).collect();
 
-    // Agrupar indices de IDs por grupo
+    // Group ID indices by group
     let num_groups = group_names.len();
     let mut group_members: Vec<Vec<usize>> = vec![Vec::new(); num_groups];
     for (id_idx, &grp) in group_by_id.iter().enumerate() {
         group_members[grp].push(id_idx);
     }
 
-    // Generar pares de grupos
+    // Generate group pairs
     let mut group_pairs: Vec<(usize, usize)> = Vec::new();
     for i in 0..num_groups {
         for j in i..num_groups {
@@ -167,7 +167,7 @@ pub fn write_group_average(
     let pb_group = ProgressBar::new(group_pairs.len() as u64);
     pb_group.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Grupos: {pos}/{len} ({eta})")
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Groups: {pos}/{len} ({eta})")
             .progress_chars("#>-"),
     );
 
@@ -216,6 +216,6 @@ pub fn write_group_average(
     for line in group_results {
         if !line.is_empty() { out_file.write_all(line.as_bytes())?; }
     }
-    pb_group.finish_with_message("Calculo de promedios de grupo completado.");
+    pb_group.finish_with_message("Group average computation completed.");
     Ok(())
 }

@@ -1,10 +1,10 @@
 use crate::models::Model;
 
-/// Valor sentinel que indica un indice de codon invalido/ambiguo.
+/// Sentinel value indicating an invalid/ambiguous codon index.
 pub const INVALID_CODON: u8 = 64;
 
-/// Convierte un byte de base (ASCII) a un numero compacto (0-4).
-/// A=0, C=1, G=2, T/U=3, Otro=4 (Ambiguo/N)
+/// Converts a base byte (ASCII) to a compact number (0-4).
+/// A=0, C=1, G=2, T/U=3, Other=4 (Ambiguous/N)
 #[inline(always)]
 pub fn base_to_dna5(b: u8) -> u8 {
     const LUT: [u8; 256] = {
@@ -19,12 +19,12 @@ pub fn base_to_dna5(b: u8) -> u8 {
     LUT[b as usize]
 }
 
-/// Convierte una secuencia de bytes ASCII a una secuencia compacta Dna5.
+/// Converts an ASCII byte sequence to a compact DNA5 sequence.
 pub fn seq_to_dna5(bytes: &[u8]) -> Vec<u8> {
     bytes.iter().map(|&b| base_to_dna5(b)).collect()
 }
 
-/// Convierte una secuencia compacta Dna5 a una lista de indices de codones.
+/// Converts a compact DNA5 sequence to a list of codon indices.
 pub fn dna5_to_codon_indices(dna5_bases: &[u8], model: Model) -> Vec<u8> {
     let mut v = Vec::with_capacity(dna5_bases.len() / 3);
     for chunk in dna5_bases.chunks_exact(3) {
