@@ -190,20 +190,43 @@ fn count_substitutions_3diff(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mu
     }
 }
 
-// --- LiTables: precomputed flat-array lookup tables ---
+// --- LiTables: precomputed AoS lookup tables for cache-friendly access ---
+
+/// Per-codon-pair precomputed data, stored contiguously for cache locality.
+/// Each entry is 72 bytes (9 × f64), fitting in 1-2 cache lines.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CodonPairData {
+    l: [f64; 3],
+    ti: [f64; 3],
+    tv: [f64; 3],
+}
+
+impl Default for CodonPairData {
+    fn default() -> Self {
+        CodonPairData { l: [0.0; 3], ti: [0.0; 3], tv: [0.0; 3] }
+    }
+}
 
 /// Precomputed lookup tables for the Li (1993) model.
-/// Uses flat arrays [f64; 4096] (64x64) instead of Vec<Vec<f64>>
-/// to eliminate pointer indirection and improve cache locality.
+/// Uses AoS (Array-of-Structs) layout: one contiguous [CodonPairData; 4096]
+/// so each codon pair lookup fetches a single 72-byte block instead of
+/// 9 scattered locations across 288KB of SoA arrays.
 pub struct LiTables {
-    tl: [[f64; 4096]; 3],
-    tti: [[f64; 4096]; 3],
-    ttv: [[f64; 4096]; 3],
+    data: Box<[CodonPairData; 4096]>,
 }
 
 #[inline(always)]
 fn idx(i: usize, j: usize) -> usize {
     i * 64 + j
+}
+
+/// Accumulate a single codon pair's data into running sums.
+#[inline(always)]
+fn accumulate(d: &CodonPairData, l_sum: &mut [f64; 3], ti_sum: &mut [f64; 3], tv_sum: &mut [f64; 3]) {
+    l_sum[0] += d.l[0]; l_sum[1] += d.l[1]; l_sum[2] += d.l[2];
+    ti_sum[0] += d.ti[0]; ti_sum[1] += d.ti[1]; ti_sum[2] += d.ti[2];
+    tv_sum[0] += d.tv[0]; tv_sum[1] += d.tv[1]; tv_sum[2] += d.tv[2];
 }
 
 impl LiTables {
@@ -233,11 +256,9 @@ impl LiTables {
             rl_li[i][0] = minrl;
         }
 
-        // Allocate tables with zeros
+        // Allocate AoS table
         let mut tables = Box::new(LiTables {
-            tl: [[0.0; 4096]; 3],
-            tti: [[0.0; 4096]; 3],
-            ttv: [[0.0; 4096]; 3],
+            data: Box::new([CodonPairData::default(); 4096]),
         });
 
         // Fill tables (equivalent to prefastlwl)
@@ -290,15 +311,10 @@ impl LiTables {
                     count_substitutions_3diff(&cod1_chars, &cod2_chars, &mut ti_accum, &mut tv_accum, &mut l_accum, &aa_li_map, &rl_li);
                 }
 
-                // Fill symmetrically using flat indexing
-                for k in 0..3 {
-                    tables.tl[k][idx(i, j)] = l_accum[k];
-                    tables.tl[k][idx(j, i)] = l_accum[k];
-                    tables.tti[k][idx(i, j)] = ti_accum[k];
-                    tables.tti[k][idx(j, i)] = ti_accum[k];
-                    tables.ttv[k][idx(i, j)] = tv_accum[k];
-                    tables.ttv[k][idx(j, i)] = tv_accum[k];
-                }
+                // Fill symmetrically into AoS table
+                let entry = CodonPairData { l: l_accum, ti: ti_accum, tv: tv_accum };
+                tables.data[idx(i, j)] = entry;
+                tables.data[idx(j, i)] = entry;
             }
         }
 
@@ -306,20 +322,56 @@ impl LiTables {
     }
 
     /// Computes Ka and Ks for a pair of sequences encoded as codon indices.
+    /// Uses AoS layout + chunk-of-4 processing + unsafe unchecked indexing
+    /// for maximum throughput on long sequences (133k+ codons).
     #[inline]
     pub fn compute_pair(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64) {
         let mut l_sum = [0.0; 3];
         let mut ti_sum = [0.0; 3];
         let mut tv_sum = [0.0; 3];
 
-        for (&c1, &c2) in codon_indices1.iter().zip(codon_indices2.iter()) {
-            let num1 = c1 as usize;
-            let num2 = c2 as usize;
-            if num1 == INVALID_CODON as usize || num2 == INVALID_CODON as usize { continue; }
-            let flat = idx(num1, num2);
-            l_sum[0] += self.tl[0][flat]; l_sum[1] += self.tl[1][flat]; l_sum[2] += self.tl[2][flat];
-            ti_sum[0] += self.tti[0][flat]; ti_sum[1] += self.tti[1][flat]; ti_sum[2] += self.tti[2][flat];
-            tv_sum[0] += self.ttv[0][flat]; tv_sum[1] += self.ttv[1][flat]; tv_sum[2] += self.ttv[2][flat];
+        let data = &*self.data;
+
+        // Process 4 codons at a time for branch-free fast path
+        let chunks1 = codon_indices1.chunks_exact(4);
+        let chunks2 = codon_indices2.chunks_exact(4);
+        let rem1 = chunks1.remainder();
+        let rem2 = chunks2.remainder();
+
+        for (ch1, ch2) in chunks1.zip(chunks2) {
+            let a1 = ch1[0] as usize; let a2 = ch1[1] as usize;
+            let a3 = ch1[2] as usize; let a4 = ch1[3] as usize;
+            let b1 = ch2[0] as usize; let b2 = ch2[1] as usize;
+            let b3 = ch2[2] as usize; let b4 = ch2[3] as usize;
+
+            // Fast path: if all 8 codon indices are < 64 (valid), skip per-codon checks
+            if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < 64 {
+                // SAFETY: all indices verified < 64, so flat index < 4096
+                unsafe {
+                    accumulate(data.get_unchecked(a1 * 64 + b1), &mut l_sum, &mut ti_sum, &mut tv_sum);
+                    accumulate(data.get_unchecked(a2 * 64 + b2), &mut l_sum, &mut ti_sum, &mut tv_sum);
+                    accumulate(data.get_unchecked(a3 * 64 + b3), &mut l_sum, &mut ti_sum, &mut tv_sum);
+                    accumulate(data.get_unchecked(a4 * 64 + b4), &mut l_sum, &mut ti_sum, &mut tv_sum);
+                }
+            } else {
+                // Slow path: check each codon individually
+                for (&c1, &c2) in ch1.iter().zip(ch2.iter()) {
+                    let n1 = c1 as usize;
+                    let n2 = c2 as usize;
+                    if n1 >= 64 || n2 >= 64 { continue; }
+                    // SAFETY: n1 < 64 && n2 < 64 guarantees flat < 4096
+                    unsafe { accumulate(data.get_unchecked(n1 * 64 + n2), &mut l_sum, &mut ti_sum, &mut tv_sum); }
+                }
+            }
+        }
+
+        // Handle remainder codons (0-3)
+        for (&c1, &c2) in rem1.iter().zip(rem2.iter()) {
+            let n1 = c1 as usize;
+            let n2 = c2 as usize;
+            if n1 >= 64 || n2 >= 64 { continue; }
+            // SAFETY: n1 < 64 && n2 < 64 guarantees flat < 4096
+            unsafe { accumulate(data.get_unchecked(n1 * 64 + n2), &mut l_sum, &mut ti_sum, &mut tv_sum); }
         }
 
         let mut p_k = [0.0; 3];
