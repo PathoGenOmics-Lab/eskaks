@@ -16,7 +16,8 @@ rustc-hash = "1.1.0"
 clap = { version = "4.5.4", features = ["derive"] }
 
 [profile.release]
-opt-level      = 3          
-lto            = "thin"     # o "fat" si quieres el último pun-to de rendimiento
-codegen-units  = 1          # un solo CU mejora inlining (compila algo más lento)
-panic          = "abort"    # opcional: binario más pequeño/rápido
+opt-level      = 3
+lto            = "fat"
+codegen-units  = 1
+panic          = "abort"
+strip          = true

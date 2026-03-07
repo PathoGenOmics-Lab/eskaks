@@ -6,105 +6,180 @@
 </p>
 </div>
 
-__Paula Ruiz-Rodriguez<sup>1</sup>__ 
+__Paula Ruiz-Rodriguez<sup>1</sup>__
 __and Mireia Coscolla<sup>1</sup>__
 <br>
-<sub> 1. Institute for Integrative Systems Biology, I<sup>2</sup>SysBio, University of Valencia-CSIC, Valencia, Spain </sub>  
+<sub> 1. Institute for Integrative Systems Biology, I<sup>2</sup>SysBio, University of Valencia-CSIC, Valencia, Spain </sub>
 
-**eskaks** is a command-line tool designed to calculate dN/dS (also known as Ka/Ks) between pairs of aligned coding sequences. It supports both the Nei and Li models for calculating synonymous (dS) and nonsynonymous (dN) substitution rates. The tool leverages parallel processing for efficient computation on large datasets and provides flexible options for grouping sequences and summarizing results by groups or lineages.
+**eskaks** is a high-performance command-line tool written in Rust for calculating dN/dS (Ka/Ks) ratios between pairs of aligned coding sequences. It supports both the Nei-Gojobori (1986) and Li (1993) models for estimating synonymous (dS) and nonsynonymous (dN) substitution rates. The tool leverages parallel processing via Rayon, sequence deduplication, and precomputed lookup tables for efficient computation on large datasets.
 
 ## Features
 
-- **Models**: Choose between Nei (default) or Li models to calculate dN/dS.
-- **Parallelization**: Speed up computation using multiple threads (configurable via `--workers`).
-- **Filtering Conditions**: Results are only written if certain conditions are met (e.g., ds > 0.0, dn > 0.0, ps > 0.0, pn > 0.0), ensuring that only valid ratios are reported.
+- **Models**: Choose between the Nei-Gojobori (default) or Li (1993) model for dN/dS calculation.
+- **Parallel Processing**: Configurable multi-threaded computation via `--workers` using Rayon.
+- **Sequence Deduplication**: Automatically detects and groups identical sequences to avoid redundant pairwise computations.
+- **Precomputed Lookup Tables**: The Li model uses flat-array lookup tables (64x64 codon pairs) for cache-friendly, zero-allocation pair evaluation.
+- **Streaming Output**: Pairwise results are written via a dedicated writer thread with buffered I/O to minimize memory usage.
 - **Group Summaries**:
-  - **Group Average**: Compute average dN/dS between predefined groups of sequences.
-  - **Lineage Summary**: Compute average dN/dS for each sequence against sequences grouped by lineage.  
-  - **Configurable Lineage Grouping**: Either split lineage by `_` (default) or use the first character of each sequence name (`--first_letter_lineage`).
+  - **Group Average**: Compute mean dN/dS between predefined groups of sequences with 95% confidence intervals.
+  - **Lineage Summary**: Compute mean dN/dS for each sequence against sequences grouped by lineage.
+  - **Configurable Lineage Grouping**: Group by splitting on `_` (default) or by the first character of each sequence name (`--first_letter_lineage`).
 
-## Differences Between the Li and Nei Models
+## Models
 
-The **Nei (1986)** and **Li (1993)** models are two approaches for calculating synonymous (dS) and nonsynonymous (dN) substitution rates between aligned coding sequences. Although both methods aim to estimate dN/dS (Ka/Ks) ratios, they differ in complexity, underlying assumptions, and computational requirements.
+### Nei-Gojobori (1986)
 
-1. **Methodological Complexity**:  
-   - **Nei Model**: The Nei method is relatively straightforward, relying on direct counting of synonymous and nonsynonymous substitutions and then correcting for the total number of synonymous and nonsynonymous sites. Its simplicity makes it quicker and less resource-intensive, serving as a standard or baseline approach.
-   - **Li Model**: The Li approach is more sophisticated. It often involves precomputed tables and a probabilistic framework that accounts for variations in codon usage, nucleotide frequencies, and transition-transversion biases. This complexity can provide more nuanced results but requires more computation and careful implementation.
+The Nei-Gojobori method is a straightforward counting approach:
 
-2. **Corrections and Assumptions**:  
-   - **Nei Model**: Typically uses simpler assumptions and fewer corrections, focusing on directly observed differences in codons.
-   - **Li Model**: Incorporates more corrections and a more refined probabilistic model. By adjusting for factors like codon bias and different classes of substitutions, it aims to provide a more accurate and biologically realistic estimate of dN/dS.
+1. Counts synonymous and nonsynonymous sites for each codon using a precomputed site table.
+2. Classifies codon differences as synonymous (same amino acid) or nonsynonymous (different amino acid).
+3. Applies the **Jukes-Cantor correction** to account for multiple substitutions at the same site.
+4. Returns `NaN` when substitution proportions reach saturation (p >= 0.749).
 
-3. **Computational Cost**:  
-   - **Nei Model**: Easier and faster to compute, suitable for large datasets and quick analyses.
-   - **Li Model**: More computationally demanding due to pre-calculations, matrix-based probability models, and more complex algorithms. This can offer improved accuracy and insight but at greater computational expense.
+**Best for**: Fast exploratory analyses, large datasets, and when simplicity is preferred.
 
-In summary, the Nei model is often chosen for its simplicity and speed, serving as a commonly used benchmark method. The Li model, although more complex and computationally heavier, may yield more detailed and refined estimates of dN/dS that capture subtle evolutionary patterns.  
+### Li (1993)
+
+The Li method is more sophisticated:
+
+1. Classifies sites into three categories (0-fold, 2-fold, 4-fold degenerate) based on the genetic code.
+2. Considers all possible evolutionary pathways for codons differing at 2 or 3 positions, weighted by amino acid similarity.
+3. Separately estimates transition and transversion rates for each site category.
+4. Applies the **Kimura two-parameter correction** to each category.
+5. Uses precomputed 64x64 flat-array lookup tables for zero-allocation pair computation.
+
+**Best for**: More accurate estimates that account for codon usage bias, transition/transversion differences, and site degeneracy.
 
 ## Input
 
-The input should be a FASTA file containing multiple aligned coding sequences of equal length (no partial codons at the end). Each sequence must be fully aligned with the others.
+A FASTA file containing multiple aligned coding sequences. Requirements:
+
+- All sequences must be the same length.
+- Sequence length must be a multiple of 3 (complete codons only).
+- Standard DNA/RNA alphabet (A, C, G, T/U); ambiguous bases (N, etc.) are handled gracefully.
 
 ## Output
 
-- A TSV file with pairwise results: `Seq1`, `Seq2`, `Sd`, `Sn`, `S`, `N`, `ps`, `pn`, `ds`, `dn`, and `dn/ds`.
-- Optional additional summary files:
-  - `*_group_dn_ds.tsv`: Mean dN/dS between specified groups.
-  - `*_lineage_summary.tsv`: Mean dN/dS per lineage grouping.
+- **Pairwise results** (`<prefix>_pairwise_results.tsv`): Tab-separated file with columns:
+  - `Seq1`, `Seq2`, `dN`, `dS`, `dN/dS` (Nei model)
+  - `Seq1`, `Seq2`, `dN(Ka)`, `dS(Ks)`, `dN/dS` (Li model)
+
+- **Group average** (`<prefix>_group_avg_dn_ds.tsv`): Mean dN/dS between groups with columns:
+  - `Group1`, `Group2`, `NumSeqs1`, `NumSeqs2`, `NumComparisons`, `Mean_dN/dS`, `StdError`, `95%CI`
+
+- **Lineage summary** (`<prefix>_lineage_summary.tsv`): Mean dN/dS per lineage with columns:
+  - `Genome`, `Against_Lineage`, `Mean_dN`, `Mean_dS`, `dN/dS_Ratio`
+
+## Installation
+
+### From source (recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/PathoGenOmics-Lab/eskaks.git
+cd eskaks
+
+# Build with maximum optimizations
+RUSTFLAGS="-C target-cpu=native" cargo build --release
+
+# The binary will be at target/release/eskaks
+```
+
+### Requirements
+
+- [Rust](https://www.rust-lang.org/tools/install) >= 1.70.0
+
+### Performance tip
+
+For maximum performance on your specific CPU, compile with native target optimizations:
+
+```bash
+RUSTFLAGS="-C target-cpu=native" cargo build --release
+```
+
+This enables CPU-specific SIMD instructions and other architecture optimizations.
 
 ## Usage
 
 ```bash
 eskaks <input_file> [options]
 ```
-### Required Arguments:
-`<input_file>`: Aligned sequences in FASTA format.
 
-### Common Options:
-- `-o, --output <PREFIX>`: Base name for output files (default: output).
-- `-w, --workers <N>`: Number of parallel threads (default: 4).
-- `--model <nei|li>`: Model to use for calculation (default: nei).
-- `--lineage`: Compute summary results by lineage.
-- `--group_average`: Compute average dN/dS between groups.
-- `--first_letter_lineage`: If used with --lineage, group sequences by the first letter of their names instead of splitting by `_`.
+### Required Arguments
+
+- `<input_file>`: Aligned coding sequences in FASTA format.
+
+### Options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-o, --output <PREFIX>` | Base name for output files | `output` |
+| `-w, --workers <N>` | Number of parallel threads | `4` |
+| `--model <nei\|li>` | Model to use for calculation | `nei` |
+| `--lineage` | Compute summary results by lineage | off |
+| `--group_average` | Compute average dN/dS between groups | off |
+| `--first_letter_lineage` | Group sequences by first letter (requires `--lineage`) | off |
 
 ## Examples
-1. Basic Nei model calculation:
+
+1. **Basic Nei model calculation:**
    ```bash
    eskaks input.fasta
    ```
-   This produces `output.tsv` with pairwise dN/dS calculations (Nei model).
-2. Li model and multiple workers:
+   Produces `output_pairwise_results.tsv` with pairwise dN/dS (Nei model, 4 threads).
+
+2. **Li model with 8 threads:**
    ```bash
-   eskaks input.fasta --model li --workers 8
+   eskaks input.fasta --model li --workers 8 -o results
    ```
-   Uses the Li model and spawns 8 parallel threads for calculation.
-3. Lineage summary:
+   Produces `results_pairwise_results.tsv` using the Li (1993) model with 8 parallel threads.
+
+3. **Lineage summary:**
    ```bash
-   eskaks input.fasta --lineage
+   eskaks input.fasta --lineage -o analysis
    ```
-   Besides the standard pairwise file, this also produces `output_lineage_summary.tsv` summarizing mean dN/dS per lineage     
-   group.
-4. Group average by first letter:
+   Produces `analysis_lineage_summary.tsv` with mean dN/dS for each sequence against each lineage group (lineages determined by splitting sequence IDs on `_`).
+
+4. **Group average with first-letter lineage grouping:**
    ```bash
    eskaks input.fasta --lineage --first_letter_lineage
    ```
-   Groups sequences by their first character rather than splitting by `_` for the lineage summary.
+   Groups sequences by their first character instead of splitting by `_`.
 
-## Requirements
-## Installation
+5. **Group average with confidence intervals:**
+   ```bash
+   eskaks input.fasta --group_average --workers 16
+   ```
+   Computes mean dN/dS between all group pairs with standard error and 95% confidence intervals.
+
+## Architecture
+
+```
+src/
+  main.rs          - CLI, FASTA reading, deduplication, parallel dispatch
+  codon.rs         - DNA5 encoding and codon index conversion
+  output.rs        - Parallel output writers (pairwise, lineage, group)
+  models/
+    mod.rs         - Model enum and shared types
+    nei.rs         - Nei-Gojobori (1986) with Jukes-Cantor correction
+    li.rs          - Li (1993) with precomputed flat-array lookup tables
+```
+
+## License
+
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
 ---
 <h2 id="contributors" align="center">
 
-✨ [Contributors]((https://github.com/PathoGenOmics-Lab/AMAP/graphs/contributors))
+Contributors
 </h2>
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
 <div align="center">
-eskaks is developed with ❤️ by:
+eskaks is developed by:
 <table>
   <tr>
     <td align="center">
@@ -118,9 +193,9 @@ eskaks is developed with ❤️ by:
       <a href="" title="Research">🔬</a>
       <a href="" title="Ideas">🤔</a>
       <a href="" title="Data">🔣</a>
-      <a href="" title="Desing">🎨</a>
+      <a href="" title="Design">🎨</a>
       <a href="" title="Tool">🔧</a>
-    </td> 
+    </td>
     <td align="center">
       <a href="https://github.com/mireiacoscolla">
         <img src="https://avatars.githubusercontent.com/u/29301737?v=4&s=100" width="100px;" alt=""/>
@@ -133,7 +208,7 @@ eskaks is developed with ❤️ by:
       <a href="" title="Mentoring">🧑‍🏫</a>
       <a href="" title="Research">🔬</a>
       <a href="" title="User Testing">📓</a>
-    </td> 
+    </td>
   </tr>
 </table>
 
@@ -143,4 +218,4 @@ This project follows the [all-contributors](https://github.com/all-contributors/
 <!-- prettier-ignore-end -->
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
----  
+---
