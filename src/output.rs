@@ -2,16 +2,15 @@ use crate::models::{DsDn, Model, Z_95_CONFIDENCE};
 use crossbeam::channel::unbounded;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use rustc_hash::FxHashMap;
 use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::thread;
 
-/// Escribe resultados pairwise completos usando un hilo escritor dedicado.
+/// Escribe resultados pairwise usando un hilo escritor dedicado.
 pub fn write_pairwise(
-    ids: &[Vec<u8>],
-    id_to_uidx: &FxHashMap<Vec<u8>, usize>,
+    ids: &[String],
+    uidx_by_id: &[usize],
     get_result: impl Fn(usize, usize) -> DsDn + Sync,
     output_prefix: &str,
     model: Model,
@@ -42,13 +41,10 @@ pub fn write_pairwise(
 
     (0..ids.len()).into_par_iter().for_each_with(tx, |s, i| {
         let mut local_buffer = String::with_capacity(1024 * 8);
-        let id_i_bytes = &ids[i];
-        let u_i = id_to_uidx[id_i_bytes];
+        let u_i = uidx_by_id[i];
 
         for j in (i + 1)..ids.len() {
-            let id_j_bytes = &ids[j];
-            let u_j = id_to_uidx[id_j_bytes];
-
+            let u_j = uidx_by_id[j];
             let result = get_result(u_i, u_j);
             let ratio = if result.ds == 0.0 {
                 if result.dn == 0.0 { 0.0 } else { f64::INFINITY }
@@ -57,9 +53,7 @@ pub fn write_pairwise(
             };
 
             let _ = write!(local_buffer, "{}\t{}\t{:.6}\t{:.6}\t{:.6}\n",
-                String::from_utf8_lossy(id_i_bytes),
-                String::from_utf8_lossy(id_j_bytes),
-                result.dn, result.ds, ratio);
+                &ids[i], &ids[j], result.dn, result.ds, ratio);
 
             if local_buffer.len() > 1024 * 4 {
                 s.send(std::mem::take(&mut local_buffer))
@@ -79,42 +73,40 @@ pub fn write_pairwise(
     Ok(())
 }
 
-/// Escribe resumen de dN/dS por linaje.
+/// Escribe resumen de dN/dS por linaje usando indices pre-computados.
 pub fn write_lineage(
-    ids: &[Vec<u8>],
-    id_to_uidx: &FxHashMap<Vec<u8>, usize>,
+    ids: &[String],
+    uidx_by_id: &[usize],
     get_result: impl Fn(usize, usize) -> DsDn + Sync,
     output_prefix: &str,
-    first_letter_lineage: bool,
+    lineage_indices: &[usize],
+    lineage_names: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let num_lineages = lineage_names.len();
+
     let lineage_results: Vec<String> = (0..ids.len())
         .into_par_iter()
         .map(|i| {
-            let id_i_bytes = &ids[i];
-            let u_i = id_to_uidx[id_i_bytes];
-            let mut local_aggr: FxHashMap<Vec<u8>, (f64, f64, usize)> = FxHashMap::default();
+            let u_i = uidx_by_id[i];
+            // Vec indexado por lineage_idx en vez de HashMap
+            let mut local_aggr: Vec<(f64, f64, usize)> = vec![(0.0, 0.0, 0); num_lineages];
 
             for j in 0..ids.len() {
                 if i == j { continue; }
-                let id_j_bytes = &ids[j];
-                let u_j = id_to_uidx[id_j_bytes];
+                let u_j = uidx_by_id[j];
                 let result = get_result(u_i, u_j);
 
                 if result.dn.is_finite() && result.ds.is_finite() {
-                    let lineage_key = if first_letter_lineage {
-                        id_j_bytes.iter().next().map(|&b| vec![b]).unwrap_or_default()
-                    } else {
-                        id_j_bytes.split(|&b| b == b'_').next().unwrap_or(id_j_bytes).to_vec()
-                    };
-                    let entry = local_aggr.entry(lineage_key).or_default();
-                    entry.0 += result.dn;
-                    entry.1 += result.ds;
-                    entry.2 += 1;
+                    let lin_idx = lineage_indices[j];
+                    local_aggr[lin_idx].0 += result.dn;
+                    local_aggr[lin_idx].1 += result.ds;
+                    local_aggr[lin_idx].2 += 1;
                 }
             }
 
             let mut output_lines = String::new();
-            for (lineage_key, (sum_dn, sum_ds, count)) in local_aggr {
+            for (lin_idx, &(sum_dn, sum_ds, count)) in local_aggr.iter().enumerate() {
+                if count == 0 { continue; }
                 let mean_dn = sum_dn / count as f64;
                 let mean_ds = sum_ds / count as f64;
                 let ratio = if mean_ds == 0.0 {
@@ -123,9 +115,7 @@ pub fn write_lineage(
                     mean_dn / mean_ds
                 };
                 let _ = write!(output_lines, "{}\t{}\t{:.6}\t{:.6}\t{:.6}\n",
-                    String::from_utf8_lossy(id_i_bytes),
-                    String::from_utf8_lossy(&lineage_key),
-                    mean_dn, mean_ds, ratio);
+                    &ids[i], &lineage_names[lin_idx], mean_dn, mean_ds, ratio);
             }
             output_lines
         })
@@ -142,49 +132,58 @@ pub fn write_lineage(
 
 /// Escribe promedios de dN/dS agrupados.
 pub fn write_group_average(
-    ids: &[Vec<u8>],
-    id_to_uidx: &FxHashMap<Vec<u8>, usize>,
+    ids: &[String],
+    uidx_by_id: &[usize],
     get_result: impl Fn(usize, usize) -> DsDn + Sync,
     output_prefix: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut group_map: FxHashMap<Vec<u8>, Vec<Vec<u8>>> = FxHashMap::default();
-    for id_bytes in ids {
-        let group_key = id_bytes.split(|&b| b == b'_').next().unwrap_or(id_bytes).to_vec();
-        group_map.entry(group_key).or_default().push(id_bytes.clone());
+    // Pre-computar grupo para cada ID (indice en group_names)
+    let mut group_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
+    let mut group_names: Vec<String> = Vec::new();
+    let group_by_id: Vec<usize> = ids.iter().map(|id| {
+        let key = id.split('_').next().unwrap_or(id);
+        let next_idx = group_names.len();
+        *group_map.entry(key).or_insert_with(|| {
+            group_names.push(key.to_string());
+            next_idx
+        })
+    }).collect();
+
+    // Agrupar indices de IDs por grupo
+    let num_groups = group_names.len();
+    let mut group_members: Vec<Vec<usize>> = vec![Vec::new(); num_groups];
+    for (id_idx, &grp) in group_by_id.iter().enumerate() {
+        group_members[grp].push(id_idx);
     }
 
-    let group_keys: Vec<Vec<u8>> = group_map.keys().cloned().collect();
-    let mut group_pairs_to_process = Vec::new();
-    for (i, g1_key) in group_keys.iter().enumerate() {
-        for g2_key in group_keys.iter().skip(i) {
-            group_pairs_to_process.push((g1_key.clone(), g2_key.clone()));
+    // Generar pares de grupos
+    let mut group_pairs: Vec<(usize, usize)> = Vec::new();
+    for i in 0..num_groups {
+        for j in i..num_groups {
+            group_pairs.push((i, j));
         }
     }
 
-    let pb_group = ProgressBar::new(group_pairs_to_process.len() as u64);
+    let pb_group = ProgressBar::new(group_pairs.len() as u64);
     pb_group.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Grupos: {pos}/{len} ({eta})")
             .progress_chars("#>-"),
     );
 
-    let group_results: Vec<String> = group_pairs_to_process
+    let group_results: Vec<String> = group_pairs
         .par_iter()
-        .map(|(g1_key, g2_key)| {
-            let ids1 = &group_map[g1_key];
-            let ids2 = &group_map[g2_key];
+        .map(|&(g1, g2)| {
+            let members1 = &group_members[g1];
+            let members2 = &group_members[g2];
             let mut pair_dn_ds_ratios = Vec::new();
 
-            for (i, id1) in ids1.iter().enumerate() {
-                let u_idx1 = id_to_uidx[id1];
-                let iter_ids2: Box<dyn Iterator<Item = &Vec<u8>>> = if g1_key == g2_key {
-                    Box::new(ids2.iter().skip(i + 1))
-                } else {
-                    Box::new(ids2.iter())
-                };
-                for id2 in iter_ids2 {
-                    let u_idx2 = id_to_uidx[id2];
-                    let result = get_result(u_idx1, u_idx2);
+            for (pos, &id1_idx) in members1.iter().enumerate() {
+                let u1 = uidx_by_id[id1_idx];
+                let start = if g1 == g2 { pos + 1 } else { 0 };
+                for &id2_idx in &members2[start..] {
+                    let u2 = uidx_by_id[id2_idx];
+                    let result = get_result(u1, u2);
                     if result.dn.is_finite() && result.ds.is_finite() && result.ds > 0.0 {
                         pair_dn_ds_ratios.push(result.dn / result.ds);
                     }
@@ -194,24 +193,20 @@ pub fn write_group_average(
             pb_group.inc(1);
             if pair_dn_ds_ratios.is_empty() {
                 format!("{}\t{}\t{}\t{}\t0\tNaN\tNaN\t[NaN, NaN]\n",
-                    String::from_utf8_lossy(g1_key), String::from_utf8_lossy(g2_key),
-                    ids1.len(), ids2.len())
+                    &group_names[g1], &group_names[g2],
+                    members1.len(), members2.len())
             } else {
-                let num_comparisons = pair_dn_ds_ratios.len();
-                let mean_dn_ds: f64 = pair_dn_ds_ratios.iter().sum::<f64>() / num_comparisons as f64;
-                let variance: f64 = if num_comparisons > 1 {
-                    pair_dn_ds_ratios.iter().map(|&val| (val - mean_dn_ds).powi(2)).sum::<f64>() / (num_comparisons - 1) as f64
+                let n = pair_dn_ds_ratios.len();
+                let mean: f64 = pair_dn_ds_ratios.iter().sum::<f64>() / n as f64;
+                let variance: f64 = if n > 1 {
+                    pair_dn_ds_ratios.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64
                 } else { 0.0 };
-                let standard_error = if num_comparisons > 0 {
-                    (variance / num_comparisons as f64).sqrt()
-                } else { 0.0 };
-                let ci_half_width = Z_95_CONFIDENCE * standard_error;
-                let ci_lower = mean_dn_ds - ci_half_width;
-                let ci_upper = mean_dn_ds + ci_half_width;
+                let se = if n > 0 { (variance / n as f64).sqrt() } else { 0.0 };
+                let ci_hw = Z_95_CONFIDENCE * se;
                 format!("{}\t{}\t{}\t{}\t{}\t{:.6}\t{:.6}\t[{:.6}, {:.6}]\n",
-                    String::from_utf8_lossy(g1_key), String::from_utf8_lossy(g2_key),
-                    ids1.len(), ids2.len(), num_comparisons,
-                    mean_dn_ds, standard_error, ci_lower, ci_upper)
+                    &group_names[g1], &group_names[g2],
+                    members1.len(), members2.len(), n,
+                    mean, se, mean - ci_hw, mean + ci_hw)
             }
         }).collect();
 
