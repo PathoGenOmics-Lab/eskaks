@@ -317,11 +317,9 @@ impl LiTables {
             let num2 = codon_indices2[k] as usize;
             if num1 == INVALID_CODON as usize || num2 == INVALID_CODON as usize { continue; }
             let flat = idx(num1, num2);
-            for t in 0..3 {
-                l_sum[t] += self.tl[t][flat];
-                ti_sum[t] += self.tti[t][flat];
-                tv_sum[t] += self.ttv[t][flat];
-            }
+            l_sum[0] += self.tl[0][flat]; l_sum[1] += self.tl[1][flat]; l_sum[2] += self.tl[2][flat];
+            ti_sum[0] += self.tti[0][flat]; ti_sum[1] += self.tti[1][flat]; ti_sum[2] += self.tti[2][flat];
+            tv_sum[0] += self.ttv[0][flat]; tv_sum[1] += self.ttv[1][flat]; tv_sum[2] += self.ttv[2][flat];
         }
 
         let mut p_k = [0.0; 3];
