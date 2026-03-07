@@ -11,7 +11,25 @@ use std::sync::Arc;
 use std::thread;
 
 // --- CONSTANTES GLOBALES ---
+
+/// Codigo genetico: 0 = estandar, != 0 = mitocondrial.
+/// Se mantiene como constante para soportar codigos geneticos alternativos en el futuro.
 const CODE_MT: i32 = 0;
+
+/// Fraccion 1/3 usada en ponderacion de comparaciones de codones con 2 diferencias.
+const ONE_THIRD: f64 = 1.0 / 3.0;
+
+/// Umbral de saturacion de Jukes-Cantor: valores p >= este indican saturacion de sustituciones.
+const JC_SATURATION_THRESHOLD: f64 = 0.749;
+
+/// Denominador minimo para evitar division por cero / errores de dominio logaritmico en el modelo Li.
+const LI_EPSILON: f64 = 1e-15;
+
+/// Valor Z para intervalo de confianza del 95% (aproximacion para muestras grandes).
+const Z_95_CONFIDENCE: f64 = 1.96;
+
+/// Valor sentinel que indica un indice de codon invalido/ambiguo.
+const INVALID_CODON: u8 = 64;
 const AA_ARRAY: [char; 64] = [
     'F', 'F', 'L', 'L', 'L', 'L', 'L', 'L', 'I', 'I', 'I', 'M', 'V', 'V', 'V', 'V',
     'S', 'S', 'S', 'S', 'P', 'P', 'P', 'P', 'T', 'T', 'T', 'T', 'A', 'A', 'A', 'A',
@@ -46,17 +64,17 @@ static MAT: [[f64; 19]; 19] = [
 ];
 
 // --- FUNCIONES BIOLÓGICAS (SIN CAMBIOS EN SU LÓGICA INTERNA) ---
-fn num(cod:&[char;3])->usize {
+fn codon_to_index(cod:&[char;3])->usize {
     let base_to_num=|c:char| match c {'A'=>0,'C'=>1,'G'=>2,'T'=>3,'U'=>3,_=>4};
     let n1=base_to_num(cod[0]); let n2=base_to_num(cod[1]); let n3=base_to_num(cod[2]);
-    if n1==4||n2==4||n3==4 {64} else {16*n1+4*n2+n3}
+    if n1==4||n2==4||n3==4 {INVALID_CODON as usize} else {16*n1+4*n2+n3}
 }
 fn decode_codon(n:usize)->[char;3] {
     let b1=n/16; let r1=n%16; let b2=r1/4; let b3=r1%4;
     let map=|x:usize| match x {0=>'A',1=>'C',2=>'G',3=>'T',_=>'X'};
     [map(b1),map(b2),map(b3)]
 }
-fn catsite(c1:char,c2:char,c3:char,i:i32)->usize {
+fn categorize_site(c1:char,c2:char,c3:char,i:i32)->usize {
     if i==3 {
         if CODE_MT==0 { if (c1=='A'&&c2=='T'&&c3=='G')||(c1=='T'&&c2=='G'&&(c3=='A'||c3=='G')) { return 0; } }
         if c2=='C' {return 2;}
@@ -69,7 +87,7 @@ fn catsite(c1:char,c2:char,c3:char,i:i32)->usize {
     }
     0
 }
-fn transf(nt1:char,nt2:char)->char {
+fn classify_mutation(nt1:char,nt2:char)->char {
     if nt1==nt2 {'S'} else { match (nt1,nt2) { ('A','C')|('A','T')|('C','A')|('G','C')|('G','T')|('T','A')|('C','G')|('T','G')=>'v', ('A','G')|('C','T')|('G','A')|('T','C')=>'i', _=>'E', } }
 }
 fn fill_aa(aa:&mut[usize;64]) {
@@ -99,39 +117,39 @@ fn special_titv_adjust_pos3(ci1:char,ci2:char,ci3:char,cj1:char,cj2:char,cj3:cha
     if ci1=='A'&&ci2=='T'&&ci3=='A'&&cj1=='A'&&cj2=='T'&&cj3=='C' { tv[1]-=poids;ti[1]+=poids; } if ci1=='A'&&ci2=='T'&&ci3=='C'&&cj1=='A'&&cj2=='T'&&cj3=='A' { tv[1]-=poids;ti[1]+=poids; }
     if ci1=='A'&&ci2=='T'&&ci3=='A'&&cj1=='A'&&cj2=='T'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; } if ci1=='A'&&ci2=='T'&&ci3=='G'&&cj1=='A'&&cj2=='T'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
 }
-fn titv1(cod1:&[char;3],cod2:&[char;3],poids:f64,ti:&mut[f64;3],tv:&mut[f64;3],l:&mut[f64;3]) {
+fn count_substitutions_1diff(cod1:&[char;3],cod2:&[char;3],poids:f64,ti:&mut[f64;3],tv:&mut[f64;3],l:&mut[f64;3]) {
     let ci1=cod1[0];let ci2=cod1[1];let ci3=cod1[2]; let cj1=cod2[0];let cj2=cod2[1];let cj3=cod2[2];
     for i in 0..3 {
         if cod1[i]!=cod2[i] {
-            let site=catsite(ci1,ci2,ci3,(i+1)as i32); l[site]+=0.5*poids;
-            let site2=catsite(cj1,cj2,cj3,(i+1)as i32); l[site2]+=0.5*poids;
+            let site=categorize_site(ci1,ci2,ci3,(i+1)as i32); l[site]+=0.5*poids;
+            let site2=categorize_site(cj1,cj2,cj3,(i+1)as i32); l[site2]+=0.5*poids;
             let a=cod1[i];let b=cod2[i];
-            if transf(a,b)=='i' { ti[site]+=0.5*poids;ti[site2]+=0.5*poids; } else { tv[site]+=0.5*poids;tv[site2]+=0.5*poids; }
+            if classify_mutation(a,b)=='i' { ti[site]+=0.5*poids;ti[site2]+=0.5*poids; } else { tv[site]+=0.5*poids;tv[site2]+=0.5*poids; }
             if CODE_MT==0 { if (ci2=='T'&&cj2=='T')||(ci2=='G'&&cj2=='G') { if i==0 { special_titv_adjust(ci1,ci2,ci3,cj1,cj2,cj3,ti,tv,poids); } if i==2 { special_titv_adjust_pos3(ci1,ci2,ci3,cj1,cj2,cj3,ti,tv,poids); } } }
         }
     }
 }
-fn titv2(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mut[f64;3],l:&mut[f64;3],aa:&[usize;64],rl:&[Vec<f64>],pos_diff_flags:&[i32;3]) {
+fn count_substitutions_2diff(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mut[f64;3],l:&mut[f64;3],aa:&[usize;64],rl:&[Vec<f64>],pos_diff_flags:&[i32;3]) {
     let mut diff_indices = [0; 2]; let mut current_diff_count = 0;
     for k in 0..3 { if pos_diff_flags[k] == 1 { if current_diff_count < 2 { diff_indices[current_diff_count] = k; } current_diff_count += 1; } }
     if current_diff_count != 2 { return; }
     let d1_idx = diff_indices[0]; let d2_idx = diff_indices[1];
     let mut codint1 = *cod1; codint1[d1_idx] = cod2[d1_idx];
     let mut codint2 = *cod1; codint2[d2_idx] = cod2[d2_idx];
-    let aa1=aa[num(cod1)]; let aa2=aa[num(cod2)];
-    let aaint1_path1=aa[num(&codint1)]; let aaint1_path2=aa[num(&codint2)];
+    let aa1=aa[codon_to_index(cod1)]; let aa2=aa[codon_to_index(cod2)];
+    let aaint1_path1=aa[codon_to_index(&codint1)]; let aaint1_path2=aa[codon_to_index(&codint2)];
     let l_path1 = rl[aa1][aaint1_path1] * rl[aaint1_path1][aa2]; let l_path2 = rl[aa1][aaint1_path2] * rl[aaint1_path2][aa2];
     let p1 = if (l_path1 + l_path2) != 0.0 { l_path1 / (l_path1 + l_path2) } else { 0.5 }; let p2 = 1.0 - p1;
     let mut non_diff_pos_plus_1 = 0;
     for k_idx in 0..3 { if pos_diff_flags[k_idx] == 0 { non_diff_pos_plus_1 = k_idx + 1; break; } }
     if non_diff_pos_plus_1 > 0 {
-        l[catsite(cod1[0],cod1[1],cod1[2],non_diff_pos_plus_1 as i32)]+=0.333333; l[catsite(cod2[0],cod2[1],cod2[2],non_diff_pos_plus_1 as i32)]+=0.333333;
-        l[catsite(codint1[0],codint1[1],codint1[2],non_diff_pos_plus_1 as i32)]+=0.333333*p1; l[catsite(codint2[0],codint2[1],codint2[2],non_diff_pos_plus_1 as i32)]+=0.333333*p2;
+        l[categorize_site(cod1[0],cod1[1],cod1[2],non_diff_pos_plus_1 as i32)]+=ONE_THIRD; l[categorize_site(cod2[0],cod2[1],cod2[2],non_diff_pos_plus_1 as i32)]+=ONE_THIRD;
+        l[categorize_site(codint1[0],codint1[1],codint1[2],non_diff_pos_plus_1 as i32)]+=ONE_THIRD*p1; l[categorize_site(codint2[0],codint2[1],codint2[2],non_diff_pos_plus_1 as i32)]+=ONE_THIRD*p2;
     }
-    titv1(cod1,&codint1,p1,ti,tv,l); titv1(&codint1,cod2,p1,ti,tv,l);
-    titv1(cod1,&codint2,p2,ti,tv,l); titv1(&codint2,cod2,p2,ti,tv,l);
+    count_substitutions_1diff(cod1,&codint1,p1,ti,tv,l); count_substitutions_1diff(&codint1,cod2,p1,ti,tv,l);
+    count_substitutions_1diff(cod1,&codint2,p2,ti,tv,l); count_substitutions_1diff(&codint2,cod2,p2,ti,tv,l);
 }
-fn titv3(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mut[f64;3],l:&mut[f64;3],aa:&[usize;64],rl:&[Vec<f64>]) {
+fn count_substitutions_3diff(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mut[f64;3],l:&mut[f64;3],aa:&[usize;64],rl:&[Vec<f64>]) {
     let mut codint1_paths = [['A'; 3]; 6]; let mut codint2_paths = [['A'; 3]; 6];
     let mut like = [0.0; 6]; let mut path_idx = 0;
     for i in 0..3 { for j in 0..3 {
@@ -139,13 +157,13 @@ fn titv3(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mut[f64;3],l:&mut[f64;
         let mut c2_intermediate = *cod1; let mut c3_intermediate;
         c2_intermediate[i] = cod2[i]; codint1_paths[path_idx] = c2_intermediate;
         c3_intermediate = c2_intermediate; c3_intermediate[j] = cod2[j]; codint2_paths[path_idx] = c3_intermediate;
-        let aa_orig = aa[num(cod1)]; let aa_c2_int = aa[num(&c2_intermediate)];
-        let aa_c3_int = aa[num(&c3_intermediate)]; let aa_final = aa[num(cod2)];
+        let aa_orig = aa[codon_to_index(cod1)]; let aa_c2_int = aa[codon_to_index(&c2_intermediate)];
+        let aa_c3_int = aa[codon_to_index(&c3_intermediate)]; let aa_final = aa[codon_to_index(cod2)];
         like[path_idx] = rl[aa_orig][aa_c2_int] * rl[aa_c2_int][aa_c3_int] * rl[aa_c3_int][aa_final]; path_idx += 1;
     } }
     let somli:f64 = like.iter().sum(); let mut p = [0.0; 6];
     if somli > 0.0 { for i in 0..6 { p[i] = like[i] / somli; } } else { for i in 0..6 { p[i] = 1.0 / 6.0; } }
-    for i in 0..6 { if p[i] > 0.0 { titv1(cod1, &codint1_paths[i], p[i], ti, tv, l); titv1(&codint1_paths[i], &codint2_paths[i], p[i], ti, tv, l); titv1(&codint2_paths[i], cod2, p[i], ti, tv, l); } }
+    for i in 0..6 { if p[i] > 0.0 { count_substitutions_1diff(cod1, &codint1_paths[i], p[i], ti, tv, l); count_substitutions_1diff(&codint1_paths[i], &codint2_paths[i], p[i], ti, tv, l); count_substitutions_1diff(&codint2_paths[i], cod2, p[i], ti, tv, l); } }
 }
 fn prefastlwl(rl:&[Vec<f64>], tl0:&mut Vec<Vec<f64>>, tl1:&mut Vec<Vec<f64>>, tl2:&mut Vec<Vec<f64>>, tti0:&mut Vec<Vec<f64>>, tti1:&mut Vec<Vec<f64>>, tti2:&mut Vec<Vec<f64>>, ttv0:&mut Vec<Vec<f64>>, ttv1:&mut Vec<Vec<f64>>, ttv2:&mut Vec<Vec<f64>>) {
     let mut aa_li_map=[0;64]; fill_aa(&mut aa_li_map);
@@ -154,14 +172,14 @@ fn prefastlwl(rl:&[Vec<f64>], tl0:&mut Vec<Vec<f64>>, tl1:&mut Vec<Vec<f64>>, tl
         let cod1_chars = decode_codon(i); let cod2_chars = decode_codon(j);
         let mut pos_diff_flags=[0i32;3]; let mut nbdiff=0;
         for p in 0..3 { if cod1_chars[p]!=cod2_chars[p] { nbdiff+=1; pos_diff_flags[p]=1; } }
-        if nbdiff == 0 { for p_idx in 0..3 { let site_type = catsite(cod1_chars[0], cod1_chars[1], cod1_chars[2], (p_idx + 1) as i32); l_accum[site_type] += 1.0; }
+        if nbdiff == 0 { for p_idx in 0..3 { let site_type = categorize_site(cod1_chars[0], cod1_chars[1], cod1_chars[2], (p_idx + 1) as i32); l_accum[site_type] += 1.0; }
         } else if nbdiff == 1 {
-            for p_idx in 0..3 { if pos_diff_flags[p_idx] == 0 { let site_type1 = catsite(cod1_chars[0], cod1_chars[1], cod1_chars[2], (p_idx + 1) as i32); l_accum[site_type1] += 0.5; let site_type2 = catsite(cod2_chars[0], cod2_chars[1], cod2_chars[2], (p_idx + 1) as i32); l_accum[site_type2] += 0.5; } }
-            titv1(&cod1_chars,&cod2_chars,1.0,&mut ti_accum,&mut tv_accum,&mut l_accum);
+            for p_idx in 0..3 { if pos_diff_flags[p_idx] == 0 { let site_type1 = categorize_site(cod1_chars[0], cod1_chars[1], cod1_chars[2], (p_idx + 1) as i32); l_accum[site_type1] += 0.5; let site_type2 = categorize_site(cod2_chars[0], cod2_chars[1], cod2_chars[2], (p_idx + 1) as i32); l_accum[site_type2] += 0.5; } }
+            count_substitutions_1diff(&cod1_chars,&cod2_chars,1.0,&mut ti_accum,&mut tv_accum,&mut l_accum);
         } else if nbdiff==2 {
-            for p_idx in 0..3 { if pos_diff_flags[p_idx] == 0 { let site_type1 = catsite(cod1_chars[0], cod1_chars[1], cod1_chars[2], (p_idx + 1) as i32); l_accum[site_type1] += 0.5; let site_type2 = catsite(cod2_chars[0], cod2_chars[1], cod2_chars[2], (p_idx + 1) as i32); l_accum[site_type2] += 0.5; break; } }
-            titv2(&cod1_chars,&cod2_chars,&mut ti_accum,&mut tv_accum,&mut l_accum,&aa_li_map,rl,&pos_diff_flags);
-        } else if nbdiff==3 { titv3(&cod1_chars,&cod2_chars,&mut ti_accum,&mut tv_accum,&mut l_accum,&aa_li_map,rl); }
+            for p_idx in 0..3 { if pos_diff_flags[p_idx] == 0 { let site_type1 = categorize_site(cod1_chars[0], cod1_chars[1], cod1_chars[2], (p_idx + 1) as i32); l_accum[site_type1] += 0.5; let site_type2 = categorize_site(cod2_chars[0], cod2_chars[1], cod2_chars[2], (p_idx + 1) as i32); l_accum[site_type2] += 0.5; break; } }
+            count_substitutions_2diff(&cod1_chars,&cod2_chars,&mut ti_accum,&mut tv_accum,&mut l_accum,&aa_li_map,rl,&pos_diff_flags);
+        } else if nbdiff==3 { count_substitutions_3diff(&cod1_chars,&cod2_chars,&mut ti_accum,&mut tv_accum,&mut l_accum,&aa_li_map,rl); }
         tl0[i][j]=l_accum[0]; tl0[j][i]=l_accum[0]; tl1[i][j]=l_accum[1]; tl1[j][i]=l_accum[1]; tl2[i][j]=l_accum[2]; tl2[j][i]=l_accum[2];
         tti0[i][j]=ti_accum[0]; tti0[j][i]=ti_accum[0]; tti1[i][j]=ti_accum[1]; tti1[j][i]=ti_accum[1]; tti2[i][j]=ti_accum[2]; tti2[j][i]=ti_accum[2];
         ttv0[i][j]=tv_accum[0]; ttv0[j][i]=tv_accum[0]; ttv1[i][j]=tv_accum[1]; ttv1[j][i]=tv_accum[1]; ttv2[i][j]=tv_accum[2]; ttv2[j][i]=tv_accum[2];
@@ -171,7 +189,7 @@ fn fastlwl_pair(codon_indices1:&[u8], codon_indices2:&[u8], tti0:&[Vec<f64>], tt
     let nb_codon = codon_indices1.len(); let mut l_sum=[0.0;3]; let mut ti_sum=[0.0;3]; let mut tv_sum=[0.0;3];
     for k in 0..nb_codon {
         let num1 = codon_indices1[k] as usize; let num2 = codon_indices2[k] as usize;
-        if num1==64||num2==64 {continue;}
+        if num1==INVALID_CODON as usize||num2==INVALID_CODON as usize {continue;}
         l_sum[0]+=tl0[num1][num2]; l_sum[1]+=tl1[num1][num2]; l_sum[2]+=tl2[num1][num2];
         ti_sum[0]+=tti0[num1][num2]; ti_sum[1]+=tti1[num1][num2]; ti_sum[2]+=tti2[num1][num2];
         tv_sum[0]+=ttv0[num1][num2]; tv_sum[1]+=ttv1[num1][num2]; tv_sum[2]+=ttv2[num1][num2];
@@ -182,7 +200,7 @@ fn fastlwl_pair(codon_indices1:&[u8], codon_indices2:&[u8], tti0:&[Vec<f64>], tt
     for k_type in 0..3 {
         if l_sum[k_type] == 0.0 { a_k_val[k_type] = f64::NAN; b_k_val[k_type] = f64::NAN; continue; }
         let denom_a = 1.0 - 2.0 * p_k[k_type] - q_k[k_type]; let denom_b = 1.0 - 2.0 * q_k[k_type];
-        if denom_a <= 1e-15 || denom_b <= 1e-15 { 
+        if denom_a <= LI_EPSILON || denom_b <= LI_EPSILON {
             a_k_val[k_type] = f64::NAN; b_k_val[k_type] = f64::NAN;
         } else {
             a_k_val[k_type] = -0.5 * denom_a.ln() - 0.25 * denom_b.ln();
@@ -225,15 +243,12 @@ fn fastlwl_pair(codon_indices1:&[u8], codon_indices2:&[u8], tti0:&[Vec<f64>], tt
 
     (ka_val, ks_val)
 }
-fn get_li_values(codon_indices1:&[u8], codon_indices2:&[u8], tti0:&[Vec<f64>], tti1:&[Vec<f64>], tti2:&[Vec<f64>], ttv0:&[Vec<f64>], ttv1:&[Vec<f64>], ttv2:&[Vec<f64>], tl0:&[Vec<f64>], tl1:&[Vec<f64>], tl2:&[Vec<f64>]) -> (f64, f64) {
-    fastlwl_pair(codon_indices1, codon_indices2, tti0, tti1, tti2, ttv0, ttv1, ttv2, tl0, tl1, tl2)
-}
 fn calculate_syn_nonsyn_from_indices(codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64) {
     let mut count_valid_codons = 0; let mut syn_diffs = 0.0; let mut nonsyn_diffs = 0.0;
     let mut sum_syn_sites_seq1 = 0.0; let mut sum_syn_sites_seq2 = 0.0;
     for k in 0..codon_indices1.len() {
         let idx1 = codon_indices1[k] as usize; let idx2 = codon_indices2[k] as usize;
-        if idx1 >= 64 || idx2 >= 64 { continue; }
+        if idx1 >= INVALID_CODON as usize || idx2 >= INVALID_CODON as usize { continue; }
         count_valid_codons += 1; sum_syn_sites_seq1 += SYN_SITE_ARRAY[idx1] as f64; sum_syn_sites_seq2 += SYN_SITE_ARRAY[idx2] as f64;
         if idx1 != idx2 { let aa1 = AA_ARRAY[idx1]; let aa2 = AA_ARRAY[idx2]; if aa1 == aa2 { syn_diffs += 1.0; } else { nonsyn_diffs += 1.0; } }
     }
@@ -243,8 +258,8 @@ fn calculate_syn_nonsyn_from_indices(codon_indices1: &[u8], codon_indices2: &[u8
     let ps = if potential_syn_sites > 0.0 { syn_diffs / potential_syn_sites } else { 0.0 };
     let pn = if potential_nonsyn_sites > 0.0 { nonsyn_diffs / potential_nonsyn_sites } else { 0.0 };
     
-    let mut ds = if ps < 0.749 { -0.75 * (1.0 - (4.0/3.0) * ps).ln() } else { f64::NAN };
-    let mut dn = if pn < 0.749 { -0.75 * (1.0 - (4.0/3.0) * pn).ln() } else { f64::NAN };
+    let mut ds = if ps < JC_SATURATION_THRESHOLD { -0.75 * (1.0 - (4.0/3.0) * ps).ln() } else { f64::NAN };
+    let mut dn = if pn < JC_SATURATION_THRESHOLD { -0.75 * (1.0 - (4.0/3.0) * pn).ln() } else { f64::NAN };
 
     // Reajuste posterior para evitar valores negativos
     if ds.is_finite() && ds < 0.0 { ds = 0.0; }
@@ -283,7 +298,7 @@ fn dna5_to_codon_indices(dna5_bases: &[u8], model: Model) -> Vec<u8> {
         let (b1, b2, b3) = (chunk[0], chunk[1], chunk[2]);
 
         if b1 > 3 || b2 > 3 || b3 > 3 { // Si alguna base es ambigua
-            v.push(64);
+            v.push(INVALID_CODON);
         } else {
             let index = match model {
                 // Modelo Li usa orden A,C,G,T (0,1,2,3), que coincide con Dna5
@@ -387,7 +402,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Mapeo de IDs a índices únicos ---
     let id_to_uidx: FxHashMap<Vec<u8>, usize> = unique_seqs_dna5.iter().enumerate()
         .flat_map(|(u_idx, seq_dna5)| {
-            seq_to_ids.get(seq_dna5).unwrap().iter().map(move |id| (id.clone(), u_idx))
+            seq_to_ids.get(seq_dna5).expect("BUG: unique sequence not found in seq_to_ids map").iter().map(move |id| (id.clone(), u_idx))
         })
         .collect();
     
@@ -436,23 +451,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Calculando pares únicos: {pos}/{len} ({eta})")
         .progress_chars("#>-"));
 
-    let pair_results_ptr_addr = pair_results.as_mut_ptr() as usize;
-    (0..n_u).into_par_iter().for_each(|i| {
-        let pair_results_ptr = pair_results_ptr_addr as *mut DsDn;
-        let cod_i = &unique_codon_indices[i];
+    // Particionar pair_results en slices mutables no superpuestos (uno por fila).
+    // Fila i contiene los resultados para pares (i, i+1), (i, i+2), ..., (i, n_u-1).
+    let row_slices: Vec<&mut [DsDn]> = {
+        let mut remaining = pair_results.as_mut_slice();
+        let mut slices = Vec::with_capacity(n_u);
+        for i in 0..n_u {
+            let row_len = n_u - i - 1;
+            let (row, rest) = remaining.split_at_mut(row_len);
+            slices.push(row);
+            remaining = rest;
+        }
+        slices
+    };
 
-        for j in (i + 1)..n_u {
+    row_slices.into_par_iter().enumerate().for_each(|(i, row_slice)| {
+        let cod_i = &unique_codon_indices[i];
+        for (j_offset, j) in ((i + 1)..n_u).enumerate() {
             let cod_j = &unique_codon_indices[j];
             let (dn, ds) = if args.model == Model::Li {
-                get_li_values(cod_i, cod_j, &tti0, &tti1, &tti2, &ttv0, &ttv1, &ttv2, &tl0, &tl1, &tl2)
+                fastlwl_pair(cod_i, cod_j, &tti0, &tti1, &tti2, &ttv0, &ttv1, &ttv2, &tl0, &tl1, &tl2)
             } else {
                 calculate_syn_nonsyn_from_indices(cod_i, cod_j)
             };
-            
-            let flat_idx = (i * n_u + j) - ((i + 1) * (i + 2)) / 2;
-            unsafe {
-                *pair_results_ptr.add(flat_idx) = DsDn { dn, ds };
-            }
+            row_slice[j_offset] = DsDn { dn, ds };
         }
         pb_calc.inc(1);
     });
@@ -528,7 +550,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         pair_dn_ds_ratios.iter().map(|&val| (val - mean_dn_ds).powi(2)).sum::<f64>() / (num_comparisons - 1) as f64
                     } else { 0.0 };
                     let standard_error = if num_comparisons > 0 {(variance / num_comparisons as f64).sqrt()} else {0.0};
-                    let t_value = 1.96; 
+                    let t_value = Z_95_CONFIDENCE; 
                     let ci_half_width = t_value * standard_error;
                     let ci_lower = mean_dn_ds - ci_half_width;
                     let ci_upper = mean_dn_ds + ci_half_width;
@@ -658,19 +680,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 local_buffer.push_str(&line);
 
                 if local_buffer.len() > 1024 * 4 {
-                    s.send(local_buffer.clone()).unwrap();
+                    s.send(local_buffer.clone()).expect("Writer thread channel closed unexpectedly");
                     local_buffer.clear();
                 }
             }
             if !local_buffer.is_empty() {
-                s.send(local_buffer).unwrap();
+                s.send(local_buffer).expect("Writer thread channel closed unexpectedly");
             }
             pb_write.inc((ids.len() - 1 - i) as u64);
         });
         
         // `for_each_with` automatically drops the sender `tx` when it's done.
         
-        writer_thread.join().unwrap().unwrap();
+        writer_thread.join()
+            .expect("Writer thread panicked")
+            .expect("Writer thread encountered an I/O error");
         pb_write.finish_with_message("Escritura de pares completada.");
         info!("Resultados guardados en {}_pairwise_results.tsv", args.output);
     }
