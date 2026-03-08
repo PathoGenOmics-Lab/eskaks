@@ -46,6 +46,17 @@ pub fn dna5_to_codon_indices(dna5_bases: &[u8], model: Model) -> Vec<u8> {
     v
 }
 
+/// Extracts the grouping key from a sequence ID.
+/// If `by_first_letter` is true, returns the first character (UTF-8 aware);
+/// otherwise returns the part before the first '_', or the full ID if no '_' is present.
+pub fn extract_group_key(id: &str, by_first_letter: bool) -> &str {
+    if by_first_letter {
+        &id[..id.chars().next().map(|c| c.len_utf8()).unwrap_or(0)]
+    } else {
+        id.split('_').next().unwrap_or(id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
