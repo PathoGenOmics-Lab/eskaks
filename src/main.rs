@@ -4,7 +4,7 @@ mod output;
 
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use log::info;
+use log::{error, info, warn};
 use needletail::parse_fastx_file;
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -36,8 +36,8 @@ struct Args {
     #[arg(long, group = "output_mode")]
     group_average: bool,
 
-    /// In lineage mode, group by the first letter of the sequence ID
-    #[arg(long, requires = "lineage")]
+    /// Group by the first letter of the sequence ID instead of splitting on '_'
+    #[arg(long)]
     first_letter_lineage: bool,
 
     /// Model to use for calculation
@@ -48,6 +48,11 @@ struct Args {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let args = Args::parse();
+
+    if args.first_letter_lineage && !args.lineage && !args.group_average {
+        error!("--first_letter_lineage requires --lineage or --group_average.");
+        std::process::exit(1);
+    }
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.workers)
@@ -65,14 +70,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         entries.push((seq_dna5, id_str));
     }
     if entries.is_empty() {
-        eprintln!("No sequences found in the input file.");
+        error!("No sequences found in the input file.");
         std::process::exit(1);
     }
     info!("Found {} total sequences.", entries.len());
 
+    // Validate sequence lengths
+    let first_len = entries[0].0.len();
+    let all_same_length = entries.iter().all(|(seq, _)| seq.len() == first_len);
+    if !all_same_length {
+        error!("Not all sequences have the same length. Aligned sequences are required.");
+        std::process::exit(1);
+    }
+    if first_len % 3 != 0 {
+        warn!("Sequence length ({}) is not a multiple of 3. Trailing bases will be ignored.", first_len);
+    }
+
     // Sort by sequence for deduplication without HashMap
-    let original_order: Vec<usize> = (0..entries.len()).collect();
-    let mut sorted_indices: Vec<usize> = original_order.clone();
+    let mut sorted_indices: Vec<usize> = (0..entries.len()).collect();
     sorted_indices.sort_unstable_by(|&a, &b| entries[a].0.cmp(&entries[b].0));
 
     // Assign unique indices by grouping identical sequences
@@ -167,7 +182,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args.group_average {
         info!("Computing group average dN/dS...");
-        output::write_group_average(&ids, &uidx_by_id, &get_result, &args.output)?;
+        output::write_group_average(&ids, &uidx_by_id, &get_result, &args.output, args.first_letter_lineage)?;
         info!("Results saved to {}_group_avg_dn_ds.tsv", args.output);
     } else if args.lineage {
         info!("Computing dN/dS lineage summary...");
