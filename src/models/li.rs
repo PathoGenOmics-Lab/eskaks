@@ -345,7 +345,7 @@ impl LiTables {
             let b3 = ch2[2] as usize; let b4 = ch2[3] as usize;
 
             // Fast path: if all 8 codon indices are < 64 (valid), skip per-codon checks
-            if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < 64 {
+            if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize {
                 // SAFETY: all indices verified < 64, so flat index < 4096
                 unsafe {
                     accumulate(data.get_unchecked(a1 * 64 + b1), &mut l_sum, &mut ti_sum, &mut tv_sum);
@@ -358,7 +358,7 @@ impl LiTables {
                 for (&c1, &c2) in ch1.iter().zip(ch2.iter()) {
                     let n1 = c1 as usize;
                     let n2 = c2 as usize;
-                    if n1 >= 64 || n2 >= 64 { continue; }
+                    if n1 >= INVALID_CODON as usize || n2 >= INVALID_CODON as usize { continue; }
                     // SAFETY: n1 < 64 && n2 < 64 guarantees flat < 4096
                     unsafe { accumulate(data.get_unchecked(n1 * 64 + n2), &mut l_sum, &mut ti_sum, &mut tv_sum); }
                 }
@@ -369,7 +369,7 @@ impl LiTables {
         for (&c1, &c2) in rem1.iter().zip(rem2.iter()) {
             let n1 = c1 as usize;
             let n2 = c2 as usize;
-            if n1 >= 64 || n2 >= 64 { continue; }
+            if n1 >= INVALID_CODON as usize || n2 >= INVALID_CODON as usize { continue; }
             // SAFETY: n1 < 64 && n2 < 64 guarantees flat < 4096
             unsafe { accumulate(data.get_unchecked(n1 * 64 + n2), &mut l_sum, &mut ti_sum, &mut tv_sum); }
         }

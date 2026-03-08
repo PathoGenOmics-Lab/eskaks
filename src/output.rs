@@ -136,12 +136,17 @@ pub fn write_group_average(
     uidx_by_id: &[usize],
     get_result: impl Fn(usize, usize) -> DsDn + Sync,
     output_prefix: &str,
+    first_letter_lineage: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Pre-compute group for each ID (index in group_names)
     let mut group_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
     let mut group_names: Vec<String> = Vec::new();
     let group_by_id: Vec<usize> = ids.iter().map(|id| {
-        let key = id.split('_').next().unwrap_or(id);
+        let key = if first_letter_lineage {
+            &id[..id.chars().next().map(|c| c.len_utf8()).unwrap_or(0)]
+        } else {
+            id.split('_').next().unwrap_or(id)
+        };
         let next_idx = group_names.len();
         *group_map.entry(key).or_insert_with(|| {
             group_names.push(key.to_string());
@@ -200,7 +205,7 @@ pub fn write_group_average(
                 let mean: f64 = pair_dn_ds_ratios.iter().sum::<f64>() / n as f64;
                 let variance: f64 = if n > 1 {
                     pair_dn_ds_ratios.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64
-                } else { 0.0 };
+                } else { f64::NAN };
                 let se = if n > 0 { (variance / n as f64).sqrt() } else { 0.0 };
                 let ci_hw = Z_95_CONFIDENCE * se;
                 format!("{}\t{}\t{}\t{}\t{}\t{:.6}\t{:.6}\t[{:.6}, {:.6}]\n",
