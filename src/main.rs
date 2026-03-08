@@ -9,7 +9,7 @@ use needletail::parse_fastx_file;
 use rayon::prelude::*;
 use std::sync::Arc;
 
-use codon::{dna5_to_codon_indices, seq_to_dna5};
+use codon::{dna5_to_codon_indices, extract_group_key, seq_to_dna5};
 use models::{DsDn, Model};
 
 /// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
@@ -61,6 +61,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Read sequences with sort-based deduplication ---
     info!("Reading sequences from: {}", args.input_file);
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(ProgressStyle::default_spinner()
+        .template("{spinner:.green} {msg}")
+        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ "));
+    spinner.set_message(format!("Reading sequences from {}...", args.input_file));
+    spinner.enable_steady_tick(80);
+
     let mut entries: Vec<(Vec<u8>, String)> = Vec::new();
     let mut reader = parse_fastx_file(&args.input_file)?;
     while let Some(record) = reader.next() {
@@ -69,6 +76,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let id_str = String::from_utf8_lossy(rec.id()).into_owned();
         entries.push((seq_dna5, id_str));
     }
+    spinner.finish_and_clear();
+
     if entries.is_empty() {
         error!("No sequences found in the input file.");
         std::process::exit(1);
@@ -190,11 +199,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut lineage_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
         let mut lineage_names: Vec<String> = Vec::new();
         let lineage_indices: Vec<usize> = ids.iter().map(|id| {
-            let key = if args.first_letter_lineage {
-                &id[..id.chars().next().map(|c| c.len_utf8()).unwrap_or(0)]
-            } else {
-                id.split('_').next().unwrap_or(id)
-            };
+            let key = extract_group_key(id, args.first_letter_lineage);
             let next_idx = lineage_names.len();
             *lineage_map.entry(key).or_insert_with(|| {
                 lineage_names.push(key.to_string());
