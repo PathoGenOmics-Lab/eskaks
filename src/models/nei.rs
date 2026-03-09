@@ -107,3 +107,114 @@ pub fn calculate_syn_nonsyn_from_indices(codon_indices1: &[u8], codon_indices2: 
 
     (dn, ds)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codon::{dna5_to_codon_indices, seq_to_dna5};
+    use crate::models::Model;
+
+    /// Helper: run the Nei model on two ASCII DNA sequences.
+    fn nei(seq1: &[u8], seq2: &[u8]) -> (f64, f64) {
+        let idx1 = dna5_to_codon_indices(&seq_to_dna5(seq1), Model::Nei);
+        let idx2 = dna5_to_codon_indices(&seq_to_dna5(seq2), Model::Nei);
+        calculate_syn_nonsyn_from_indices(&idx1, &idx2)
+    }
+
+    const EPSILON: f64 = 1e-5;
+
+    // --- Trivial cases ---
+
+    #[test]
+    fn nei_identical_sequences_give_zero() {
+        // dN = dS = 0 when sequences are identical
+        let (dn, ds) = nei(b"ATGGCTGCT", b"ATGGCTGCT");
+        assert_eq!(dn, 0.0);
+        assert_eq!(ds, 0.0);
+    }
+
+    #[test]
+    fn nei_all_ambiguous_gives_nan() {
+        // All-N sequences → no valid codons → NaN
+        let (dn, ds) = nei(b"NNNNNNNNN", b"NNNNNNNNN");
+        assert!(dn.is_nan(), "expected dN=NaN, got {}", dn);
+        assert!(ds.is_nan(), "expected dS=NaN, got {}", ds);
+    }
+
+    // --- One synonymous change ---
+    // seq1: ATG GCT GCT  (Met, Ala, Ala)
+    // seq2: ATG GCC GCT  (Met, Ala, Ala)  — GCT→GCC at codon 2 (Ala→Ala)
+    // Hand-calculated:
+    //   S = (6/3 + 6/3) / 2 = 2.0,  N = 7.0
+    //   pS = 1/2 = 0.5,  pN = 0/7 = 0
+    //   dS = -0.75·ln(1 - 4/3·0.5) = -0.75·ln(1/3) ≈ 0.82396
+    //   dN = 0.0
+    #[test]
+    fn nei_one_synonymous_change() {
+        let (dn, ds) = nei(b"ATGGCTGCT", b"ATGGCCGCT");
+        assert!((dn - 0.0).abs() < EPSILON, "dN should be 0, got {}", dn);
+        assert!((ds - 0.82396).abs() < EPSILON, "dS should be ~0.82396, got {}", ds);
+    }
+
+    // --- One nonsynonymous change ---
+    // seq1: ATG GCT GCT  (Met, Ala, Ala)
+    // seq3: ATG ATT GCT  (Met, Ile, Ala)  — GCT→ATT at codon 2 (Ala→Ile)
+    // Hand-calculated:
+    //   S = (6/3 + 5/3) / 2 = 11/6 ≈ 1.8333,  N = 43/6 ≈ 7.1667
+    //   pS = 0,  pN = 6/43 ≈ 0.13953
+    //   dS = 0.0
+    //   dN = -0.75·ln(1 - 4/3·6/43) ≈ 0.15439
+    #[test]
+    fn nei_one_nonsynonymous_change() {
+        let (dn, ds) = nei(b"ATGGCTGCT", b"ATGATTGCT");
+        assert!((ds - 0.0).abs() < EPSILON, "dS should be 0, got {}", ds);
+        assert!((dn - 0.15439).abs() < EPSILON, "dN should be ~0.15439, got {}", dn);
+    }
+
+    // --- Two nonsynonymous changes ---
+    // seq1: ATG GCT GCT  (Met, Ala, Ala)
+    // seq4: ATG ATT ATG  (Met, Ile, Met)  — 2 nonsyn changes
+    // Hand-calculated:
+    //   S = (6/3 + 2/3) / 2 = 4/3 ≈ 1.3333,  N = 23/3 ≈ 7.6667
+    //   pN = 2/(23/3) = 6/23 ≈ 0.26087
+    //   dN ≈ 0.32058,  dS = 0.0
+    #[test]
+    fn nei_two_nonsynonymous_changes() {
+        let (dn, ds) = nei(b"ATGGCTGCT", b"ATGATTATG");
+        assert!((ds - 0.0).abs() < EPSILON, "dS should be 0, got {}", ds);
+        assert!((dn - 0.32058).abs() < EPSILON, "dN should be ~0.32058, got {}", dn);
+    }
+
+    // --- dN/dS > 0 for mixed changes ---
+    // Both synonymous and nonsynonymous differences present.
+    // seq1: ATG GCT GCT GGT  (Met, Ala, Ala, Gly) — 4 codons, 12 bp
+    // seq2: ATG ATT GCC GGT  (Met, Ile, Ala, Gly)
+    //   Differences: GCT→ATT (Ala→Ile, nonsyn) + GCT→GCC (Ala→Ala, syn)
+    // S=(9/3+8/3)/2=2.833, pS=1/2.833=0.353, pN=1/9.167=0.109  → both dN,dS > 0
+    #[test]
+    fn nei_mixed_changes_both_dn_ds_positive() {
+        let (dn, ds) = nei(b"ATGGCTGCTGGT", b"ATGATTGCCGGT");
+        assert!(dn > 0.0, "dN should be > 0, got {}", dn);
+        assert!(ds > 0.0, "dS should be > 0, got {}", ds);
+        assert!((dn - 0.11789).abs() < EPSILON, "dN should be ~0.11789, got {}", dn);
+        assert!((ds - 0.47699).abs() < EPSILON, "dS should be ~0.47699, got {}", ds);
+    }
+
+    // --- Symmetry: swap seq1 and seq2 should give the same result ---
+    #[test]
+    fn nei_result_is_symmetric() {
+        let (dn_ab, ds_ab) = nei(b"ATGGCTGCT", b"ATGGCCGCT");
+        let (dn_ba, ds_ba) = nei(b"ATGGCCGCT", b"ATGGCTGCT");
+        assert!((dn_ab - dn_ba).abs() < EPSILON, "dN should be symmetric");
+        assert!((ds_ab - ds_ba).abs() < EPSILON, "dS should be symmetric");
+    }
+
+    // --- RNA input (U instead of T) ---
+    #[test]
+    fn nei_rna_input_gives_same_as_dna() {
+        let (dn_dna, ds_dna) = nei(b"ATGGCTGCT", b"ATGGCCGCT");
+        let (dn_rna, ds_rna) = nei(b"AUGGCUGCU", b"AUGGCCGCU");
+        assert!((dn_dna - dn_rna).abs() < EPSILON);
+        assert!((ds_dna - ds_rna).abs() < EPSILON);
+    }
+}
