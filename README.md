@@ -23,7 +23,7 @@ __and Mireia Coscolla<sup>1</sup>__
 - **Group Summaries**:
   - **Group Average**: Compute mean dN/dS between predefined groups of sequences with 95% confidence intervals.
   - **Lineage Summary**: Compute mean dN/dS for each sequence against sequences grouped by lineage.
-  - **Configurable Lineage Grouping**: Group by splitting on `_` (default) or by the first character of each sequence name (`--first_letter_lineage`).
+  - **Configurable Lineage Grouping**: Group by splitting on `_` (default) or by the first character of each sequence name (`--first-letter-lineage`).
 
 ## Models
 
@@ -117,8 +117,8 @@ eskaks <input_file> [options]
 | `-w, --workers <N>` | Number of parallel threads | `4` |
 | `--model <nei\|li>` | Model to use for calculation | `nei` |
 | `--lineage` | Compute summary results by lineage | off |
-| `--group_average` | Compute average dN/dS between groups | off |
-| `--first_letter_lineage` | Group sequences by first letter (requires `--lineage`) | off |
+| `--group-average` | Compute average dN/dS between groups | off |
+| `--first-letter-lineage` | Group sequences by first letter (requires `--lineage`) | off |
 
 ## Examples
 
@@ -142,13 +142,13 @@ eskaks <input_file> [options]
 
 4. **Group average with first-letter lineage grouping:**
    ```bash
-   eskaks input.fasta --lineage --first_letter_lineage
+   eskaks input.fasta --lineage --first-letter-lineage
    ```
    Groups sequences by their first character instead of splitting by `_`.
 
 5. **Group average with confidence intervals:**
    ```bash
-   eskaks input.fasta --group_average --workers 16
+   eskaks input.fasta --group-average --workers 16
    ```
    Computes mean dN/dS between all group pairs with standard error and 95% confidence intervals.
 
@@ -157,12 +157,17 @@ eskaks <input_file> [options]
 ```
 src/
   main.rs          - CLI, FASTA reading, deduplication, parallel dispatch
-  codon.rs         - DNA5 encoding and codon index conversion
-  output.rs        - Parallel output writers (pairwise, lineage, group)
+  codon.rs         - DNA5 encoding, codon index conversion, group key extraction
+  output.rs        - Streaming output writers (pairwise, lineage, group average)
   models/
-    mod.rs         - Model enum and shared types
+    mod.rs         - Model enum and shared types (DsDn, Z_95_CONFIDENCE)
     nei.rs         - Nei-Gojobori (1986) with Jukes-Cantor correction
     li.rs          - Li (1993) with precomputed flat-array lookup tables
+tests/
+  integration.rs   - Integration tests against the compiled binary
+  data/
+    synthetic.fasta         - 5 hand-crafted sequences for pairwise/lineage tests
+    synthetic_grouped.fasta - 5 sequences with A_/B_ prefixes for group-average tests
 ```
 
 ## License
