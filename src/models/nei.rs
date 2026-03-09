@@ -217,4 +217,14 @@ mod tests {
         assert!((dn_dna - dn_rna).abs() < EPSILON);
         assert!((ds_dna - ds_rna).abs() < EPSILON);
     }
+
+    // --- Jukes-Cantor saturation: pS >= 0.749 → dS = NaN ---
+    // GCTGCT vs GCAGCA: 2 synonymous changes (GCT→GCA, Ala→Ala at each codon)
+    // S_avg = 2.0, pS = 2/2.0 = 1.0 >= JC_SATURATION_THRESHOLD (0.749) → dS = NaN
+    #[test]
+    fn nei_saturated_ps_gives_nan_ds() {
+        let (dn, ds) = nei(b"GCTGCT", b"GCAGCA");
+        assert!(ds.is_nan(), "saturated pS should give NaN dS, got {}", ds);
+        assert!((dn).abs() < EPSILON, "dN should be 0 for purely synonymous pair, got {}", dn);
+    }
 }

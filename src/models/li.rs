@@ -8,8 +8,10 @@ const CODE_MT: i32 = 0;
 /// 1/3 fraction used for weighting codon comparisons with 2 differences.
 const ONE_THIRD: f64 = 1.0 / 3.0;
 
-/// Minimum denominator to avoid division by zero in the Li model.
-const LI_EPSILON: f64 = 1e-15;
+/// Minimum denominator for Kimura correction stability.
+/// Below this threshold the denominators (1-2p-q, 1-2q) are near-zero, indicating
+/// biological saturation; the correction is unreliable and NaN is returned instead.
+const LI_EPSILON: f64 = 1e-6;
 
 /// Amino acid similarity matrix (Li 1993).
 static MAT: [[f64; 19]; 19] = [
@@ -458,5 +460,62 @@ impl LiTables {
         if ks_val.is_finite() && ks_val < 0.0 { ks_val = 0.0; }
 
         (ka_val, ks_val)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codon::{dna5_to_codon_indices, seq_to_dna5};
+    use crate::models::Model;
+
+    const EPSILON: f64 = 1e-4;
+
+    fn li(seq1: &[u8], seq2: &[u8]) -> (f64, f64) {
+        let idx1 = dna5_to_codon_indices(&seq_to_dna5(seq1), Model::Li);
+        let idx2 = dna5_to_codon_indices(&seq_to_dna5(seq2), Model::Li);
+        LiTables::new().compute_pair(&idx1, &idx2)
+    }
+
+    #[test]
+    fn li_identical_seqs_give_zero() {
+        let (dn, ds) = li(b"ATGGCTGCT", b"ATGGCTGCT");
+        assert!((dn).abs() < EPSILON, "dN for identical seqs should be 0, got {}", dn);
+        assert!((ds).abs() < EPSILON, "dS for identical seqs should be 0, got {}", ds);
+    }
+
+    #[test]
+    fn li_one_synonymous_change_dn_is_zero() {
+        // 4 codons (12bp): ATGGCTGCTGCT vs ATGGCCGCTGCT — GCT→GCC (Ala→Ala) at codon 2
+        // With 3 GCT codons contributing 3 four-fold sites, p = 1/3 → below Kimura saturation.
+        let (dn, ds) = li(b"ATGGCTGCTGCT", b"ATGGCCGCTGCT");
+        assert!((dn).abs() < EPSILON, "dN should be 0 for purely synonymous change, got {}", dn);
+        assert!(ds > 0.0, "dS should be > 0 for synonymous change, got {}", ds);
+    }
+
+    #[test]
+    fn li_one_nonsynonymous_change_ds_is_zero() {
+        // ATGGCTGCT vs ATGATTGCT: GCT→ATT (Ala→Ile), 1 nonsyn change
+        let (dn, ds) = li(b"ATGGCTGCT", b"ATGATTGCT");
+        assert!((ds).abs() < EPSILON, "dS should be 0 for purely nonsynonymous change, got {}", ds);
+        assert!(dn > 0.0, "dN should be > 0 for nonsynonymous change, got {}", dn);
+    }
+
+    #[test]
+    fn li_symmetry() {
+        // li(A,B) == li(B,A) — use 4-codon sequences to avoid Kimura saturation
+        let (dn_ab, ds_ab) = li(b"ATGGCTGCTGCT", b"ATGATTGCTGCT");
+        let (dn_ba, ds_ba) = li(b"ATGATTGCTGCT", b"ATGGCTGCTGCT");
+        assert!((dn_ab - dn_ba).abs() < EPSILON, "dN not symmetric: {} vs {}", dn_ab, dn_ba);
+        assert!((ds_ab - ds_ba).abs() < EPSILON, "dS not symmetric: {} vs {}", ds_ab, ds_ba);
+    }
+
+    #[test]
+    fn li_rna_input_same_as_dna() {
+        // U→T substitution should give same results — use 4-codon sequences
+        let (dn_dna, ds_dna) = li(b"ATGGCTGCTGCT", b"ATGATTGCTGCT");
+        let (dn_rna, ds_rna) = li(b"AUGGCUGCUGCU", b"AUGAUUGCUGCU");
+        assert!((dn_dna - dn_rna).abs() < EPSILON, "RNA dN differs from DNA: {} vs {}", dn_dna, dn_rna);
+        assert!((ds_dna - ds_rna).abs() < EPSILON, "RNA dS differs from DNA: {} vs {}", ds_dna, ds_rna);
     }
 }
