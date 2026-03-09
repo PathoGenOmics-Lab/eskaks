@@ -53,7 +53,7 @@ pub fn write_pairwise(
                 result.dn / result.ds
             };
 
-            let _ = write!(local_buffer, "{}\t{}\t{:.6}\t{:.6}\t{:.6}\n",
+            let _ = writeln!(local_buffer, "{}\t{}\t{:.6}\t{:.6}\t{:.6}",
                 &ids[i], &ids[j], result.dn, result.ds, ratio);
 
             if local_buffer.len() > 1024 * 4 {
@@ -127,7 +127,7 @@ pub fn write_lineage(
                 } else {
                     mean_dn / mean_ds
                 };
-                let _ = write!(block, "{}\t{}\t{:.6}\t{:.6}\t{:.6}\n",
+                let _ = writeln!(block, "{}\t{}\t{:.6}\t{:.6}\t{:.6}",
                     &ids[i], &lineage_names[lin_idx], mean_dn, mean_ds, ratio);
             }
             if !block.is_empty() {

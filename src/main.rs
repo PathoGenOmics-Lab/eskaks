@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         error!("Not all sequences have the same length. Aligned sequences are required.");
         std::process::exit(1);
     }
-    if first_len % 3 != 0 {
+    if !first_len.is_multiple_of(3) {
         warn!("Sequence length ({}) is not a multiple of 3. Trailing bases will be ignored.", first_len);
     }
 
@@ -191,7 +191,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args.group_average {
         info!("Computing group average dN/dS...");
-        output::write_group_average(&ids, &uidx_by_id, &get_result, &args.output, args.first_letter_lineage)?;
+        output::write_group_average(&ids, &uidx_by_id, get_result, &args.output, args.first_letter_lineage)?;
         info!("Results saved to {}_group_avg_dn_ds.tsv", args.output);
     } else if args.lineage {
         info!("Computing dN/dS lineage summary...");
@@ -206,11 +206,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 next_idx
             })
         }).collect();
-        output::write_lineage(&ids, &uidx_by_id, &get_result, &args.output, &lineage_indices, &lineage_names)?;
+        output::write_lineage(&ids, &uidx_by_id, get_result, &args.output, &lineage_indices, &lineage_names)?;
         info!("Lineage summary saved to {}_lineage_summary.tsv", args.output);
     } else {
         info!("Generating pairwise results...");
-        output::write_pairwise(&ids, &uidx_by_id, &get_result, &args.output, args.model)?;
+        output::write_pairwise(&ids, &uidx_by_id, get_result, &args.output, args.model)?;
         info!("Results saved to {}_pairwise_results.tsv", args.output);
     }
 
