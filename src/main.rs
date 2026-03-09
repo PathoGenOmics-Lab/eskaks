@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .stack_size(4 * 1024 * 1024)
         .build_global()?;
 
-    // --- Read sequences with sort-based deduplication ---
+    // --- Read sequences from FASTA ---
     info!("Reading sequences from: {}", args.input_file);
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(ProgressStyle::default_spinner()
@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         warn!("Sequence length ({}) is not a multiple of 3. Trailing bases will be ignored.", first_len);
     }
 
-    // Sort by sequence for deduplication without HashMap
+    // --- Deduplicate by sorting ---
     let mut sorted_indices: Vec<usize> = (0..entries.len()).collect();
     sorted_indices.sort_unstable_by(|&a, &b| entries[a].0.cmp(&entries[b].0));
 
@@ -113,6 +113,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         uidx_by_sorted.push(current_uidx);
     }
     let n_u = unique_repr_indices.len();
+    let n_dupes = entries.len() - n_u;
+    info!("Unique sequences: {} ({} duplicates removed).", n_u, n_dupes);
 
     // Map original index -> unique index
     let mut uidx_by_id: Vec<usize> = vec![0; entries.len()];
@@ -121,7 +123,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let ids: Vec<String> = entries.iter().map(|(_, id)| id.clone()).collect();
-    info!("Found {} unique sequences.", n_u);
 
     // --- Encode unique sequences to codon indices ---
     info!("Encoding unique sequences to codon indices...");
