@@ -8,8 +8,10 @@ const CODE_MT: i32 = 0;
 /// 1/3 fraction used for weighting codon comparisons with 2 differences.
 const ONE_THIRD: f64 = 1.0 / 3.0;
 
-/// Minimum denominator to avoid division by zero in the Li model.
-const LI_EPSILON: f64 = 1e-15;
+/// Minimum denominator for Kimura correction stability.
+/// Below this threshold the denominators (1-2p-q, 1-2q) are near-zero, indicating
+/// biological saturation; the correction is unreliable and NaN is returned instead.
+const LI_EPSILON: f64 = 1e-6;
 
 /// Amino acid similarity matrix (Li 1993).
 static MAT: [[f64; 19]; 19] = [
@@ -55,24 +57,24 @@ fn decode_codon(n: usize) -> [char; 3] {
 
 fn categorize_site(c1: char, c2: char, c3: char, i: i32) -> usize {
     if i == 3 {
-        if CODE_MT == 0 {
-            if (c1 == 'A' && c2 == 'T' && c3 == 'G') || (c1 == 'T' && c2 == 'G' && (c3 == 'A' || c3 == 'G')) {
-                return 0;
-            }
+        if CODE_MT == 0
+            && ((c1 == 'A' && c2 == 'T' && c3 == 'G') || (c1 == 'T' && c2 == 'G' && (c3 == 'A' || c3 == 'G')))
+        {
+            return 0;
         }
         if c2 == 'C' { return 2; }
-        if (c1 == 'C' && c2 == 'T') || (c1 == 'G' && c2 == 'T') || (c1 == 'G' && c2 == 'G') || (c1 == 'C' && c2 == 'G') {
+        if (c1 == 'G' || c1 == 'C') && (c2 == 'G' || c2 == 'T') {
             return 2;
         }
         return 1;
     } else if i == 1 {
-        if (c1 == 'C' && c2 == 'T' && (c3 == 'A' || c3 == 'G')) || (c1 == 'T' && c2 == 'T' && (c3 == 'A' || c3 == 'G')) {
+        if (c1 == 'C' || c1 == 'T') && c2 == 'T' && (c3 == 'A' || c3 == 'G') {
             return 1;
         }
-        if CODE_MT == 0 {
-            if (c1 == 'A' && c2 == 'G' && (c3 == 'A' || c3 == 'G')) || (c1 == 'C' && c2 == 'G' && (c3 == 'A' || c3 == 'G')) {
-                return 1;
-            }
+        if CODE_MT == 0
+            && ((c1 == 'A' || c1 == 'C') && c2 == 'G' && (c3 == 'A' || c3 == 'G'))
+        {
+            return 1;
         }
         return 0;
     }
@@ -106,21 +108,33 @@ fn fill_aa(aa: &mut [usize; 64]) {
     aa[57]=10;aa[58]=2;aa[59]=10;aa[60]=6;aa[61]=1;aa[62]=6;aa[63]=1;
 }
 
+#[allow(clippy::too_many_arguments)]
 fn special_titv_adjust(ci1:char,ci2:char,ci3:char,cj1:char,cj2:char,cj3:char,ti:&mut[f64;3],tv:&mut[f64;3],poids:f64) {
-    if ci1=='C'&&ci2=='G'&&ci3=='A'&&cj1=='T'&&cj2=='G'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; } if ci1=='C'&&ci2=='G'&&ci3=='G'&&cj1=='T'&&cj2=='G'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
-    if ci1=='A'&&ci2=='G'&&ci3=='G'&&cj1=='G'&&cj2=='G'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; } if ci1=='A'&&ci2=='G'&&ci3=='A'&&cj1=='G'&&cj2=='G'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
-    if ci1=='T'&&ci2=='G'&&ci3=='A'&&cj1=='C'&&cj2=='G'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; } if ci1=='T'&&ci2=='G'&&ci3=='G'&&cj1=='C'&&cj2=='G'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
-    if ci1=='G'&&ci2=='G'&&ci3=='G'&&cj1=='A'&&cj2=='G'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; } if ci1=='G'&&ci2=='G'&&ci3=='A'&&cj1=='A'&&cj2=='G'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
-    if ci1=='C'&&ci2=='G'&&ci3=='A'&&cj1=='A'&&cj2=='G'&&cj3=='A' { tv[1]-=poids;ti[1]+=poids; } if ci1=='A'&&ci2=='G'&&ci3=='A'&&cj1=='C'&&cj2=='G'&&cj3=='A' { tv[1]-=poids;ti[1]+=poids; }
-    if ci1=='C'&&ci2=='G'&&ci3=='G'&&cj1=='A'&&cj2=='G'&&cj3=='G' { tv[1]-=poids;ti[1]+=poids; } if ci1=='A'&&ci2=='G'&&ci3=='G'&&cj1=='C'&&cj2=='G'&&cj3=='G' { tv[1]-=poids;ti[1]+=poids; }
+    if ci1=='C'&&ci2=='G'&&ci3=='A'&&cj1=='T'&&cj2=='G'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='C'&&ci2=='G'&&ci3=='G'&&cj1=='T'&&cj2=='G'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='A'&&ci2=='G'&&ci3=='G'&&cj1=='G'&&cj2=='G'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='A'&&ci2=='G'&&ci3=='A'&&cj1=='G'&&cj2=='G'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='T'&&ci2=='G'&&ci3=='A'&&cj1=='C'&&cj2=='G'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='T'&&ci2=='G'&&ci3=='G'&&cj1=='C'&&cj2=='G'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='G'&&ci2=='G'&&ci3=='G'&&cj1=='A'&&cj2=='G'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='G'&&ci2=='G'&&ci3=='A'&&cj1=='A'&&cj2=='G'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='C'&&ci2=='G'&&ci3=='A'&&cj1=='A'&&cj2=='G'&&cj3=='A' { tv[1]-=poids;ti[1]+=poids; }
+    if ci1=='A'&&ci2=='G'&&ci3=='A'&&cj1=='C'&&cj2=='G'&&cj3=='A' { tv[1]-=poids;ti[1]+=poids; }
+    if ci1=='C'&&ci2=='G'&&ci3=='G'&&cj1=='A'&&cj2=='G'&&cj3=='G' { tv[1]-=poids;ti[1]+=poids; }
+    if ci1=='A'&&ci2=='G'&&ci3=='G'&&cj1=='C'&&cj2=='G'&&cj3=='G' { tv[1]-=poids;ti[1]+=poids; }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn special_titv_adjust_pos3(ci1:char,ci2:char,ci3:char,cj1:char,cj2:char,cj3:char,ti:&mut[f64;3],tv:&mut[f64;3],poids:f64) {
-    if ci1=='A'&&ci2=='T'&&ci3=='A'&&cj1=='A'&&cj2=='T'&&cj3=='T' { tv[1]-=poids;ti[1]+=poids; } if ci1=='A'&&ci2=='T'&&ci3=='T'&&cj1=='A'&&cj2=='T'&&cj3=='A' { tv[1]-=poids;ti[1]+=poids; }
-    if ci1=='A'&&ci2=='T'&&ci3=='A'&&cj1=='A'&&cj2=='T'&&cj3=='C' { tv[1]-=poids;ti[1]+=poids; } if ci1=='A'&&ci2=='T'&&ci3=='C'&&cj1=='A'&&cj2=='T'&&cj3=='A' { tv[1]-=poids;ti[1]+=poids; }
-    if ci1=='A'&&ci2=='T'&&ci3=='A'&&cj1=='A'&&cj2=='T'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; } if ci1=='A'&&ci2=='T'&&ci3=='G'&&cj1=='A'&&cj2=='T'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='A'&&ci2=='T'&&ci3=='A'&&cj1=='A'&&cj2=='T'&&cj3=='T' { tv[1]-=poids;ti[1]+=poids; }
+    if ci1=='A'&&ci2=='T'&&ci3=='T'&&cj1=='A'&&cj2=='T'&&cj3=='A' { tv[1]-=poids;ti[1]+=poids; }
+    if ci1=='A'&&ci2=='T'&&ci3=='A'&&cj1=='A'&&cj2=='T'&&cj3=='C' { tv[1]-=poids;ti[1]+=poids; }
+    if ci1=='A'&&ci2=='T'&&ci3=='C'&&cj1=='A'&&cj2=='T'&&cj3=='A' { tv[1]-=poids;ti[1]+=poids; }
+    if ci1=='A'&&ci2=='T'&&ci3=='A'&&cj1=='A'&&cj2=='T'&&cj3=='G' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
+    if ci1=='A'&&ci2=='T'&&ci3=='G'&&cj1=='A'&&cj2=='T'&&cj3=='A' { ti[1]-=0.5*poids;tv[1]+=0.5*poids; }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn count_substitutions_1diff(cod1:&[char;3],cod2:&[char;3],poids:f64,ti:&mut[f64;3],tv:&mut[f64;3],l:&mut[f64;3]) {
     let ci1=cod1[0];let ci2=cod1[1];let ci3=cod1[2];
     let cj1=cod2[0];let cj2=cod2[1];let cj3=cod2[2];
@@ -130,14 +144,20 @@ fn count_substitutions_1diff(cod1:&[char;3],cod2:&[char;3],poids:f64,ti:&mut[f64
             let site2=categorize_site(cj1,cj2,cj3,(i+1)as i32); l[site2]+=0.5*poids;
             let a=cod1[i];let b=cod2[i];
             if classify_mutation(a,b)=='i' { ti[site]+=0.5*poids;ti[site2]+=0.5*poids; } else { tv[site]+=0.5*poids;tv[site2]+=0.5*poids; }
-            if CODE_MT==0 { if (ci2=='T'&&cj2=='T')||(ci2=='G'&&cj2=='G') { if i==0 { special_titv_adjust(ci1,ci2,ci3,cj1,cj2,cj3,ti,tv,poids); } if i==2 { special_titv_adjust_pos3(ci1,ci2,ci3,cj1,cj2,cj3,ti,tv,poids); } } }
+            if CODE_MT==0 && ((ci2=='T'&&cj2=='T')||(ci2=='G'&&cj2=='G')) {
+                if i==0 { special_titv_adjust(ci1,ci2,ci3,cj1,cj2,cj3,ti,tv,poids); }
+                if i==2 { special_titv_adjust_pos3(ci1,ci2,ci3,cj1,cj2,cj3,ti,tv,poids); }
+            }
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn count_substitutions_2diff(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mut[f64;3],l:&mut[f64;3],aa:&[usize;64],rl:&[Vec<f64>],pos_diff_flags:&[i32;3]) {
     let mut diff_indices = [0; 2]; let mut current_diff_count = 0;
-    for k in 0..3 { if pos_diff_flags[k] == 1 { if current_diff_count < 2 { diff_indices[current_diff_count] = k; } current_diff_count += 1; } }
+    for (k, &flag) in pos_diff_flags.iter().enumerate() {
+        if flag == 1 { if current_diff_count < 2 { diff_indices[current_diff_count] = k; } current_diff_count += 1; }
+    }
     if current_diff_count != 2 { return; }
     let d1_idx = diff_indices[0]; let d2_idx = diff_indices[1];
     let mut codint1 = *cod1; codint1[d1_idx] = cod2[d1_idx];
@@ -149,7 +169,9 @@ fn count_substitutions_2diff(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mu
     let p1 = if (l_path1 + l_path2) != 0.0 { l_path1 / (l_path1 + l_path2) } else { 0.5 };
     let p2 = 1.0 - p1;
     let mut non_diff_pos_plus_1 = 0;
-    for k_idx in 0..3 { if pos_diff_flags[k_idx] == 0 { non_diff_pos_plus_1 = k_idx + 1; break; } }
+    for (k_idx, &flag) in pos_diff_flags.iter().enumerate() {
+        if flag == 0 { non_diff_pos_plus_1 = k_idx + 1; break; }
+    }
     if non_diff_pos_plus_1 > 0 {
         l[categorize_site(cod1[0],cod1[1],cod1[2],non_diff_pos_plus_1 as i32)]+=ONE_THIRD;
         l[categorize_site(cod2[0],cod2[1],cod2[2],non_diff_pos_plus_1 as i32)]+=ONE_THIRD;
@@ -180,7 +202,7 @@ fn count_substitutions_3diff(cod1:&[char;3],cod2:&[char;3],ti:&mut[f64;3],tv:&mu
     } }
     let somli: f64 = like.iter().sum();
     let mut p = [0.0; 6];
-    if somli > 0.0 { for i in 0..6 { p[i] = like[i] / somli; } } else { for i in 0..6 { p[i] = 1.0 / 6.0; } }
+    if somli > 0.0 { for i in 0..6 { p[i] = like[i] / somli; } } else { for x in p.iter_mut() { *x = 1.0 / 6.0; } }
     for i in 0..6 {
         if p[i] > 0.0 {
             count_substitutions_1diff(cod1, &codint1_paths[i], p[i], ti, tv, l);
@@ -233,6 +255,7 @@ fn accumulate(d: &CodonPairData, l_sum: &mut [f64; 3], ti_sum: &mut [f64; 3], tv
 
 impl LiTables {
     /// Builds the lookup tables. Includes the construction of the rl_li similarity matrix.
+    #[allow(clippy::needless_range_loop)]
     pub fn new() -> Box<Self> {
         // Build rl_li similarity matrix
         let mut rl_li = vec![vec![0.0; 21]; 21];
@@ -288,7 +311,7 @@ impl LiTables {
 
                 if nbdiff == 0 {
                     for p_idx in 0..3 {
-                        let site_type = categorize_site(cod1_chars[0], cod1_chars[1], cod1_chars[2], (p_idx + 1) as i32);
+                        let site_type = categorize_site(cod1_chars[0], cod1_chars[1], cod1_chars[2], p_idx + 1);
                         l_accum[site_type] += 1.0;
                     }
                 } else if nbdiff == 1 {
@@ -350,7 +373,7 @@ impl LiTables {
             let b3 = ch2[2] as usize; let b4 = ch2[3] as usize;
 
             // Fast path: if all 8 codon indices are < 64 (valid), skip per-codon checks
-            if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < 64 {
+            if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize {
                 // SAFETY: all indices verified < 64, so flat index < 4096
                 unsafe {
                     accumulate(data.get_unchecked(a1 * 64 + b1), &mut l_sum, &mut ti_sum, &mut tv_sum);
@@ -363,7 +386,7 @@ impl LiTables {
                 for (&c1, &c2) in ch1.iter().zip(ch2.iter()) {
                     let n1 = c1 as usize;
                     let n2 = c2 as usize;
-                    if n1 >= 64 || n2 >= 64 { continue; }
+                    if n1 >= INVALID_CODON as usize || n2 >= INVALID_CODON as usize { continue; }
                     // SAFETY: n1 < 64 && n2 < 64 guarantees flat < 4096
                     unsafe { accumulate(data.get_unchecked(n1 * 64 + n2), &mut l_sum, &mut ti_sum, &mut tv_sum); }
                 }
@@ -374,7 +397,7 @@ impl LiTables {
         for (&c1, &c2) in rem1.iter().zip(rem2.iter()) {
             let n1 = c1 as usize;
             let n2 = c2 as usize;
-            if n1 >= 64 || n2 >= 64 { continue; }
+            if n1 >= INVALID_CODON as usize || n2 >= INVALID_CODON as usize { continue; }
             // SAFETY: n1 < 64 && n2 < 64 guarantees flat < 4096
             unsafe { accumulate(data.get_unchecked(n1 * 64 + n2), &mut l_sum, &mut ti_sum, &mut tv_sum); }
         }
@@ -442,5 +465,62 @@ impl LiTables {
         if ks_val.is_finite() && ks_val < 0.0 { ks_val = 0.0; }
 
         (ka_val, ks_val)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codon::{dna5_to_codon_indices, seq_to_dna5};
+    use crate::models::Model;
+
+    const EPSILON: f64 = 1e-4;
+
+    fn li(seq1: &[u8], seq2: &[u8]) -> (f64, f64) {
+        let idx1 = dna5_to_codon_indices(&seq_to_dna5(seq1), Model::Li);
+        let idx2 = dna5_to_codon_indices(&seq_to_dna5(seq2), Model::Li);
+        LiTables::new().compute_pair(&idx1, &idx2)
+    }
+
+    #[test]
+    fn li_identical_seqs_give_zero() {
+        let (dn, ds) = li(b"ATGGCTGCT", b"ATGGCTGCT");
+        assert!((dn).abs() < EPSILON, "dN for identical seqs should be 0, got {}", dn);
+        assert!((ds).abs() < EPSILON, "dS for identical seqs should be 0, got {}", ds);
+    }
+
+    #[test]
+    fn li_one_synonymous_change_dn_is_zero() {
+        // 4 codons (12bp): ATGGCTGCTGCT vs ATGGCCGCTGCT — GCT→GCC (Ala→Ala) at codon 2
+        // With 3 GCT codons contributing 3 four-fold sites, p = 1/3 → below Kimura saturation.
+        let (dn, ds) = li(b"ATGGCTGCTGCT", b"ATGGCCGCTGCT");
+        assert!((dn).abs() < EPSILON, "dN should be 0 for purely synonymous change, got {}", dn);
+        assert!(ds > 0.0, "dS should be > 0 for synonymous change, got {}", ds);
+    }
+
+    #[test]
+    fn li_one_nonsynonymous_change_ds_is_zero() {
+        // ATGGCTGCT vs ATGATTGCT: GCT→ATT (Ala→Ile), 1 nonsyn change
+        let (dn, ds) = li(b"ATGGCTGCT", b"ATGATTGCT");
+        assert!((ds).abs() < EPSILON, "dS should be 0 for purely nonsynonymous change, got {}", ds);
+        assert!(dn > 0.0, "dN should be > 0 for nonsynonymous change, got {}", dn);
+    }
+
+    #[test]
+    fn li_symmetry() {
+        // li(A,B) == li(B,A) — use 4-codon sequences to avoid Kimura saturation
+        let (dn_ab, ds_ab) = li(b"ATGGCTGCTGCT", b"ATGATTGCTGCT");
+        let (dn_ba, ds_ba) = li(b"ATGATTGCTGCT", b"ATGGCTGCTGCT");
+        assert!((dn_ab - dn_ba).abs() < EPSILON, "dN not symmetric: {} vs {}", dn_ab, dn_ba);
+        assert!((ds_ab - ds_ba).abs() < EPSILON, "dS not symmetric: {} vs {}", ds_ab, ds_ba);
+    }
+
+    #[test]
+    fn li_rna_input_same_as_dna() {
+        // U→T substitution should give same results — use 4-codon sequences
+        let (dn_dna, ds_dna) = li(b"ATGGCTGCTGCT", b"ATGATTGCTGCT");
+        let (dn_rna, ds_rna) = li(b"AUGGCUGCUGCU", b"AUGAUUGCUGCU");
+        assert!((dn_dna - dn_rna).abs() < EPSILON, "RNA dN differs from DNA: {} vs {}", dn_dna, dn_rna);
+        assert!((ds_dna - ds_rna).abs() < EPSILON, "RNA dS differs from DNA: {} vs {}", ds_dna, ds_rna);
     }
 }

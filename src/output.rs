@@ -1,3 +1,4 @@
+use crate::codon::extract_group_key;
 use crate::models::{DsDn, Model, Z_95_CONFIDENCE};
 use crossbeam::channel::unbounded;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -26,7 +27,10 @@ pub fn write_pairwise(
     let writer_thread = thread::spawn({
         let output_path = format!("{}_pairwise_results.tsv", output_prefix);
         move || -> Result<(), std::io::Error> {
-            let mut out_file = BufWriter::new(File::create(output_path)?);
+            let mut out_file = BufWriter::new(
+                File::create(&output_path)
+                    .map_err(|e| std::io::Error::new(e.kind(), format!("Cannot create '{}': {}", output_path, e)))?
+            );
             let header = match model {
                 Model::Li => "Seq1\tSeq2\tdN(Ka)\tdS(Ks)\tdN/dS\n",
                 Model::Nei => "Seq1\tSeq2\tdN\tdS\tdN/dS\n",
@@ -52,7 +56,7 @@ pub fn write_pairwise(
                 result.dn / result.ds
             };
 
-            let _ = write!(local_buffer, "{}\t{}\t{:.6}\t{:.6}\t{:.6}\n",
+            let _ = writeln!(local_buffer, "{}\t{}\t{:.6}\t{:.6}\t{:.6}",
                 &ids[i], &ids[j], result.dn, result.ds, ratio);
 
             if local_buffer.len() > 1024 * 4 {
@@ -83,12 +87,29 @@ pub fn write_lineage(
     lineage_names: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let num_lineages = lineage_names.len();
+    let output_path = format!("{}_lineage_summary.tsv", output_prefix);
 
-    let lineage_results: Vec<String> = (0..ids.len())
+    let (tx, rx) = unbounded::<String>();
+
+    let writer_thread = thread::spawn({
+        let output_path = output_path.clone();
+        move || -> Result<(), std::io::Error> {
+            let mut out_file = BufWriter::new(
+                File::create(&output_path)
+                    .map_err(|e| std::io::Error::new(e.kind(), format!("Cannot create '{}': {}", output_path, e)))?
+            );
+            out_file.write_all(b"Genome\tAgainst_Lineage\tMean_dN\tMean_dS\tdN/dS_Ratio\n")?;
+            for block in rx {
+                out_file.write_all(block.as_bytes())?;
+            }
+            Ok(())
+        }
+    });
+
+    (0..ids.len())
         .into_par_iter()
-        .map(|i| {
+        .for_each_with(tx, |s, i| {
             let u_i = uidx_by_id[i];
-            // Vec indexado por lineage_idx en vez de HashMap
             let mut local_aggr: Vec<(f64, f64, usize)> = vec![(0.0, 0.0, 0); num_lineages];
 
             for j in 0..ids.len() {
@@ -104,7 +125,7 @@ pub fn write_lineage(
                 }
             }
 
-            let mut output_lines = String::new();
+            let mut block = String::new();
             for (lin_idx, &(sum_dn, sum_ds, count)) in local_aggr.iter().enumerate() {
                 if count == 0 { continue; }
                 let mean_dn = sum_dn / count as f64;
@@ -114,34 +135,33 @@ pub fn write_lineage(
                 } else {
                     mean_dn / mean_ds
                 };
-                let _ = write!(output_lines, "{}\t{}\t{:.6}\t{:.6}\t{:.6}\n",
+                let _ = writeln!(block, "{}\t{}\t{:.6}\t{:.6}\t{:.6}",
                     &ids[i], &lineage_names[lin_idx], mean_dn, mean_ds, ratio);
             }
-            output_lines
-        })
-        .collect();
+            if !block.is_empty() {
+                s.send(block).expect("Writer thread channel closed unexpectedly");
+            }
+        });
 
-    let output_path = format!("{}_lineage_summary.tsv", output_prefix);
-    let mut out_file = BufWriter::new(File::create(&output_path)?);
-    writeln!(out_file, "Genome\tAgainst_Lineage\tMean_dN\tMean_dS\tdN/dS_Ratio")?;
-    for block in lineage_results {
-        out_file.write_all(block.as_bytes())?;
-    }
+    writer_thread.join()
+        .expect("Writer thread panicked")
+        .expect("Writer thread encountered an I/O error");
     Ok(())
 }
 
-/// Writes grouped dN/dS averages.
+/// Writes grouped dN/dS averages using a dedicated writer thread.
 pub fn write_group_average(
     ids: &[String],
     uidx_by_id: &[usize],
     get_result: impl Fn(usize, usize) -> DsDn + Sync,
     output_prefix: &str,
+    first_letter_lineage: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Pre-compute group for each ID (index in group_names)
     let mut group_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
     let mut group_names: Vec<String> = Vec::new();
     let group_by_id: Vec<usize> = ids.iter().map(|id| {
-        let key = id.split('_').next().unwrap_or(id);
+        let key = extract_group_key(id, first_letter_lineage);
         let next_idx = group_names.len();
         *group_map.entry(key).or_insert_with(|| {
             group_names.push(key.to_string());
@@ -171,51 +191,77 @@ pub fn write_group_average(
             .progress_chars("#>-"),
     );
 
-    let group_results: Vec<String> = group_pairs
-        .par_iter()
-        .map(|&(g1, g2)| {
-            let members1 = &group_members[g1];
-            let members2 = &group_members[g2];
-            let mut pair_dn_ds_ratios = Vec::new();
+    let output_path = format!("{}_group_avg_dn_ds.tsv", output_prefix);
 
-            for (pos, &id1_idx) in members1.iter().enumerate() {
-                let u1 = uidx_by_id[id1_idx];
-                let start = if g1 == g2 { pos + 1 } else { 0 };
-                for &id2_idx in &members2[start..] {
-                    let u2 = uidx_by_id[id2_idx];
-                    let result = get_result(u1, u2);
-                    if result.dn.is_finite() && result.ds.is_finite() && result.ds > 0.0 {
-                        pair_dn_ds_ratios.push(result.dn / result.ds);
-                    }
+    let (tx, rx) = unbounded::<String>();
+
+    let writer_thread = thread::spawn({
+        let output_path = output_path.clone();
+        move || -> Result<(), std::io::Error> {
+            let mut out_file = BufWriter::new(
+                File::create(&output_path)
+                    .map_err(|e| std::io::Error::new(e.kind(), format!("Cannot create '{}': {}", output_path, e)))?
+            );
+            writeln!(out_file, "Group1\tGroup2\tNumSeqs1\tNumSeqs2\tNumComparisons\tMean_dN/dS\tStdError\t95%CI")?;
+            for line in rx {
+                out_file.write_all(line.as_bytes())?;
+            }
+            Ok(())
+        }
+    });
+
+    group_pairs.into_par_iter().for_each_with(tx, |s, (g1, g2)| {
+        let members1 = &group_members[g1];
+        let members2 = &group_members[g2];
+        let mut pair_dn_ds_ratios = Vec::new();
+
+        for (pos, &id1_idx) in members1.iter().enumerate() {
+            let u1 = uidx_by_id[id1_idx];
+            let start = if g1 == g2 { pos + 1 } else { 0 };
+            for &id2_idx in &members2[start..] {
+                let u2 = uidx_by_id[id2_idx];
+                let result = get_result(u1, u2);
+                if result.dn.is_finite() && result.ds.is_finite() {
+                    let ratio = if result.ds == 0.0 {
+                        if result.dn == 0.0 { 0.0 } else { f64::INFINITY }
+                    } else {
+                        result.dn / result.ds
+                    };
+                    pair_dn_ds_ratios.push(ratio);
                 }
             }
+        }
 
-            pb_group.inc(1);
-            if pair_dn_ds_ratios.is_empty() {
-                format!("{}\t{}\t{}\t{}\t0\tNaN\tNaN\t[NaN, NaN]\n",
+        let line = if pair_dn_ds_ratios.is_empty() {
+            format!("{}\t{}\t{}\t{}\t0\tNaN\tNaN\t[NaN, NaN]\n",
+                &group_names[g1], &group_names[g2],
+                members1.len(), members2.len())
+        } else {
+            let n = pair_dn_ds_ratios.len();
+            let mean: f64 = pair_dn_ds_ratios.iter().sum::<f64>() / n as f64;
+            if n == 1 {
+                format!("{}\t{}\t{}\t{}\t{}\t{:.6}\tN/A\tN/A\n",
                     &group_names[g1], &group_names[g2],
-                    members1.len(), members2.len())
+                    members1.len(), members2.len(), n, mean)
             } else {
-                let n = pair_dn_ds_ratios.len();
-                let mean: f64 = pair_dn_ds_ratios.iter().sum::<f64>() / n as f64;
-                let variance: f64 = if n > 1 {
-                    pair_dn_ds_ratios.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64
-                } else { 0.0 };
-                let se = if n > 0 { (variance / n as f64).sqrt() } else { 0.0 };
+                let variance: f64 =
+                    pair_dn_ds_ratios.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+                let se = (variance / n as f64).sqrt();
                 let ci_hw = Z_95_CONFIDENCE * se;
                 format!("{}\t{}\t{}\t{}\t{}\t{:.6}\t{:.6}\t[{:.6}, {:.6}]\n",
                     &group_names[g1], &group_names[g2],
                     members1.len(), members2.len(), n,
                     mean, se, mean - ci_hw, mean + ci_hw)
             }
-        }).collect();
+        };
 
-    let output_path = format!("{}_group_avg_dn_ds.tsv", output_prefix);
-    let mut out_file = BufWriter::new(File::create(&output_path)?);
-    writeln!(out_file, "Group1\tGroup2\tNumSeqs1\tNumSeqs2\tNumComparisons\tMean_dN/dS\tStdError\t95%CI")?;
-    for line in group_results {
-        if !line.is_empty() { out_file.write_all(line.as_bytes())?; }
-    }
+        s.send(line).expect("Writer thread channel closed unexpectedly");
+        pb_group.inc(1);
+    });
+
+    writer_thread.join()
+        .expect("Writer thread panicked")
+        .expect("Writer thread encountered an I/O error");
     pb_group.finish_with_message("Group average computation completed.");
     Ok(())
 }
