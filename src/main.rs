@@ -9,7 +9,6 @@ use needletail::parse_fastx_file;
 use rayon::prelude::*;
 use std::sync::Arc;
 
-use codon::{dna5_to_codon_indices, seq_to_dna5};
 use models::{DsDn, Model};
 
 /// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
@@ -54,59 +53,64 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .stack_size(4 * 1024 * 1024)
         .build_global()?;
 
-    // --- Read sequences with sort-based deduplication ---
+    // --- Read sequences: convert FASTA bytes directly to codon indices ---
+    // We store codon indices (L/3 bytes each) instead of raw DNA5 (L bytes each),
+    // reducing memory by 3x and avoiding the intermediate DNA5 allocation.
     info!("Reading sequences from: {}", args.input_file);
-    let mut entries: Vec<(Vec<u8>, String)> = Vec::new();
-    let mut reader = parse_fastx_file(&args.input_file)?;
-    while let Some(record) = reader.next() {
-        let rec = record?;
-        let seq_dna5 = seq_to_dna5(&rec.seq());
-        let id_str = String::from_utf8_lossy(rec.id()).into_owned();
-        entries.push((seq_dna5, id_str));
+    let mut all_codon_indices: Vec<Vec<u8>> = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    {
+        let mut reader = parse_fastx_file(&args.input_file)?;
+        while let Some(record) = reader.next() {
+            let rec = record?;
+            let codons = codon::fasta_to_codon_indices(&rec.seq(), args.model);
+            let id_str = String::from_utf8_lossy(rec.id()).into_owned();
+            all_codon_indices.push(codons);
+            ids.push(id_str);
+        }
     }
-    if entries.is_empty() {
+    if ids.is_empty() {
         eprintln!("No sequences found in the input file.");
         std::process::exit(1);
     }
-    info!("Found {} total sequences.", entries.len());
+    info!("Found {} total sequences.", ids.len());
 
-    // Sort by sequence for deduplication without HashMap
-    let original_order: Vec<usize> = (0..entries.len()).collect();
-    let mut sorted_indices: Vec<usize> = original_order.clone();
-    sorted_indices.sort_unstable_by(|&a, &b| entries[a].0.cmp(&entries[b].0));
+    // --- Sort-based deduplication on codon indices (L/3 bytes, not L bytes) ---
+    let mut sorted_indices: Vec<usize> = (0..ids.len()).collect();
+    sorted_indices.sort_unstable_by(|&a, &b| all_codon_indices[a].cmp(&all_codon_indices[b]));
 
-    // Assign unique indices by grouping identical sequences
-    let mut uidx_by_sorted = Vec::with_capacity(entries.len());
+    let mut uidx_by_sorted = Vec::with_capacity(ids.len());
     let mut unique_repr_indices: Vec<usize> = Vec::new();
     let mut current_uidx = 0usize;
     for (pos, &orig_idx) in sorted_indices.iter().enumerate() {
-        if pos > 0 && entries[orig_idx].0 != entries[sorted_indices[pos - 1]].0 {
+        if pos > 0 && all_codon_indices[orig_idx] != all_codon_indices[sorted_indices[pos - 1]] {
             current_uidx += 1;
         }
-        if pos == 0 || entries[orig_idx].0 != entries[sorted_indices[pos - 1]].0 {
+        if pos == 0 || all_codon_indices[orig_idx] != all_codon_indices[sorted_indices[pos - 1]] {
             unique_repr_indices.push(orig_idx);
         }
         uidx_by_sorted.push(current_uidx);
     }
     let n_u = unique_repr_indices.len();
 
-    // Map original index -> unique index
-    let mut uidx_by_id: Vec<usize> = vec![0; entries.len()];
+    let mut uidx_by_id: Vec<usize> = vec![0; ids.len()];
     for (pos, &orig_idx) in sorted_indices.iter().enumerate() {
         uidx_by_id[orig_idx] = uidx_by_sorted[pos];
     }
-
-    let ids: Vec<String> = entries.iter().map(|(_, id)| id.clone()).collect();
+    drop(sorted_indices);
+    drop(uidx_by_sorted);
     info!("Found {} unique sequences.", n_u);
 
-    // --- Encode unique sequences to codon indices ---
-    info!("Encoding unique sequences to codon indices...");
-    let unique_codon_indices: Arc<Vec<Vec<u8>>> = Arc::new(
-        unique_repr_indices.par_iter()
-            .map(|&orig_idx| dna5_to_codon_indices(&entries[orig_idx].0, args.model))
-            .collect()
-    );
-    drop(entries);
+    // --- Extract only unique codon indices, drop the rest ---
+    let unique_codon_indices: Arc<Vec<Vec<u8>>> = {
+        // Move unique sequences out, replace with empty vecs to avoid cloning
+        let mut unique_vecs: Vec<Vec<u8>> = Vec::with_capacity(n_u);
+        for &orig_idx in &unique_repr_indices {
+            unique_vecs.push(std::mem::take(&mut all_codon_indices[orig_idx]));
+        }
+        drop(all_codon_indices); // Free non-unique sequences immediately
+        Arc::new(unique_vecs)
+    };
 
     // --- Precomputation for Li model ---
     let li_tables = if args.model == Model::Li {

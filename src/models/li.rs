@@ -212,8 +212,10 @@ impl Default for CodonPairData {
 /// Uses AoS (Array-of-Structs) layout: one contiguous [CodonPairData; 4096]
 /// so each codon pair lookup fetches a single 72-byte block instead of
 /// 9 scattered locations across 288KB of SoA arrays.
+/// The array is inline (not a nested Box) so Box<LiTables> = single heap allocation,
+/// eliminating one pointer indirection in the hot loop.
 pub struct LiTables {
-    data: Box<[CodonPairData; 4096]>,
+    data: [CodonPairData; 4096],
 }
 
 #[inline(always)]
@@ -256,10 +258,13 @@ impl LiTables {
             rl_li[i][0] = minrl;
         }
 
-        // Allocate AoS table
-        let mut tables = Box::new(LiTables {
-            data: Box::new([CodonPairData::default(); 4096]),
-        });
+        // Allocate AoS table (single heap allocation via Box, no double indirection)
+        let mut tables: Box<LiTables> = unsafe {
+            let layout = std::alloc::Layout::new::<LiTables>();
+            let ptr = std::alloc::alloc_zeroed(layout) as *mut LiTables;
+            if ptr.is_null() { std::alloc::handle_alloc_error(layout); }
+            Box::from_raw(ptr)
+        };
 
         // Fill tables (equivalent to prefastlwl)
         let mut aa_li_map = [0usize; 64];
@@ -330,7 +335,7 @@ impl LiTables {
         let mut ti_sum = [0.0; 3];
         let mut tv_sum = [0.0; 3];
 
-        let data = &*self.data;
+        let data = &self.data;
 
         // Process 4 codons at a time for branch-free fast path
         let chunks1 = codon_indices1.chunks_exact(4);
