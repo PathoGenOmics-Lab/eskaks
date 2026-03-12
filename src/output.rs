@@ -9,17 +9,19 @@ use std::io::{BufWriter, Write};
 use std::thread;
 
 /// Writes pairwise results using a dedicated writer thread.
+/// Computes pairs on-the-fly with lazy per-row caching (O(U) memory per thread).
 pub fn write_pairwise(
     ids: &[String],
     uidx_by_id: &[usize],
-    get_result: impl Fn(usize, usize) -> DsDn + Sync,
+    n_u: usize,
+    compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
     output_prefix: &str,
     model: Model,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let total_pairs_to_write = ids.len() * (ids.len() - 1) / 2;
     let pb_write = ProgressBar::new(total_pairs_to_write as u64);
     pb_write.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Writing pairs: {pos}/{len} ({eta})")
+        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Computing & writing pairs: {pos}/{len} ({eta})")
         .progress_chars("#>-"));
 
     let (tx, rx) = unbounded::<String>();
@@ -44,12 +46,21 @@ pub fn write_pairwise(
     });
 
     (0..ids.len()).into_par_iter().for_each_with(tx, |s, i| {
-        let mut local_buffer = String::with_capacity(1024 * 8);
         let u_i = uidx_by_id[i];
+        // Lazy per-row cache: only compute unique pairs as needed
+        let mut row_cache: Vec<DsDn> = vec![DsDn { dn: 0.0, ds: 0.0 }; n_u];
+        let mut computed: Vec<bool> = vec![false; n_u];
+        computed[u_i] = true; // self-pair is (0.0, 0.0) by default
+
+        let mut local_buffer = String::with_capacity(1024 * 8);
 
         for j in (i + 1)..ids.len() {
             let u_j = uidx_by_id[j];
-            let result = get_result(u_i, u_j);
+            if !computed[u_j] {
+                row_cache[u_j] = compute_pair(u_i, u_j);
+                computed[u_j] = true;
+            }
+            let result = row_cache[u_j];
             let ratio = if result.ds == 0.0 {
                 if result.dn == 0.0 { 0.0 } else { f64::INFINITY }
             } else {
@@ -73,15 +84,17 @@ pub fn write_pairwise(
     writer_thread.join()
         .expect("Writer thread panicked")
         .expect("Writer thread encountered an I/O error");
-    pb_write.finish_with_message("Pairwise writing completed.");
+    pb_write.finish_with_message("Pairwise computation & writing completed.");
     Ok(())
 }
 
-/// Writes dN/dS summary by lineage using pre-computed indices.
+/// Writes dN/dS summary by lineage using a dedicated writer thread.
+/// Computes pairs on-the-fly with lazy per-row caching.
 pub fn write_lineage(
     ids: &[String],
     uidx_by_id: &[usize],
-    get_result: impl Fn(usize, usize) -> DsDn + Sync,
+    n_u: usize,
+    compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
     output_prefix: &str,
     lineage_indices: &[usize],
     lineage_names: &[String],
@@ -110,12 +123,21 @@ pub fn write_lineage(
         .into_par_iter()
         .for_each_with(tx, |s, i| {
             let u_i = uidx_by_id[i];
+            // Lazy per-row cache
+            let mut row_cache: Vec<DsDn> = vec![DsDn { dn: 0.0, ds: 0.0 }; n_u];
+            let mut computed: Vec<bool> = vec![false; n_u];
+            computed[u_i] = true;
+
             let mut local_aggr: Vec<(f64, f64, usize)> = vec![(0.0, 0.0, 0); num_lineages];
 
             for j in 0..ids.len() {
                 if i == j { continue; }
                 let u_j = uidx_by_id[j];
-                let result = get_result(u_i, u_j);
+                if !computed[u_j] {
+                    row_cache[u_j] = compute_pair(u_i, u_j);
+                    computed[u_j] = true;
+                }
+                let result = row_cache[u_j];
 
                 if result.dn.is_finite() && result.ds.is_finite() {
                     let lin_idx = lineage_indices[j];
@@ -150,14 +172,15 @@ pub fn write_lineage(
 }
 
 /// Writes grouped dN/dS averages using a dedicated writer thread.
+/// Computes pairs on-the-fly (no pre-stored results needed).
 pub fn write_group_average(
     ids: &[String],
     uidx_by_id: &[usize],
-    get_result: impl Fn(usize, usize) -> DsDn + Sync,
+    _n_u: usize,
+    compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
     output_prefix: &str,
     first_letter_lineage: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Pre-compute group for each ID (index in group_names)
     let mut group_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
     let mut group_names: Vec<String> = Vec::new();
     let group_by_id: Vec<usize> = ids.iter().map(|id| {
@@ -169,14 +192,12 @@ pub fn write_group_average(
         })
     }).collect();
 
-    // Group ID indices by group
     let num_groups = group_names.len();
     let mut group_members: Vec<Vec<usize>> = vec![Vec::new(); num_groups];
     for (id_idx, &grp) in group_by_id.iter().enumerate() {
         group_members[grp].push(id_idx);
     }
 
-    // Generate group pairs
     let mut group_pairs: Vec<(usize, usize)> = Vec::new();
     for i in 0..num_groups {
         for j in i..num_groups {
@@ -220,7 +241,7 @@ pub fn write_group_average(
             let start = if g1 == g2 { pos + 1 } else { 0 };
             for &id2_idx in &members2[start..] {
                 let u2 = uidx_by_id[id2_idx];
-                let result = get_result(u1, u2);
+                let result = compute_pair(u1, u2);
                 if result.dn.is_finite() && result.ds.is_finite() {
                     let ratio = if result.ds == 0.0 {
                         if result.dn == 0.0 { 0.0 } else { f64::INFINITY }

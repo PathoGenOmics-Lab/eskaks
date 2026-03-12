@@ -3,11 +3,8 @@ mod models;
 mod output;
 
 use clap::Parser;
-use indicatif::{ProgressBar, ProgressStyle};
 use log::info;
 use needletail::parse_fastx_file;
-use rayon::prelude::*;
-use std::sync::Arc;
 
 use models::{DsDn, Model};
 
@@ -102,14 +99,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Found {} unique sequences.", n_u);
 
     // --- Extract only unique codon indices, drop the rest ---
-    let unique_codon_indices: Arc<Vec<Vec<u8>>> = {
-        // Move unique sequences out, replace with empty vecs to avoid cloning
+    let unique_codon_indices: Vec<Vec<u8>> = {
         let mut unique_vecs: Vec<Vec<u8>> = Vec::with_capacity(n_u);
         for &orig_idx in &unique_repr_indices {
             unique_vecs.push(std::mem::take(&mut all_codon_indices[orig_idx]));
         }
-        drop(all_codon_indices); // Free non-unique sequences immediately
-        Arc::new(unique_vecs)
+        drop(all_codon_indices);
+        unique_vecs
     };
 
     // --- Precomputation for Li model ---
@@ -122,60 +118,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    // --- Parallel computation of unique pairs ---
-    let total_unique_pairs = if n_u > 0 { n_u * (n_u - 1) / 2 } else { 0 };
-    info!("Computing dN/dS for {} unique sequence pairs...", total_unique_pairs);
-    let mut pair_results: Vec<DsDn> = vec![DsDn { dn: f64::NAN, ds: f64::NAN }; total_unique_pairs];
-
-    let pb_calc = ProgressBar::new(n_u as u64);
-    pb_calc.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Computing unique pairs: {pos}/{len} ({eta})")
-        .progress_chars("#>-"));
-
-    let row_slices: Vec<&mut [DsDn]> = {
-        let mut remaining = pair_results.as_mut_slice();
-        let mut slices = Vec::with_capacity(n_u);
-        for i in 0..n_u {
-            let row_len = n_u - i - 1;
-            let (row, rest) = remaining.split_at_mut(row_len);
-            slices.push(row);
-            remaining = rest;
-        }
-        slices
-    };
-
-    row_slices.into_par_iter().enumerate().for_each(|(i, row_slice)| {
-        let cod_i = &unique_codon_indices[i];
-        for (j_offset, j) in ((i + 1)..n_u).enumerate() {
-            let cod_j = &unique_codon_indices[j];
-            let (dn, ds) = match &li_tables {
-                Some(tables) => tables.compute_pair(cod_i, cod_j),
-                None => models::nei::calculate_syn_nonsyn_from_indices(cod_i, cod_j),
-            };
-            row_slice[j_offset] = DsDn { dn, ds };
-        }
-        pb_calc.inc(1);
-    });
-    pb_calc.finish_with_message("Unique pair computation completed.");
-
-    // --- Output generation ---
-    let get_result = |u_i: usize, u_j: usize| -> DsDn {
+    // --- Output generation (streaming: compute pairs on-the-fly with per-row caching) ---
+    // Instead of precomputing and storing all U*(U-1)/2 pair results (O(U²) memory),
+    // each output function computes pairs on demand using lazy per-row caching.
+    // Memory: O(U) per thread instead of O(U²) total.
+    let compute_pair = |u_i: usize, u_j: usize| -> DsDn {
         if u_i == u_j {
-            DsDn { dn: 0.0, ds: 0.0 }
-        } else {
-            let (i, j) = if u_i < u_j { (u_i, u_j) } else { (u_j, u_i) };
-            let flat_idx = (i * n_u + j) - ((i + 1) * (i + 2)) / 2;
-            pair_results[flat_idx]
+            return DsDn { dn: 0.0, ds: 0.0 };
         }
+        let (dn, ds) = match &li_tables {
+            Some(tables) => tables.compute_pair(&unique_codon_indices[u_i], &unique_codon_indices[u_j]),
+            None => models::nei::calculate_syn_nonsyn_from_indices(&unique_codon_indices[u_i], &unique_codon_indices[u_j]),
+        };
+        DsDn { dn, ds }
     };
 
     if args.group_average {
         info!("Computing group average dN/dS...");
-        output::write_group_average(&ids, &uidx_by_id, &get_result, &args.output)?;
+        output::write_group_average(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.first_letter_lineage)?;
         info!("Results saved to {}_group_avg_dn_ds.tsv", args.output);
     } else if args.lineage {
         info!("Computing dN/dS lineage summary...");
-        // Pre-compute lineage indices to avoid allocations in the hot loop
         let mut lineage_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
         let mut lineage_names: Vec<String> = Vec::new();
         let lineage_indices: Vec<usize> = ids.iter().map(|id| {
@@ -190,11 +153,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 next_idx
             })
         }).collect();
-        output::write_lineage(&ids, &uidx_by_id, &get_result, &args.output, &lineage_indices, &lineage_names)?;
+        output::write_lineage(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, &lineage_indices, &lineage_names)?;
         info!("Lineage summary saved to {}_lineage_summary.tsv", args.output);
     } else {
         info!("Generating pairwise results...");
-        output::write_pairwise(&ids, &uidx_by_id, &get_result, &args.output, args.model)?;
+        output::write_pairwise(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.model)?;
         info!("Results saved to {}_pairwise_results.tsv", args.output);
     }
 
