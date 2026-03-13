@@ -35,8 +35,9 @@ struct Args {
     #[arg(long, group = "output_mode")]
     group_average: bool,
 
-    /// In lineage mode, group by the first letter of the sequence ID
-    #[arg(long, requires = "lineage")]
+    /// Group by the first letter of the sequence ID instead of splitting on '_'
+    /// (requires --lineage or --group-average)
+    #[arg(long, requires = "output_mode")]
     first_letter_lineage: bool,
 
     /// Model to use for calculation
@@ -279,6 +280,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let seq_len = unique_codon_indices.first().map(|v| v.len()).unwrap_or(0);
         if seq_len == 0 {
             eprintln!("Cannot use --window-size with empty sequences.");
+            std::process::exit(1);
+        }
+        // Window mode requires uniform sequence lengths; misaligned sequences
+        // would cause out-of-bounds panics when slicing window ranges.
+        let misaligned = unique_codon_indices.iter().any(|v| v.len() != seq_len);
+        if misaligned {
+            eprintln!("--window-size requires all sequences to have equal length. Sequences are not aligned.");
             std::process::exit(1);
         }
         if win_size == 0 || win_size > seq_len {
