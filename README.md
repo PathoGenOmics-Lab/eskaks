@@ -180,6 +180,64 @@ tests/
 - **L1-cache fast path (Li)**: Identical codons (~95% in typical alignments) use a 1.5 KB table instead of the full 288 KB lookup
 - **Streaming I/O**: Crossbeam channels with 64 KB batched buffers feed a dedicated writer thread
 
+## Benchmarks
+
+eskaks was benchmarked against established dN/dS tools on synthetic datasets of varying sizes. All benchmarks were run on a single machine; eskaks timings include both single-threaded (1t) and multi-threaded (4t) runs.
+
+### Accuracy
+
+Numerical accuracy was validated by comparing pairwise dN and dS values against [KaKs_Calculator](https://github.com/kullrich/kakscalculator2) and [BioPython](https://biopython.org/) on a dataset of 20 sequences (300 codons each, 190 pairs).
+
+| Comparison | Metric | n | Mean |diff| | Max |diff| | R² |
+|---|---|---|---|---|---|
+| eskaks Li vs KaKs_Calc LPB | dN | 154 | 0.000000 | 0.000001 | 1.000000 |
+| eskaks Li vs KaKs_Calc LPB | dS | 175 | 0.000000 | 0.000001 | 1.000000 |
+| eskaks Nei vs KaKs_Calc NG | dN | 124 | 0.000150 | 0.000416 | 0.999397 |
+| eskaks Nei vs KaKs_Calc NG | dS | 184 | 0.001146 | 0.003315 | 0.995155 |
+| eskaks Nei vs BioPython NG86 | dN | 190 | 0.000114 | 0.001169 | 0.998169 |
+| eskaks Nei vs BioPython NG86 | dS | 190 | 0.000338 | 0.003554 | 0.996981 |
+
+The Li model achieves near-exact agreement (R² = 1.0) with KaKs_Calculator's LPB method. Small differences in the Nei model are due to minor pathway-counting heuristics and are consistent with the inter-tool variation observed between KaKs_Calculator and BioPython themselves (R² = 0.993-0.996).
+
+<p align="center">
+  <img src="benchmark/plots/accuracy_scatter.png" width="700" alt="Accuracy scatter plots comparing eskaks against KaKs_Calculator and BioPython">
+</p>
+
+### Performance
+
+Wall-clock time in milliseconds for pairwise dN/dS computation:
+
+| Dataset | eskaks Nei (1t) | eskaks Nei (4t) | eskaks Li (1t) | eskaks Li (4t) | KaKs_Calc NG | KaKs_Calc LPB | yn00 | BioPython NG |
+|---|---|---|---|---|---|---|---|---|
+| Small (20 seq, 300 cod) | 3 ms | 2 ms | 6 ms | 6 ms | 34 ms | 48 ms | 8 ms | 610 ms |
+| Medium (100 seq, 3000 cod) | 12 ms | 6 ms | 17 ms | 10 ms | 7,703 ms | 10,860 ms | 697 ms | 111,619 ms |
+| Large (500 seq, 3000 cod) | 227 ms | 74 ms | 235 ms | 88 ms | 195,456 ms | 271,807 ms | - | - |
+
+On the medium dataset (100 sequences, 3000 codons), eskaks Nei (4t) is **~1,280x faster** than KaKs_Calculator NG and **~18,600x faster** than BioPython. On the large dataset (500 sequences, 3000 codons), eskaks computes 124,750 pairs in under 100 ms.
+
+<p align="center">
+  <img src="benchmark/plots/performance_bars.png" width="700" alt="Performance comparison bar chart">
+</p>
+
+<p align="center">
+  <img src="benchmark/plots/speedup_chart.png" width="700" alt="Speedup chart showing eskaks advantage over other tools">
+</p>
+
+### Reproducing Benchmarks
+
+The full benchmark suite is in the `benchmark/` directory:
+
+```bash
+# Generate synthetic test datasets
+python benchmark/generate_seqs.py
+
+# Run cross-tool benchmarks (requires KaKs_Calculator and BioPython installed)
+python benchmark/cross_tool_benchmark.py
+
+# Results are saved to benchmark/cross_tool_results.json
+# Plots are saved to benchmark/plots/
+```
+
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).

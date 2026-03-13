@@ -98,8 +98,12 @@ fn pairwise_nei_one_synonymous_change() {
 
 #[test]
 fn pairwise_nei_one_nonsynonymous_change() {
-    // seq1_A (ATGGCTGCT) vs seq3_B (ATGATTGCT): 1 nonsyn change GCT→ATT (Ala→Ile)
-    // Expected: dN≈0.15439, dS=0.0
+    // seq1_A (ATGGCTGCT) vs seq3_B (ATGATTGCT): GCT->ATT (Ala->Ile)
+    // 2 nucleotide positions differ. Pathway analysis (NG86):
+    //   Path 1: GCT->ACT->ATT (Ala->Thr->Ile): 2 nonsyn steps
+    //   Path 2: GCT->GTT->ATT (Ala->Val->Ile): 2 nonsyn steps
+    //   Average: sd=0, nd=2
+    // S=11/6, N=43/6, pN=12/43, dN=-0.75*ln(1-16/43) ~ 0.34902
     let out_prefix = "/tmp/eskaks_test_pairwise_nonsyn";
     Command::new(binary_path())
         .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
@@ -109,8 +113,8 @@ fn pairwise_nei_one_nonsynonymous_change() {
         .expect("pair seq1_A/seq3_B not found");
     let dn: f64 = row[2].parse().unwrap();
     let ds: f64 = row[3].parse().unwrap();
-    assert!((ds - 0.0).abs() < EPSILON, "dS should be 0 for purely nonsynonymous change, got {}", ds);
-    assert!((dn - 0.15439).abs() < EPSILON, "dN should be ~0.15439, got {}", dn);
+    assert!((ds - 0.0).abs() < EPSILON, "dS should be 0, got {}", ds);
+    assert!((dn - 0.34902).abs() < EPSILON, "dN should be ~0.34902, got {}", dn);
     fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
 }
 

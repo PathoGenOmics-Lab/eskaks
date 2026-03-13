@@ -1,0 +1,98 @@
+{
+  "timings": {
+    "small": {
+      "eskaks_nei_1t": 3,
+      "eskaks_nei_4t": 2,
+      "eskaks_li_1t": 6,
+      "eskaks_li_4t": 6,
+      "kakscalc_ng": 34,
+      "kakscalc_lpb": 48,
+      "yn00": 8,
+      "biopython_ng": 610
+    },
+    "medium": {
+      "eskaks_nei_1t": 12,
+      "eskaks_nei_4t": 6,
+      "eskaks_li_1t": 17,
+      "eskaks_li_4t": 10,
+      "kakscalc_ng": 7703,
+      "kakscalc_lpb": 10860,
+      "yn00": 697,
+      "biopython_ng": 111619
+    },
+    "large": {
+      "eskaks_nei_1t": 227,
+      "eskaks_nei_4t": 74,
+      "eskaks_li_1t": 235,
+      "eskaks_li_4t": 88,
+      "kakscalc_ng": 195456,
+      "kakscalc_lpb": 271807
+    }
+  },
+  "accuracy": {
+    "eskaks_nei_vs_kakscalc_ng": {
+      "dN": {
+        "n": 124,
+        "mean_abs_diff": 0.00015040572580645164,
+        "max_abs_diff": 0.0004161999999999985,
+        "r_squared": 0.9993974509177973
+      },
+      "dS": {
+        "n": 184,
+        "mean_abs_diff": 0.001146381684782609,
+        "max_abs_diff": 0.0033148999999999956,
+        "r_squared": 0.9951547967644463
+      },
+      "label_a": "eskaks Nei",
+      "label_b": "KaKs_Calc NG"
+    },
+    "eskaks_li_vs_kakscalc_lpb": {
+      "dN": {
+        "n": 154,
+        "mean_abs_diff": 2.564935064933603e-07,
+        "max_abs_diff": 5.000000000005e-07,
+        "r_squared": 0.9999999982773122
+      },
+      "dS": {
+        "n": 175,
+        "mean_abs_diff": 2.829714285711557e-07,
+        "max_abs_diff": 5.000000000005e-07,
+        "r_squared": 0.9999999996529427
+      },
+      "label_a": "eskaks Li",
+      "label_b": "KaKs_Calc LPB"
+    },
+    "eskaks_nei_vs_biopython": {
+      "dN": {
+        "n": 190,
+        "mean_abs_diff": 0.0001141578947368421,
+        "max_abs_diff": 0.0011689999999999964,
+        "r_squared": 0.9981688956291132
+      },
+      "dS": {
+        "n": 190,
+        "mean_abs_diff": 0.00033763684210526306,
+        "max_abs_diff": 0.0035539999999999947,
+        "r_squared": 0.9969814217861959
+      },
+      "label_a": "eskaks Nei",
+      "label_b": "BioPython NG86"
+    },
+    "kakscalc_ng_vs_biopython": {
+      "dN": {
+        "n": 124,
+        "mean_abs_diff": 0.00027623637096774184,
+        "max_abs_diff": 0.0010222000000000009,
+        "r_squared": 0.996491078651086
+      },
+      "dS": {
+        "n": 184,
+        "mean_abs_diff": 0.001312691141304348,
+        "max_abs_diff": 0.0033148999999999956,
+        "r_squared": 0.9931204694815807
+      },
+      "label_a": "KaKs_Calc NG",
+      "label_b": "BioPython NG86"
+    }
+  }
+}
