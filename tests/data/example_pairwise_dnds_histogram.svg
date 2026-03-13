@@ -9,18 +9,16 @@
 </style>
 <rect width="800" height="500" fill="white"/>
 <text x="400" y="30" class="title">dN/dS Ratio Distribution</text>
-<line x1="80" y1="420" x2="760" y2="420" class="grid"/>
-<text x="72" y="420" class="tick-label" text-anchor="end" dominant-baseline="middle">0</text>
-<line x1="80" y1="346" x2="760" y2="346" class="grid"/>
-<text x="72" y="346" class="tick-label" text-anchor="end" dominant-baseline="middle">0</text>
-<line x1="80" y1="272" x2="760" y2="272" class="grid"/>
-<text x="72" y="272" class="tick-label" text-anchor="end" dominant-baseline="middle">1</text>
-<line x1="80" y1="198" x2="760" y2="198" class="grid"/>
-<text x="72" y="198" class="tick-label" text-anchor="end" dominant-baseline="middle">2</text>
-<line x1="80" y1="123.99999999999999" x2="760" y2="123.99999999999999" class="grid"/>
-<text x="72" y="123.99999999999999" class="tick-label" text-anchor="end" dominant-baseline="middle">3</text>
-<line x1="80" y1="50" x2="760" y2="50" class="grid"/>
-<text x="72" y="50" class="tick-label" text-anchor="end" dominant-baseline="middle">4</text>
+<line x1="80" y1="420.0" x2="760" y2="420.0" class="grid"/>
+<text x="72" y="420.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0</text>
+<line x1="80" y1="327.5" x2="760" y2="327.5" class="grid"/>
+<text x="72" y="327.5" class="tick-label" text-anchor="end" dominant-baseline="middle">1</text>
+<line x1="80" y1="235.0" x2="760" y2="235.0" class="grid"/>
+<text x="72" y="235.0" class="tick-label" text-anchor="end" dominant-baseline="middle">2</text>
+<line x1="80" y1="142.5" x2="760" y2="142.5" class="grid"/>
+<text x="72" y="142.5" class="tick-label" text-anchor="end" dominant-baseline="middle">3</text>
+<line x1="80" y1="50.0" x2="760" y2="50.0" class="grid"/>
+<text x="72" y="50.0" class="tick-label" text-anchor="end" dominant-baseline="middle">4</text>
 <rect x="91.3" y="142.5" width="90.7" height="277.5" fill="#4a90d9" rx="2"/>
 <text x="136.7" y="137.5" class="tick-label" text-anchor="middle">3</text>
 <text x="136.7" y="440.0" class="tick-label" text-anchor="middle" transform="rotate(-30,136.7,440.0)">[0.0, 0.2)</text>
