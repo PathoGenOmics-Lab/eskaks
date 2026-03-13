@@ -236,8 +236,13 @@ impl Default for CodonPairData {
 /// 9 scattered locations across 288KB of SoA arrays.
 /// The array is inline (not a nested Box) so Box<LiTables> = single heap allocation,
 /// eliminating one pointer indirection in the hot loop.
+///
+/// `same_l` is a compact 64-entry table (1.5KB) for identical-codon fast path:
+/// when a == b, only l[] values are non-zero (ti=tv=0). This table fits in L1 cache,
+/// avoiding the 288KB main table lookup for ~95% of codons in typical alignments.
 pub struct LiTables {
     data: [CodonPairData; 4096],
+    same_l: [[f64; 3]; 64],
 }
 
 #[inline(always)]
@@ -245,12 +250,19 @@ fn idx(i: usize, j: usize) -> usize {
     i * 64 + j
 }
 
-/// Accumulate a single codon pair's data into running sums.
+/// Accumulate a single codon pair's data into running sums (different codons).
 #[inline(always)]
 fn accumulate(d: &CodonPairData, l_sum: &mut [f64; 3], ti_sum: &mut [f64; 3], tv_sum: &mut [f64; 3]) {
     l_sum[0] += d.l[0]; l_sum[1] += d.l[1]; l_sum[2] += d.l[2];
     ti_sum[0] += d.ti[0]; ti_sum[1] += d.ti[1]; ti_sum[2] += d.ti[2];
     tv_sum[0] += d.tv[0]; tv_sum[1] += d.tv[1]; tv_sum[2] += d.tv[2];
+}
+
+/// Fast path for identical codons: only l[] values are non-zero (ti=tv=0).
+/// The same_l table (1.5KB) fits in L1 cache, avoiding the 288KB main table.
+#[inline(always)]
+fn accumulate_same_l(l_vals: &[f64; 3], l_sum: &mut [f64; 3]) {
+    l_sum[0] += l_vals[0]; l_sum[1] += l_vals[1]; l_sum[2] += l_vals[2];
 }
 
 impl LiTables {
@@ -346,12 +358,19 @@ impl LiTables {
             }
         }
 
+        // Build L1-cache-resident same-codon table from diagonal of main table
+        for i in 0..64 {
+            tables.same_l[i] = tables.data[idx(i, i)].l;
+        }
+
         tables
     }
 
     /// Computes Ka and Ks for a pair of sequences encoded as codon indices.
     /// Uses AoS layout + chunk-of-4 processing + unsafe unchecked indexing
-    /// for maximum throughput on long sequences (133k+ codons).
+    /// with same-codon fast path: ~95% of codons are identical in typical
+    /// alignments and only need the L1-cache-resident same_l table (1.5KB)
+    /// instead of the full 288KB data table.
     #[inline]
     pub fn compute_pair(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64) {
         let mut l_sum = [0.0; 3];
@@ -359,8 +378,9 @@ impl LiTables {
         let mut tv_sum = [0.0; 3];
 
         let data = &self.data;
+        let same_l = &self.same_l;
 
-        // Process 4 codons at a time for branch-free fast path
+        // Process 4 codons at a time
         let chunks1 = codon_indices1.chunks_exact(4);
         let chunks2 = codon_indices2.chunks_exact(4);
         let rem1 = chunks1.remainder();
@@ -372,8 +392,20 @@ impl LiTables {
             let b1 = ch2[0] as usize; let b2 = ch2[1] as usize;
             let b3 = ch2[2] as usize; let b4 = ch2[3] as usize;
 
-            // Fast path: if all 8 codon indices are < 64 (valid), skip per-codon checks
-            if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize {
+            // Chunk-level all-identical check: with ~95% identical codons,
+            // ~81% of chunks have all 4 pairs identical (0.95^4).
+            // These use only the L1-resident same_l table (1.5KB),
+            // completely skipping the 288KB data table.
+            if ((a1 ^ b1) | (a2 ^ b2) | (a3 ^ b3) | (a4 ^ b4)) == 0 {
+                // SAFETY: all identical means all < 64 (valid codons only reach here)
+                unsafe {
+                    accumulate_same_l(same_l.get_unchecked(a1), &mut l_sum);
+                    accumulate_same_l(same_l.get_unchecked(a2), &mut l_sum);
+                    accumulate_same_l(same_l.get_unchecked(a3), &mut l_sum);
+                    accumulate_same_l(same_l.get_unchecked(a4), &mut l_sum);
+                }
+            } else if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize {
+                // Some differ, all valid: use full 288KB table
                 // SAFETY: all indices verified < 64, so flat index < 4096
                 unsafe {
                     accumulate(data.get_unchecked(a1 * 64 + b1), &mut l_sum, &mut ti_sum, &mut tv_sum);
@@ -382,7 +414,7 @@ impl LiTables {
                     accumulate(data.get_unchecked(a4 * 64 + b4), &mut l_sum, &mut ti_sum, &mut tv_sum);
                 }
             } else {
-                // Slow path: check each codon individually
+                // Some invalid codons: check individually
                 for (&c1, &c2) in ch1.iter().zip(ch2.iter()) {
                     let n1 = c1 as usize;
                     let n2 = c2 as usize;
@@ -471,14 +503,14 @@ impl LiTables {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codon::{dna5_to_codon_indices, seq_to_dna5};
+    use crate::codon::fasta_to_codon_indices;
     use crate::models::Model;
 
     const EPSILON: f64 = 1e-4;
 
     fn li(seq1: &[u8], seq2: &[u8]) -> (f64, f64) {
-        let idx1 = dna5_to_codon_indices(&seq_to_dna5(seq1), Model::Li);
-        let idx2 = dna5_to_codon_indices(&seq_to_dna5(seq2), Model::Li);
+        let idx1 = fasta_to_codon_indices(seq1, Model::Li);
+        let idx2 = fasta_to_codon_indices(seq2, Model::Li);
         LiTables::new().compute_pair(&idx1, &idx2)
     }
 

@@ -111,13 +111,13 @@ pub fn calculate_syn_nonsyn_from_indices(codon_indices1: &[u8], codon_indices2: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codon::{dna5_to_codon_indices, seq_to_dna5};
+    use crate::codon::fasta_to_codon_indices;
     use crate::models::Model;
 
     /// Helper: run the Nei model on two ASCII DNA sequences.
     fn nei(seq1: &[u8], seq2: &[u8]) -> (f64, f64) {
-        let idx1 = dna5_to_codon_indices(&seq_to_dna5(seq1), Model::Nei);
-        let idx2 = dna5_to_codon_indices(&seq_to_dna5(seq2), Model::Nei);
+        let idx1 = fasta_to_codon_indices(seq1, Model::Nei);
+        let idx2 = fasta_to_codon_indices(seq2, Model::Nei);
         calculate_syn_nonsyn_from_indices(&idx1, &idx2)
     }
 
