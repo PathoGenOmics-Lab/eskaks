@@ -3,10 +3,10 @@ mod models;
 mod output;
 
 use clap::Parser;
-use log::info;
+use log::{info, warn};
 use needletail::parse_fastx_file;
 
-use models::{DsDn, Model};
+use models::{DsDn, Model, OutputFormat};
 
 /// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
 #[derive(Parser, Debug)]
@@ -39,6 +39,22 @@ struct Args {
     /// Model to use for calculation
     #[arg(long, value_enum, default_value_t = Model::Nei)]
     model: Model,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = OutputFormat::Tsv)]
+    format: OutputFormat,
+
+    /// Minimum valid codons per sequence (sequences below this are filtered out)
+    #[arg(long, default_value_t = 0)]
+    min_codons: usize,
+
+    /// Sliding window size in codons (pairwise mode only)
+    #[arg(long)]
+    window_size: Option<usize>,
+
+    /// Sliding window step in codons (default: 1)
+    #[arg(long, default_value_t = 1)]
+    window_step: usize,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -56,11 +72,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Reading sequences from: {}", args.input_file);
     let mut all_codon_indices: Vec<Vec<u8>> = Vec::new();
     let mut ids: Vec<String> = Vec::new();
+    let mut gap_count_total = 0usize;
+    let mut seqs_with_gaps = 0usize;
     {
         let mut reader = parse_fastx_file(&args.input_file)?;
         while let Some(record) = reader.next() {
             let rec = record?;
-            let codons = codon::fasta_to_codon_indices(&rec.seq(), args.model);
+            let seq = rec.seq();
+            let gaps = codon::count_gaps(&seq);
+            if gaps > 0 {
+                seqs_with_gaps += 1;
+                gap_count_total += gaps;
+            }
+            if seq.len() % 3 != 0 {
+                warn!("Sequence '{}' length {} is not divisible by 3; {} trailing base(s) ignored.",
+                    String::from_utf8_lossy(rec.id()), seq.len(), seq.len() % 3);
+            }
+            let codons = codon::fasta_to_codon_indices(&seq, args.model);
             let id_str = String::from_utf8_lossy(rec.id()).into_owned();
             all_codon_indices.push(codons);
             ids.push(id_str);
@@ -71,6 +99,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
     info!("Found {} total sequences.", ids.len());
+
+    // --- Diagnostics: gaps and alignment ---
+    if seqs_with_gaps > 0 {
+        warn!("{} sequence(s) contain {} total gap character(s) ('-' or '.'), treated as ambiguous.",
+            seqs_with_gaps, gap_count_total);
+    }
+    // Validate alignment: all sequences should have the same codon length
+    if let Some(first_len) = all_codon_indices.first().map(|v| v.len()) {
+        let mismatched = all_codon_indices.iter().filter(|v| v.len() != first_len).count();
+        if mismatched > 0 {
+            warn!("{} sequence(s) have different codon lengths than the first ({} codons). Sequences may not be aligned.",
+                mismatched, first_len);
+        }
+        info!("Alignment length: {} codons ({} bp).", first_len, first_len * 3);
+    }
+
+    // --- Filter by --min-codons ---
+    if args.min_codons > 0 {
+        let before = ids.len();
+        let mut keep = Vec::with_capacity(ids.len());
+        for i in 0..ids.len() {
+            let valid = all_codon_indices[i].iter().filter(|&&c| c != codon::INVALID_CODON).count();
+            if valid >= args.min_codons {
+                keep.push(i);
+            }
+        }
+        if keep.len() < before {
+            let filtered = before - keep.len();
+            warn!("Filtered {} sequence(s) with fewer than {} valid codons.", filtered, args.min_codons);
+            let new_ids: Vec<String> = keep.iter().map(|&i| std::mem::take(&mut ids[i])).collect();
+            let new_codons: Vec<Vec<u8>> = keep.iter().map(|&i| std::mem::take(&mut all_codon_indices[i])).collect();
+            ids = new_ids;
+            all_codon_indices = new_codons;
+        }
+        if ids.is_empty() {
+            eprintln!("All sequences filtered out by --min-codons {}.", args.min_codons);
+            std::process::exit(1);
+        }
+    }
 
     // --- Sort-based deduplication on codon indices (L/3 bytes, not L bytes) ---
     let mut sorted_indices: Vec<usize> = (0..ids.len()).collect();
@@ -143,11 +210,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         DsDn { dn, ds }
     };
 
+    // Slice-based compute_pair for sliding window mode
+    let compute_pair_slices = |s1: &[u8], s2: &[u8]| -> DsDn {
+        let (dn, ds) = match (&li_tables, &nei_tables) {
+            (Some(tables), _) => tables.compute_pair(s1, s2),
+            (_, Some(tables)) => tables.compute_pair(s1, s2),
+            _ => unreachable!("one of li_tables or nei_tables must be Some"),
+        };
+        DsDn { dn, ds }
+    };
+
+    let ext = args.format.extension();
+    let sep = args.format.separator();
+
     if args.group_average {
+        if args.window_size.is_some() {
+            eprintln!("--window-size cannot be used with --group-average.");
+            std::process::exit(1);
+        }
         info!("Computing group average dN/dS...");
-        output::write_group_average(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.first_letter_lineage)?;
-        info!("Results saved to {}_group_avg_dn_ds.tsv", args.output);
+        output::write_group_average(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.first_letter_lineage, sep, ext)?;
+        info!("Results saved to {}_group_avg_dn_ds.{}", args.output, ext);
     } else if args.lineage {
+        if args.window_size.is_some() {
+            eprintln!("--window-size cannot be used with --lineage.");
+            std::process::exit(1);
+        }
         info!("Computing dN/dS lineage summary...");
         let mut lineage_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
         let mut lineage_names: Vec<String> = Vec::new();
@@ -163,12 +251,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 next_idx
             })
         }).collect();
-        output::write_lineage(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, &lineage_indices, &lineage_names)?;
-        info!("Lineage summary saved to {}_lineage_summary.tsv", args.output);
+        output::write_lineage(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, &lineage_indices, &lineage_names, sep, ext)?;
+        info!("Lineage summary saved to {}_lineage_summary.{}", args.output, ext);
+    } else if let Some(win_size) = args.window_size {
+        let seq_len = unique_codon_indices.first().map(|v| v.len()).unwrap_or(0);
+        if win_size == 0 || win_size > seq_len {
+            eprintln!("--window-size must be between 1 and {} (sequence length in codons).", seq_len);
+            std::process::exit(1);
+        }
+        info!("Generating sliding window pairwise results (window={}, step={})...", win_size, args.window_step);
+        output::write_pairwise_windows(&ids, &uidx_by_id, &unique_codon_indices, &compute_pair_slices, &args.output, args.model, sep, ext, win_size, args.window_step)?;
+        info!("Results saved to {}_pairwise_windows.{}", args.output, ext);
     } else {
         info!("Generating pairwise results...");
-        output::write_pairwise(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.model)?;
-        info!("Results saved to {}_pairwise_results.tsv", args.output);
+        output::write_pairwise(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.model, sep, ext)?;
+        info!("Results saved to {}_pairwise_results.{}", args.output, ext);
     }
 
     info!("All processes completed successfully.");

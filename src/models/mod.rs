@@ -12,6 +12,27 @@ pub enum Model {
     Li,
 }
 
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputFormat {
+    Tsv,
+    Csv,
+}
+
+impl OutputFormat {
+    pub fn separator(self) -> char {
+        match self {
+            OutputFormat::Tsv => '\t',
+            OutputFormat::Csv => ',',
+        }
+    }
+    pub fn extension(self) -> &'static str {
+        match self {
+            OutputFormat::Tsv => "tsv",
+            OutputFormat::Csv => "csv",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct DsDn {
     pub dn: f64,
