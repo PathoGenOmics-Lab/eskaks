@@ -3,37 +3,37 @@
     "small": {
       "eskaks_nei_1t": 3,
       "eskaks_nei_4t": 2,
-      "eskaks_li_1t": 3,
-      "eskaks_li_4t": 3,
-      "kakscalc_ng": 35,
-      "kakscalc_lpb": 45,
-      "yn00": 156,
-      "biopython_ng": 719
+      "eskaks_li_1t": 6,
+      "eskaks_li_4t": 6,
+      "kakscalc_ng": 34,
+      "kakscalc_lpb": 48,
+      "yn00": 8,
+      "biopython_ng": 610
     },
     "medium": {
-      "eskaks_nei_1t": 66,
+      "eskaks_nei_1t": 12,
       "eskaks_nei_4t": 6,
-      "eskaks_li_1t": 15,
-      "eskaks_li_4t": 7,
-      "kakscalc_ng": 7826,
-      "kakscalc_lpb": 10358,
-      "yn00": 660,
-      "biopython_ng": 105669
+      "eskaks_li_1t": 17,
+      "eskaks_li_4t": 10,
+      "kakscalc_ng": 7703,
+      "kakscalc_lpb": 10860,
+      "yn00": 697,
+      "biopython_ng": 111619
     },
     "large": {
-      "eskaks_nei_1t": 283,
-      "eskaks_nei_4t": 71,
-      "eskaks_li_1t": 230,
-      "eskaks_li_4t": 68,
-      "kakscalc_ng": 189616,
-      "kakscalc_lpb": 250600
+      "eskaks_nei_1t": 227,
+      "eskaks_nei_4t": 74,
+      "eskaks_li_1t": 235,
+      "eskaks_li_4t": 88,
+      "kakscalc_ng": 195456,
+      "kakscalc_lpb": 271807
     }
   },
   "accuracy": {
     "eskaks_nei_vs_kakscalc_ng": {
       "dN": {
         "n": 124,
-        "mean_abs_diff": 0.00015040572580645158,
+        "mean_abs_diff": 0.00015040572580645164,
         "max_abs_diff": 0.0004161999999999985,
         "r_squared": 0.9993974509177973
       },
@@ -49,15 +49,15 @@
     "eskaks_li_vs_kakscalc_lpb": {
       "dN": {
         "n": 154,
-        "mean_abs_diff": 0.004687667532467531,
-        "max_abs_diff": 0.0136703,
-        "r_squared": 0.7209549506442148
+        "mean_abs_diff": 2.564935064933603e-07,
+        "max_abs_diff": 5.000000000005e-07,
+        "r_squared": 0.9999999982773122
       },
       "dS": {
         "n": 175,
-        "mean_abs_diff": 0.006318648800000003,
-        "max_abs_diff": 0.0280774,
-        "r_squared": 0.725089669975325
+        "mean_abs_diff": 2.829714285711557e-07,
+        "max_abs_diff": 5.000000000005e-07,
+        "r_squared": 0.9999999996529427
       },
       "label_a": "eskaks Li",
       "label_b": "KaKs_Calc LPB"
@@ -65,7 +65,7 @@
     "eskaks_nei_vs_biopython": {
       "dN": {
         "n": 190,
-        "mean_abs_diff": 0.00011415789473684207,
+        "mean_abs_diff": 0.0001141578947368421,
         "max_abs_diff": 0.0011689999999999964,
         "r_squared": 0.9981688956291132
       },
@@ -81,13 +81,13 @@
     "kakscalc_ng_vs_biopython": {
       "dN": {
         "n": 124,
-        "mean_abs_diff": 0.00027623637096774173,
+        "mean_abs_diff": 0.00027623637096774184,
         "max_abs_diff": 0.0010222000000000009,
         "r_squared": 0.996491078651086
       },
       "dS": {
         "n": 184,
-        "mean_abs_diff": 0.0013126911413043482,
+        "mean_abs_diff": 0.001312691141304348,
         "max_abs_diff": 0.0033148999999999956,
         "r_squared": 0.9931204694815807
       },
