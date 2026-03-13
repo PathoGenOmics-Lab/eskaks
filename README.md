@@ -199,6 +199,10 @@ Numerical accuracy was validated by comparing pairwise dN and dS values against 
 
 The Li model achieves near-exact agreement (R² = 1.0) with KaKs_Calculator's LPB method. Small differences in the Nei model are due to minor pathway-counting heuristics and are consistent with the inter-tool variation observed between KaKs_Calculator and BioPython themselves (R² = 0.993-0.996).
 
+<p align="center">
+  <img src="benchmark/plots/accuracy_scatter.png" width="700" alt="Accuracy scatter plots comparing eskaks against KaKs_Calculator and BioPython">
+</p>
+
 ### Performance
 
 Wall-clock time in milliseconds for pairwise dN/dS computation:
@@ -210,6 +214,14 @@ Wall-clock time in milliseconds for pairwise dN/dS computation:
 | Large (500 seq, 3000 cod) | 227 ms | 74 ms | 235 ms | 88 ms | 195,456 ms | 271,807 ms | - | - |
 
 On the medium dataset (100 sequences, 3000 codons), eskaks Nei (4t) is **~1,280x faster** than KaKs_Calculator NG and **~18,600x faster** than BioPython. On the large dataset (500 sequences, 3000 codons), eskaks computes 124,750 pairs in under 100 ms.
+
+<p align="center">
+  <img src="benchmark/plots/performance_bars.png" width="700" alt="Performance comparison bar chart">
+</p>
+
+<p align="center">
+  <img src="benchmark/plots/speedup_chart.png" width="700" alt="Speedup chart showing eskaks advantage over other tools">
+</p>
 
 ### Reproducing Benchmarks
 
