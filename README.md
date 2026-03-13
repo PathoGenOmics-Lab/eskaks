@@ -68,6 +68,9 @@ A FASTA file containing multiple aligned coding sequences. Requirements:
 - **Group average** (`<prefix>_group_avg_dn_ds.tsv`): Mean dN/dS between groups with columns:
   - `Group1`, `Group2`, `NumSeqs1`, `NumSeqs2`, `NumComparisons`, `Mean_dN/dS`, `StdError`, `95%CI`
 
+- **Sliding window** (`<prefix>_pairwise_windows.tsv`): Per-window pairwise results with columns:
+  - `Seq1`, `Seq2`, `Window_Start`, `Window_End`, `dN`, `dS`, `dN/dS`
+
 - **Lineage summary** (`<prefix>_lineage_summary.tsv`): Mean dN/dS per lineage with columns:
   - `Genome`, `Against_Lineage`, `Mean_dN`, `Mean_dS`, `dN/dS_Ratio`
 
@@ -117,9 +120,15 @@ eskaks <input_file> [options]
 | `-o, --output <PREFIX>` | Base name for output files | `output` |
 | `-w, --workers <N>` | Number of parallel threads | `4` |
 | `--model <nei\|li>` | Model to use for calculation | `nei` |
+| `--format <tsv\|csv>` | Output format | `tsv` |
 | `--lineage` | Compute summary results by lineage (mutually exclusive with `--group-average`) | off |
 | `--group-average` | Compute average dN/dS between groups (mutually exclusive with `--lineage`) | off |
-| `--first-letter-lineage` | Group sequences by first letter (requires `--lineage`) | off |
+| `--first-letter-lineage` | Group sequences by first letter (requires `--lineage` or `--group-average`) | off |
+| `--min-codons <N>` | Filter sequences with fewer than N valid codons | `0` |
+| `--window-size <N>` | Sliding window size in codons (pairwise mode only) | off |
+| `--window-step <N>` | Sliding window step in codons | `1` |
+| `--summary` | Print statistical summary to stderr | off |
+| `--plot` | Generate SVG plot file(s) | off |
 
 ## Examples
 
@@ -141,7 +150,7 @@ eskaks <input_file> [options]
    ```
    Produces `analysis_lineage_summary.tsv` with mean dN/dS for each sequence against each lineage group (lineages determined by splitting sequence IDs on `_`).
 
-4. **Group average with first-letter lineage grouping:**
+4. **Lineage summary with first-letter grouping:**
    ```bash
    eskaks input.fasta --lineage --first-letter-lineage
    ```
@@ -153,6 +162,18 @@ eskaks <input_file> [options]
    ```
    Computes mean dN/dS between all group pairs with standard error and 95% confidence intervals.
 
+6. **Sliding window analysis:**
+   ```bash
+   eskaks input.fasta --window-size 100 --window-step 10 -o sliding
+   ```
+   Computes pairwise dN/dS for each sliding window of 100 codons, stepping by 10.
+
+7. **Summary statistics and plots:**
+   ```bash
+   eskaks input.fasta --summary --plot -o results
+   ```
+   Prints statistical summary to stderr and generates an SVG histogram of dN/dS distribution.
+
 ## Architecture
 
 ```
@@ -160,12 +181,14 @@ src/
   main.rs          - CLI, FASTA→codon index reading, deduplication, parallel dispatch
   codon.rs         - DNA5 encoding, codon index conversion, group key extraction
   output.rs        - Streaming output writers with for_each_init + generation counters
+  stats.rs         - Thread-safe summary statistics and window accumulators
+  plot.rs          - SVG plot generation (histogram, window, group bar, lineage bar)
   models/
     mod.rs         - Model enum and shared types (DsDn, Z_95_CONFIDENCE)
     nei.rs         - Nei-Gojobori (1986) with Jukes-Cantor correction
     li.rs          - Li (1993) with AoS lookup tables + same_l fast path
 tests/
-  integration.rs   - 11 integration tests against the compiled binary
+  integration.rs   - 21 integration tests against the compiled binary
   data/
     synthetic.fasta         - 5 hand-crafted sequences for pairwise/lineage tests
     synthetic_grouped.fasta - 5 sequences with A_/B_ prefixes for group-average tests

@@ -334,6 +334,7 @@ pub fn write_group_average(
         let members1 = &group_members[g1];
         let members2 = &group_members[g2];
         let mut pair_dn_ds_ratios = Vec::new();
+        let mut nan_pair_count = 0usize;
 
         for (pos, &id1_idx) in members1.iter().enumerate() {
             let u1 = uidx_by_id[id1_idx];
@@ -348,6 +349,8 @@ pub fn write_group_average(
                         result.dn / result.ds
                     };
                     pair_dn_ds_ratios.push(ratio);
+                } else {
+                    nan_pair_count += 1;
                 }
             }
         }
@@ -388,8 +391,11 @@ pub fn write_group_average(
         };
 
         if let Some(ref stats) = summary {
+            for _ in 0..nan_pair_count {
+                stats.record_pair_atomic(f64::NAN, f64::NAN, f64::NAN);
+            }
             for &r in &pair_dn_ds_ratios {
-                stats.record_pair_atomic(0.0, 0.0, r); // group mode: only ratio matters
+                stats.record_pair_atomic(0.0, 0.0, r);
             }
         }
 
