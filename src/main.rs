@@ -257,11 +257,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut lineage_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
         let mut lineage_names: Vec<String> = Vec::new();
         let lineage_indices: Vec<usize> = ids.iter().map(|id| {
-            let key = if args.first_letter_lineage {
-                &id[..id.chars().next().map(|c| c.len_utf8()).unwrap_or(0)]
-            } else {
-                id.split('_').next().unwrap_or(id)
-            };
+            let key = codon::extract_group_key(id, args.first_letter_lineage);
             let next_idx = lineage_names.len();
             *lineage_map.entry(key).or_insert_with(|| {
                 lineage_names.push(key.to_string());
@@ -281,8 +277,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     } else if let Some(win_size) = args.window_size {
         let seq_len = unique_codon_indices.first().map(|v| v.len()).unwrap_or(0);
+        if seq_len == 0 {
+            eprintln!("Cannot use --window-size with empty sequences.");
+            std::process::exit(1);
+        }
         if win_size == 0 || win_size > seq_len {
             eprintln!("--window-size must be between 1 and {} (sequence length in codons).", seq_len);
+            std::process::exit(1);
+        }
+        if args.window_step == 0 {
+            eprintln!("--window-step must be at least 1.");
             std::process::exit(1);
         }
         let num_windows = (seq_len - win_size) / args.window_step + 1;
