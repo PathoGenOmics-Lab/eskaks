@@ -108,11 +108,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         unique_vecs
     };
 
-    // --- Precomputation for Li model ---
+    // --- Precomputation for model lookup tables ---
     let li_tables = if args.model == Model::Li {
         info!("Precomputing lookup tables for Li (1993) model...");
         let tables = models::li::LiTables::new();
         info!("Li precomputation finished.");
+        Some(tables)
+    } else {
+        None
+    };
+
+    let nei_tables = if args.model == Model::Nei {
+        info!("Precomputing lookup tables for Nei-Gojobori (1986) model...");
+        let tables = models::nei::NeiTables::new();
+        info!("Nei precomputation finished.");
         Some(tables)
     } else {
         None
@@ -126,9 +135,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if u_i == u_j {
             return DsDn { dn: 0.0, ds: 0.0 };
         }
-        let (dn, ds) = match &li_tables {
-            Some(tables) => tables.compute_pair(&unique_codon_indices[u_i], &unique_codon_indices[u_j]),
-            None => models::nei::calculate_syn_nonsyn_from_indices(&unique_codon_indices[u_i], &unique_codon_indices[u_j]),
+        let (dn, ds) = match (&li_tables, &nei_tables) {
+            (Some(tables), _) => tables.compute_pair(&unique_codon_indices[u_i], &unique_codon_indices[u_j]),
+            (_, Some(tables)) => tables.compute_pair(&unique_codon_indices[u_i], &unique_codon_indices[u_j]),
+            _ => unreachable!("one of li_tables or nei_tables must be Some"),
         };
         DsDn { dn, ds }
     };
