@@ -62,14 +62,12 @@ mod tests {
 
     /// Helper: convert an ASCII codon string to a Nei model codon index.
     fn nei_index(codon: &[u8; 3]) -> u8 {
-        let dna5 = seq_to_dna5(codon);
-        dna5_to_codon_indices(&dna5, Model::Nei)[0]
+        fasta_to_codon_indices(codon, Model::Nei)[0]
     }
 
     /// Helper: convert an ASCII codon string to a Li model codon index.
     fn li_index(codon: &[u8; 3]) -> u8 {
-        let dna5 = seq_to_dna5(codon);
-        dna5_to_codon_indices(&dna5, Model::Li)[0]
+        fasta_to_codon_indices(codon, Model::Li)[0]
     }
 
     #[test]
@@ -116,15 +114,13 @@ mod tests {
 
     #[test]
     fn ambiguous_base_gives_invalid_codon() {
-        let dna5 = seq_to_dna5(b"ATN");
-        let indices = dna5_to_codon_indices(&dna5, Model::Nei);
+        let indices = fasta_to_codon_indices(b"ATN", Model::Nei);
         assert_eq!(indices[0], INVALID_CODON);
     }
 
     #[test]
     fn multiple_codons() {
-        let dna5 = seq_to_dna5(b"ATGTTT");
-        let indices = dna5_to_codon_indices(&dna5, Model::Nei);
+        let indices = fasta_to_codon_indices(b"ATGTTT", Model::Nei);
         assert_eq!(indices.len(), 2);
         assert_eq!(indices[0], 11); // ATG = Met
         assert_eq!(indices[1], 0);  // TTT = Phe
@@ -133,8 +129,7 @@ mod tests {
     #[test]
     fn trailing_bases_ignored() {
         // 7 bases → only 2 complete codons
-        let dna5 = seq_to_dna5(b"ATGTTTG");
-        let indices = dna5_to_codon_indices(&dna5, Model::Nei);
+        let indices = fasta_to_codon_indices(b"ATGTTTG", Model::Nei);
         assert_eq!(indices.len(), 2);
     }
 }

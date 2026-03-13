@@ -45,41 +45,54 @@ pub fn write_pairwise(
         }
     });
 
-    (0..ids.len()).into_par_iter().for_each_with(tx, |s, i| {
-        let u_i = uidx_by_id[i];
-        // Lazy per-row cache: only compute unique pairs as needed
-        let mut row_cache: Vec<DsDn> = vec![DsDn { dn: 0.0, ds: 0.0 }; n_u];
-        let mut computed: Vec<bool> = vec![false; n_u];
-        computed[u_i] = true; // self-pair is (0.0, 0.0) by default
+    // Use for_each_init to reuse thread-local buffers across rows.
+    // Generation counter avoids clearing the computed array each iteration (O(1) vs O(n_u)).
+    (0..ids.len()).into_par_iter().for_each_init(
+        || {
+            (
+                tx.clone(),
+                vec![DsDn { dn: 0.0, ds: 0.0 }; n_u],
+                vec![0u32; n_u],  // generation map
+                0u32,             // current generation
+                String::with_capacity(1024 * 64),
+            )
+        },
+        |(sender, row_cache, gen_map, cur_gen, local_buffer), i| {
+            *cur_gen = cur_gen.wrapping_add(1);
+            let gen = *cur_gen;
+            let u_i = uidx_by_id[i];
+            row_cache[u_i] = DsDn { dn: 0.0, ds: 0.0 };
+            gen_map[u_i] = gen;
 
-        let mut local_buffer = String::with_capacity(1024 * 8);
+            for j in (i + 1)..ids.len() {
+                let u_j = uidx_by_id[j];
+                if gen_map[u_j] != gen {
+                    row_cache[u_j] = compute_pair(u_i, u_j);
+                    gen_map[u_j] = gen;
+                }
+                let result = row_cache[u_j];
+                let ratio = if result.ds == 0.0 {
+                    if result.dn == 0.0 { 0.0 } else { f64::INFINITY }
+                } else {
+                    result.dn / result.ds
+                };
 
-        for j in (i + 1)..ids.len() {
-            let u_j = uidx_by_id[j];
-            if !computed[u_j] {
-                row_cache[u_j] = compute_pair(u_i, u_j);
-                computed[u_j] = true;
+                let _ = writeln!(local_buffer, "{}\t{}\t{:.6}\t{:.6}\t{:.6}",
+                    &ids[i], &ids[j], result.dn, result.ds, ratio);
+
+                if local_buffer.len() > 1024 * 32 {
+                    sender.send(std::mem::take(local_buffer))
+                        .expect("Writer thread channel closed unexpectedly");
+                }
             }
-            let result = row_cache[u_j];
-            let ratio = if result.ds == 0.0 {
-                if result.dn == 0.0 { 0.0 } else { f64::INFINITY }
-            } else {
-                result.dn / result.ds
-            };
-
-            let _ = writeln!(local_buffer, "{}\t{}\t{:.6}\t{:.6}\t{:.6}",
-                &ids[i], &ids[j], result.dn, result.ds, ratio);
-
-            if local_buffer.len() > 1024 * 4 {
-                s.send(std::mem::take(&mut local_buffer))
+            if !local_buffer.is_empty() {
+                sender.send(std::mem::take(local_buffer))
                     .expect("Writer thread channel closed unexpectedly");
             }
-        }
-        if !local_buffer.is_empty() {
-            s.send(local_buffer).expect("Writer thread channel closed unexpectedly");
-        }
-        pb_write.inc((ids.len() - 1 - i) as u64);
-    });
+            pb_write.inc((ids.len() - 1 - i) as u64);
+        },
+    );
+    drop(tx); // close original sender so writer thread sees EOF
 
     writer_thread.join()
         .expect("Writer thread panicked")
@@ -121,49 +134,62 @@ pub fn write_lineage(
 
     (0..ids.len())
         .into_par_iter()
-        .for_each_with(tx, |s, i| {
-            let u_i = uidx_by_id[i];
-            // Lazy per-row cache
-            let mut row_cache: Vec<DsDn> = vec![DsDn { dn: 0.0, ds: 0.0 }; n_u];
-            let mut computed: Vec<bool> = vec![false; n_u];
-            computed[u_i] = true;
+        .for_each_init(
+            || {
+                (
+                    tx.clone(),
+                    vec![DsDn { dn: 0.0, ds: 0.0 }; n_u],
+                    vec![0u32; n_u],
+                    0u32,
+                    vec![(0.0f64, 0.0f64, 0usize); num_lineages],
+                )
+            },
+            |(sender, row_cache, gen_map, cur_gen, local_aggr), i| {
+                *cur_gen = cur_gen.wrapping_add(1);
+                let gen = *cur_gen;
+                let u_i = uidx_by_id[i];
+                row_cache[u_i] = DsDn { dn: 0.0, ds: 0.0 };
+                gen_map[u_i] = gen;
 
-            let mut local_aggr: Vec<(f64, f64, usize)> = vec![(0.0, 0.0, 0); num_lineages];
+                // Reset lineage accumulators
+                for a in local_aggr.iter_mut() { *a = (0.0, 0.0, 0); }
 
-            for j in 0..ids.len() {
-                if i == j { continue; }
-                let u_j = uidx_by_id[j];
-                if !computed[u_j] {
-                    row_cache[u_j] = compute_pair(u_i, u_j);
-                    computed[u_j] = true;
+                for j in 0..ids.len() {
+                    if i == j { continue; }
+                    let u_j = uidx_by_id[j];
+                    if gen_map[u_j] != gen {
+                        row_cache[u_j] = compute_pair(u_i, u_j);
+                        gen_map[u_j] = gen;
+                    }
+                    let result = row_cache[u_j];
+
+                    if result.dn.is_finite() && result.ds.is_finite() {
+                        let lin_idx = lineage_indices[j];
+                        local_aggr[lin_idx].0 += result.dn;
+                        local_aggr[lin_idx].1 += result.ds;
+                        local_aggr[lin_idx].2 += 1;
+                    }
                 }
-                let result = row_cache[u_j];
 
-                if result.dn.is_finite() && result.ds.is_finite() {
-                    let lin_idx = lineage_indices[j];
-                    local_aggr[lin_idx].0 += result.dn;
-                    local_aggr[lin_idx].1 += result.ds;
-                    local_aggr[lin_idx].2 += 1;
+                let mut block = String::new();
+                for (lin_idx, &(sum_dn, sum_ds, count)) in local_aggr.iter().enumerate() {
+                    if count == 0 { continue; }
+                    let mean_dn = sum_dn / count as f64;
+                    let mean_ds = sum_ds / count as f64;
+                    let ratio = if mean_ds == 0.0 {
+                        if mean_dn == 0.0 { 0.0 } else { f64::INFINITY }
+                    } else {
+                        mean_dn / mean_ds
+                    };
+                    let _ = writeln!(block, "{}\t{}\t{:.6}\t{:.6}\t{:.6}",
+                        &ids[i], &lineage_names[lin_idx], mean_dn, mean_ds, ratio);
                 }
-            }
-
-            let mut block = String::new();
-            for (lin_idx, &(sum_dn, sum_ds, count)) in local_aggr.iter().enumerate() {
-                if count == 0 { continue; }
-                let mean_dn = sum_dn / count as f64;
-                let mean_ds = sum_ds / count as f64;
-                let ratio = if mean_ds == 0.0 {
-                    if mean_dn == 0.0 { 0.0 } else { f64::INFINITY }
-                } else {
-                    mean_dn / mean_ds
-                };
-                let _ = writeln!(block, "{}\t{}\t{:.6}\t{:.6}\t{:.6}",
-                    &ids[i], &lineage_names[lin_idx], mean_dn, mean_ds, ratio);
-            }
-            if !block.is_empty() {
-                s.send(block).expect("Writer thread channel closed unexpectedly");
-            }
-        });
+                if !block.is_empty() {
+                    sender.send(block).expect("Writer thread channel closed unexpectedly");
+                }
+            },
+        );
+    drop(tx);
 
     writer_thread.join()
         .expect("Writer thread panicked")
