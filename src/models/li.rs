@@ -355,8 +355,9 @@ impl LiTables {
             // ~81% of chunks have all 4 pairs identical (0.95^4).
             // These use only the L1-resident same_l table (1.5KB),
             // completely skipping the 288KB data table.
-            if ((a1 ^ b1) | (a2 ^ b2) | (a3 ^ b3) | (a4 ^ b4)) == 0 {
-                // SAFETY: all identical means all < 64 (valid codons only reach here)
+            if ((a1 ^ b1) | (a2 ^ b2) | (a3 ^ b3) | (a4 ^ b4)) == 0
+                && (a1 | a2 | a3 | a4) < INVALID_CODON as usize {
+                // SAFETY: all identical AND all < 64 (INVALID_CODON), so indices are in bounds
                 unsafe {
                     accumulate_same_l(same_l.get_unchecked(a1), &mut l_sum);
                     accumulate_same_l(same_l.get_unchecked(a2), &mut l_sum);
