@@ -1,0 +1,242 @@
+[
+  {
+    "wall_time_s": 0.051,
+    "peak_rss_mb": 0.2,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 120000,
+    "model": "nei",
+    "workers": 4,
+    "bench": "seq_count"
+  },
+  {
+    "wall_time_s": 0.05,
+    "peak_rss_mb": 0.2,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 120000,
+    "model": "li",
+    "workers": 4,
+    "bench": "seq_count"
+  },
+  {
+    "wall_time_s": 0.556,
+    "peak_rss_mb": 12.0,
+    "exit_code": 0,
+    "n_seqs": 200,
+    "seq_len": 120000,
+    "model": "nei",
+    "workers": 4,
+    "bench": "seq_count"
+  },
+  {
+    "wall_time_s": 0.405,
+    "peak_rss_mb": 12.3,
+    "exit_code": 0,
+    "n_seqs": 200,
+    "seq_len": 120000,
+    "model": "li",
+    "workers": 4,
+    "bench": "seq_count"
+  },
+  {
+    "wall_time_s": 2.817,
+    "peak_rss_mb": 23.6,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "nei",
+    "workers": 4,
+    "bench": "seq_count"
+  },
+  {
+    "wall_time_s": 2.513,
+    "peak_rss_mb": 23.8,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "li",
+    "workers": 4,
+    "bench": "seq_count"
+  },
+  {
+    "wall_time_s": 10.81,
+    "peak_rss_mb": 42.7,
+    "exit_code": 0,
+    "n_seqs": 1000,
+    "seq_len": 120000,
+    "model": "nei",
+    "workers": 4,
+    "bench": "seq_count"
+  },
+  {
+    "wall_time_s": 9.555,
+    "peak_rss_mb": 43.0,
+    "exit_code": 0,
+    "n_seqs": 1000,
+    "seq_len": 120000,
+    "model": "li",
+    "workers": 4,
+    "bench": "seq_count"
+  },
+  {
+    "wall_time_s": 0.051,
+    "peak_rss_mb": 0.2,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 3000,
+    "model": "nei",
+    "workers": 4,
+    "bench": "seq_len"
+  },
+  {
+    "wall_time_s": 0.05,
+    "peak_rss_mb": 0.2,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 3000,
+    "model": "li",
+    "workers": 4,
+    "bench": "seq_len"
+  },
+  {
+    "wall_time_s": 0.051,
+    "peak_rss_mb": 0.2,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 30000,
+    "model": "nei",
+    "workers": 4,
+    "bench": "seq_len"
+  },
+  {
+    "wall_time_s": 0.05,
+    "peak_rss_mb": 0.2,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 30000,
+    "model": "li",
+    "workers": 4,
+    "bench": "seq_len"
+  },
+  {
+    "wall_time_s": 0.05,
+    "peak_rss_mb": 0.2,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 120000,
+    "model": "nei",
+    "workers": 4,
+    "bench": "seq_len"
+  },
+  {
+    "wall_time_s": 0.05,
+    "peak_rss_mb": 0.2,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 120000,
+    "model": "li",
+    "workers": 4,
+    "bench": "seq_len"
+  },
+  {
+    "wall_time_s": 0.101,
+    "peak_rss_mb": 8.9,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 300000,
+    "model": "nei",
+    "workers": 4,
+    "bench": "seq_len"
+  },
+  {
+    "wall_time_s": 0.101,
+    "peak_rss_mb": 9.2,
+    "exit_code": 0,
+    "n_seqs": 50,
+    "seq_len": 300000,
+    "model": "li",
+    "workers": 4,
+    "bench": "seq_len"
+  },
+  {
+    "wall_time_s": 10.442,
+    "peak_rss_mb": 23.1,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "nei",
+    "workers": 1,
+    "bench": "threads"
+  },
+  {
+    "wall_time_s": 9.239,
+    "peak_rss_mb": 23.4,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "li",
+    "workers": 1,
+    "bench": "threads"
+  },
+  {
+    "wall_time_s": 5.325,
+    "peak_rss_mb": 23.2,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "nei",
+    "workers": 2,
+    "bench": "threads"
+  },
+  {
+    "wall_time_s": 4.67,
+    "peak_rss_mb": 23.5,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "li",
+    "workers": 2,
+    "bench": "threads"
+  },
+  {
+    "wall_time_s": 2.763,
+    "peak_rss_mb": 23.5,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "nei",
+    "workers": 4,
+    "bench": "threads"
+  },
+  {
+    "wall_time_s": 2.41,
+    "peak_rss_mb": 23.8,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "li",
+    "workers": 4,
+    "bench": "threads"
+  },
+  {
+    "wall_time_s": 2.726,
+    "peak_rss_mb": 23.9,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "nei",
+    "workers": 8,
+    "bench": "threads"
+  },
+  {
+    "wall_time_s": 2.371,
+    "peak_rss_mb": 24.2,
+    "exit_code": 0,
+    "n_seqs": 500,
+    "seq_len": 120000,
+    "model": "li",
+    "workers": 8,
+    "bench": "threads"
+  }
+]
