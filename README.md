@@ -17,9 +17,10 @@ __and Mireia Coscolla<sup>1</sup>__
 
 - **Models**: Choose between the Nei-Gojobori (default) or Li (1993) model for dN/dS calculation.
 - **Parallel Processing**: Configurable multi-threaded computation via `--workers` using Rayon.
+- **Memory-Efficient Codon Encoding**: FASTA sequences are converted directly to codon indices (L/3 bytes per sequence instead of L), achieving a 3x memory reduction compared to storing raw nucleotides.
 - **Sequence Deduplication**: Automatically detects and groups identical sequences to avoid redundant pairwise computations.
-- **Precomputed Lookup Tables**: The Li model uses flat-array lookup tables (64x64 codon pairs) for cache-friendly, zero-allocation pair evaluation.
-- **Streaming Output**: Pairwise results are written via a dedicated writer thread with buffered I/O to minimize memory usage.
+- **Precomputed Lookup Tables**: The Li model uses flat-array lookup tables (64×64 codon pairs, AoS layout) for cache-friendly, zero-allocation pair evaluation, with an L1-cache-resident fast path for identical codons (~95% of comparisons in typical alignments).
+- **Streaming Output**: Results are streamed via dedicated writer threads with buffered I/O and lazy per-row caching using generation counters, keeping memory usage at O(U) per thread instead of O(U²) total.
 - **Group Summaries**:
   - **Group Average**: Compute mean dN/dS between predefined groups of sequences with 95% confidence intervals.
   - **Lineage Summary**: Compute mean dN/dS for each sequence against sequences grouped by lineage.
@@ -46,7 +47,7 @@ The Li method is more sophisticated:
 2. Considers all possible evolutionary pathways for codons differing at 2 or 3 positions, weighted by amino acid similarity.
 3. Separately estimates transition and transversion rates for each site category.
 4. Applies the **Kimura two-parameter correction** to each category.
-5. Uses precomputed 64x64 flat-array lookup tables for zero-allocation pair computation.
+5. Uses precomputed 64×64 flat-array lookup tables (~288 KB, AoS layout) for zero-allocation pair computation, with a compact 1.5 KB `same_l` table for identical-codon fast path.
 
 **Best for**: More accurate estimates that account for codon usage bias, transition/transversion differences, and site degeneracy.
 
@@ -116,8 +117,8 @@ eskaks <input_file> [options]
 | `-o, --output <PREFIX>` | Base name for output files | `output` |
 | `-w, --workers <N>` | Number of parallel threads | `4` |
 | `--model <nei\|li>` | Model to use for calculation | `nei` |
-| `--lineage` | Compute summary results by lineage | off |
-| `--group-average` | Compute average dN/dS between groups | off |
+| `--lineage` | Compute summary results by lineage (mutually exclusive with `--group-average`) | off |
+| `--group-average` | Compute average dN/dS between groups (mutually exclusive with `--lineage`) | off |
 | `--first-letter-lineage` | Group sequences by first letter (requires `--lineage`) | off |
 
 ## Examples
@@ -156,19 +157,28 @@ eskaks <input_file> [options]
 
 ```
 src/
-  main.rs          - CLI, FASTA reading, deduplication, parallel dispatch
+  main.rs          - CLI, FASTA→codon index reading, deduplication, parallel dispatch
   codon.rs         - DNA5 encoding, codon index conversion, group key extraction
-  output.rs        - Streaming output writers (pairwise, lineage, group average)
+  output.rs        - Streaming output writers with for_each_init + generation counters
   models/
     mod.rs         - Model enum and shared types (DsDn, Z_95_CONFIDENCE)
     nei.rs         - Nei-Gojobori (1986) with Jukes-Cantor correction
-    li.rs          - Li (1993) with precomputed flat-array lookup tables
+    li.rs          - Li (1993) with AoS lookup tables + same_l fast path
 tests/
-  integration.rs   - Integration tests against the compiled binary
+  integration.rs   - 11 integration tests against the compiled binary
   data/
     synthetic.fasta         - 5 hand-crafted sequences for pairwise/lineage tests
     synthetic_grouped.fasta - 5 sequences with A_/B_ prefixes for group-average tests
 ```
+
+### Key Performance Patterns
+
+- **3x memory reduction**: Sequences stored as codon indices (L/3 bytes) instead of raw nucleotides (L bytes)
+- **Sort-based deduplication**: O(n log n) on compact codon indices; only unique pairs are computed
+- **Chunk-of-4 processing**: Both models process 4 codons at a time with bitwise validity checks for branch-free fast paths
+- **Generation counters**: Thread-local per-row caches are invalidated in O(1) via wrapping counters instead of O(n) clearing
+- **L1-cache fast path (Li)**: Identical codons (~95% in typical alignments) use a 1.5 KB table instead of the full 288 KB lookup
+- **Streaming I/O**: Crossbeam channels with 64 KB batched buffers feed a dedicated writer thread
 
 ## License
 
