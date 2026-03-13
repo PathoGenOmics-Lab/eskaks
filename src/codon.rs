@@ -44,6 +44,11 @@ pub fn fasta_to_codon_indices(fasta_bytes: &[u8], model: Model) -> Vec<u8> {
     v
 }
 
+/// Counts gap characters ('-' and '.') in raw FASTA bytes.
+pub fn count_gaps(fasta_bytes: &[u8]) -> usize {
+    fasta_bytes.iter().filter(|&&b| b == b'-' || b == b'.').count()
+}
+
 /// Extracts the grouping key from a sequence ID.
 /// If `by_first_letter` is true, returns the first character (UTF-8 aware);
 /// otherwise returns the part before the first '_', or the full ID if no '_' is present.

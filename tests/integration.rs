@@ -7,7 +7,7 @@ use std::process::Command;
 const FASTA: &str = "tests/data/synthetic.fasta";
 /// FASTA with sequences pre-grouped by prefix before '_' (for group_average tests).
 const FASTA_GROUPED: &str = "tests/data/synthetic_grouped.fasta";
-/// Tolerance for floating-point comparisons in TSV output.
+/// Tolerance for floating-point comparisons in output.
 const EPSILON: f64 = 1e-4;
 
 /// Build the release binary before running integration tests.
@@ -18,12 +18,20 @@ fn binary_path() -> String {
 }
 
 fn parse_tsv(path: &str) -> Vec<Vec<String>> {
+    parse_delimited(path, '\t')
+}
+
+fn parse_csv(path: &str) -> Vec<Vec<String>> {
+    parse_delimited(path, ',')
+}
+
+fn parse_delimited(path: &str, sep: char) -> Vec<Vec<String>> {
     let content = fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("Cannot read {}: {}", path, e));
     content
         .lines()
         .filter(|l| !l.is_empty())
-        .map(|l| l.split('\t').map(String::from).collect())
+        .map(|l| l.split(sep).map(String::from).collect())
         .collect()
 }
 
@@ -214,4 +222,91 @@ fn group_average_within_group_a_has_only_syn_changes() {
     assert!((mean - 0.0).abs() < EPSILON,
         "mean dN/dS within group A should be 0 (all syn), got {}", mean);
     fs::remove_file(format!("{}_group_avg_dn_ds.tsv", out_prefix)).ok();
+}
+
+// ─── CSV output format ──────────────────────────────────────────────────────
+
+#[test]
+fn pairwise_csv_format_has_correct_header_and_separators() {
+    let out_prefix = "/tmp/eskaks_test_csv";
+    let status = Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--format", "csv"])
+        .status()
+        .expect("Failed to spawn binary");
+    assert!(status.success());
+    let rows = parse_csv(&format!("{}_pairwise_results.csv", out_prefix));
+    assert_eq!(rows[0], vec!["Seq1", "Seq2", "dN", "dS", "dN/dS"],
+        "CSV header mismatch: {:?}", rows[0]);
+    assert_eq!(rows.len(), 11, "expected 1 header + 10 pairs");
+    // Verify a specific value parses correctly
+    let row = rows.iter().find(|r| r.len() >= 5 && r[0] == "seq1_A" && r[1] == "seq5_A")
+        .expect("pair not found in CSV");
+    let dn: f64 = row[2].parse().unwrap();
+    assert!((dn - 0.0).abs() < EPSILON);
+    fs::remove_file(format!("{}_pairwise_results.csv", out_prefix)).ok();
+}
+
+#[test]
+fn lineage_csv_has_correct_header() {
+    let out_prefix = "/tmp/eskaks_test_lineage_csv";
+    let status = Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--lineage", "--workers", "2", "--format", "csv"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let rows = parse_csv(&format!("{}_lineage_summary.csv", out_prefix));
+    assert_eq!(rows[0], vec!["Genome", "Against_Lineage", "Mean_dN", "Mean_dS", "dN/dS_Ratio"]);
+    fs::remove_file(format!("{}_lineage_summary.csv", out_prefix)).ok();
+}
+
+// ─── Sliding window ─────────────────────────────────────────────────────────
+
+#[test]
+fn sliding_window_exits_ok_and_has_correct_header() {
+    let out_prefix = "/tmp/eskaks_test_window";
+    let status = Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
+               "--window-size", "2", "--window-step", "1"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let rows = parse_tsv(&format!("{}_pairwise_windows.tsv", out_prefix));
+    assert_eq!(rows[0], vec!["Seq1", "Seq2", "Window_Start", "Window_End", "dN", "dS", "dN/dS"],
+        "window header mismatch: {:?}", rows[0]);
+    fs::remove_file(format!("{}_pairwise_windows.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn sliding_window_correct_row_count() {
+    // 5 seqs, 3 codons each, window_size=2, step=1 → 2 windows per pair
+    // 10 pairs × 2 windows = 20 data rows + 1 header = 21
+    let out_prefix = "/tmp/eskaks_test_window_count";
+    Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
+               "--window-size", "2", "--window-step", "1"])
+        .status()
+        .expect("spawn");
+    let rows = parse_tsv(&format!("{}_pairwise_windows.tsv", out_prefix));
+    assert_eq!(rows.len(), 21, "expected 1 header + 20 window rows, got {}", rows.len());
+    // Check window coordinates are 1-based
+    let first_data = &rows[1];
+    let win_start: usize = first_data[2].parse().unwrap();
+    let win_end: usize = first_data[3].parse().unwrap();
+    assert_eq!(win_start, 1, "first window should start at codon 1");
+    assert_eq!(win_end, 2, "first window should end at codon 2");
+    fs::remove_file(format!("{}_pairwise_windows.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn sliding_window_csv_format() {
+    let out_prefix = "/tmp/eskaks_test_window_csv";
+    let status = Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
+               "--window-size", "2", "--format", "csv"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let rows = parse_csv(&format!("{}_pairwise_windows.csv", out_prefix));
+    assert_eq!(rows[0], vec!["Seq1", "Seq2", "Window_Start", "Window_End", "dN", "dS", "dN/dS"]);
+    fs::remove_file(format!("{}_pairwise_windows.csv", out_prefix)).ok();
 }
