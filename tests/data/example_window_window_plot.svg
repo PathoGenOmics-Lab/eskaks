@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+<style>
+  text { font-family: sans-serif; fill: #333333; }
+  .title { font-size: 16px; font-weight: bold; text-anchor: middle; }
+  .axis-label { font-size: 12px; text-anchor: middle; }
+  .tick-label { font-size: 10px; }
+  .grid { stroke: #e0e0e0; stroke-width: 0.5; }
+</style>
+<rect width="800" height="500" fill="white"/>
+<text x="400" y="30" class="title">Sliding Window dN/dS</text>
+<line x1="80" y1="420.0" x2="760" y2="420.0" class="grid"/>
+<text x="72" y="420.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.00</text>
+<line x1="80" y1="346.0" x2="760" y2="346.0" class="grid"/>
+<text x="72" y="346.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.30</text>
+<line x1="80" y1="272.0" x2="760" y2="272.0" class="grid"/>
+<text x="72" y="272.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.60</text>
+<line x1="80" y1="198.0" x2="760" y2="198.0" class="grid"/>
+<text x="72" y="198.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.90</text>
+<line x1="80" y1="124.0" x2="760" y2="124.0" class="grid"/>
+<text x="72" y="124.0" class="tick-label" text-anchor="end" dominant-baseline="middle">1.20</text>
+<line x1="80" y1="50.0" x2="760" y2="50.0" class="grid"/>
+<text x="72" y="50.0" class="tick-label" text-anchor="end" dominant-baseline="middle">1.50</text>
+<line x1="80" y1="173.3" x2="760" y2="173.3" stroke="#d94a4a" stroke-width="1" stroke-dasharray="6,3"/>
+<text x="763.0" y="176.3" class="tick-label" fill="#d94a4a">dN/dS = 1</text>
+<path d="M80.0,420.0 L760.0,256.4 L760.0,420.0 L80.0,420.0 Z" fill="rgba(74,144,217,0.2)" stroke="none"/>
+<path d="M80.0,420.0 L760.0,345.7" fill="none" stroke="#2c3e50" stroke-width="2"/>
+<line x1="80" y1="50" x2="80" y2="420" stroke="#333333" stroke-width="1.5"/>
+<line x1="80" y1="420" x2="760" y2="420" stroke="#333333" stroke-width="1.5"/>
+<text x="80.0" y="438.0" class="tick-label" text-anchor="middle">1</text>
+<text x="760.0" y="438.0" class="tick-label" text-anchor="middle">2</text>
+<text x="420.0" y="490.0" class="axis-label">Codon Position (window size=2)</text>
+<text x="15" y="235.0" class="axis-label" transform="rotate(-90,15,235.0)">Mean dN/dS</text>
+</svg>
