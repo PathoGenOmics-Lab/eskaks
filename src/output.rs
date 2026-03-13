@@ -1,5 +1,7 @@
 use crate::codon::extract_group_key;
 use crate::models::{DsDn, Model, Z_95_CONFIDENCE};
+use crate::plot::GroupPlotData;
+use crate::stats::{FloatAccum, SummaryStats, WindowStats};
 use crossbeam::channel::unbounded;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::info;
@@ -21,6 +23,7 @@ pub fn write_pairwise(
     model: Model,
     sep: char,
     ext: &str,
+    summary: Option<&SummaryStats>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let total_pairs_to_write = ids.len() * (ids.len() - 1) / 2;
     let pb_write = ProgressBar::new(total_pairs_to_write as u64);
@@ -58,9 +61,10 @@ pub fn write_pairwise(
                 vec![0u32; n_u],
                 0u32,
                 String::with_capacity(1024 * 64),
+                FloatAccum::new(),
             )
         },
-        |(sender, row_cache, gen_map, cur_gen, local_buffer), i| {
+        |(sender, row_cache, gen_map, cur_gen, local_buffer, local_stats), i| {
             *cur_gen = cur_gen.wrapping_add(1);
             let gen = *cur_gen;
             let u_i = uidx_by_id[i];
@@ -83,6 +87,11 @@ pub fn write_pairwise(
                     result.dn / result.ds
                 };
 
+                if let Some(stats) = summary {
+                    stats.record_pair_atomic(result.dn, result.ds, ratio);
+                    local_stats.record(result.dn, result.ds, ratio);
+                }
+
                 let _ = writeln!(local_buffer, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
                     &ids[i], &ids[j], result.dn, result.ds, ratio, s = sep);
 
@@ -91,6 +100,13 @@ pub fn write_pairwise(
                         .expect("Writer thread channel closed unexpectedly");
                 }
             }
+
+            // Flush thread-local stats to shared accumulator (once per row)
+            if let Some(stats) = summary {
+                stats.flush_local(local_stats);
+                local_stats.reset();
+            }
+
             if !local_buffer.is_empty() {
                 sender.send(std::mem::take(local_buffer))
                     .expect("Writer thread channel closed unexpectedly");
@@ -116,6 +132,7 @@ pub fn write_pairwise(
 
 /// Writes dN/dS summary by lineage using a dedicated writer thread.
 /// Computes pairs on-the-fly with lazy per-row caching.
+/// Returns lineage plot data if summary stats are being collected.
 pub fn write_lineage(
     ids: &[String],
     uidx_by_id: &[usize],
@@ -126,11 +143,18 @@ pub fn write_lineage(
     lineage_names: &[String],
     sep: char,
     ext: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+    summary: Option<&SummaryStats>,
+) -> Result<Vec<(String, String, f64)>, Box<dyn std::error::Error>> {
     let num_lineages = lineage_names.len();
     let output_path = format!("{}_lineage_summary.{}", output_prefix, ext);
 
     let (tx, rx) = unbounded::<String>();
+    let (plot_tx, plot_rx) = if summary.is_some() {
+        let (t, r) = unbounded::<(String, String, f64)>();
+        (Some(t), Some(r))
+    } else {
+        (None, None)
+    };
 
     let writer_thread = thread::spawn({
         let output_path = output_path.clone();
@@ -154,13 +178,15 @@ pub fn write_lineage(
             || {
                 (
                     tx.clone(),
+                    plot_tx.clone(),
                     vec![DsDn { dn: 0.0, ds: 0.0 }; n_u],
                     vec![0u32; n_u],
                     0u32,
                     vec![(0.0f64, 0.0f64, 0usize); num_lineages],
+                    FloatAccum::new(),
                 )
             },
-            |(sender, row_cache, gen_map, cur_gen, local_aggr), i| {
+            |(sender, plot_sender, row_cache, gen_map, cur_gen, local_aggr, local_stats), i| {
                 *cur_gen = cur_gen.wrapping_add(1);
                 let gen = *cur_gen;
                 let u_i = uidx_by_id[i];
@@ -198,22 +224,44 @@ pub fn write_lineage(
                     };
                     let _ = writeln!(block, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
                         &ids[i], &lineage_names[lin_idx], mean_dn, mean_ds, ratio, s = sep);
+
+                    if let Some(stats) = summary {
+                        stats.record_pair_atomic(mean_dn, mean_ds, ratio);
+                        local_stats.record(mean_dn, mean_ds, ratio);
+                    }
+                    if let Some(ref ps) = plot_sender {
+                        let _ = ps.send((ids[i].clone(), lineage_names[lin_idx].clone(), ratio));
+                    }
                 }
+
+                if let Some(stats) = summary {
+                    stats.flush_local(local_stats);
+                    local_stats.reset();
+                }
+
                 if !block.is_empty() {
                     sender.send(block).expect("Writer thread channel closed unexpectedly");
                 }
             },
         );
     drop(tx);
+    drop(plot_tx);
 
     writer_thread.join()
         .expect("Writer thread panicked")
         .expect("Writer thread encountered an I/O error");
-    Ok(())
+
+    let plot_data = if let Some(rx) = plot_rx {
+        rx.into_iter().collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(plot_data)
 }
 
 /// Writes grouped dN/dS averages using a dedicated writer thread.
-/// Computes pairs on-the-fly (no pre-stored results needed).
+/// Returns group plot data if summary stats are being collected.
 pub fn write_group_average(
     ids: &[String],
     uidx_by_id: &[usize],
@@ -223,7 +271,8 @@ pub fn write_group_average(
     first_letter_lineage: bool,
     sep: char,
     ext: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+    summary: Option<&SummaryStats>,
+) -> Result<Vec<GroupPlotData>, Box<dyn std::error::Error>> {
     let mut group_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
     let mut group_names: Vec<String> = Vec::new();
     let group_by_id: Vec<usize> = ids.iter().map(|id| {
@@ -258,6 +307,12 @@ pub fn write_group_average(
     let output_path = format!("{}_group_avg_dn_ds.{}", output_prefix, ext);
 
     let (tx, rx) = unbounded::<String>();
+    let (plot_tx, plot_rx) = if summary.is_some() {
+        let (t, r) = unbounded::<GroupPlotData>();
+        (Some(t), Some(r))
+    } else {
+        (None, None)
+    };
 
     let writer_thread = thread::spawn({
         let output_path = output_path.clone();
@@ -275,7 +330,7 @@ pub fn write_group_average(
         }
     });
 
-    group_pairs.into_par_iter().for_each_with(tx, |s, (g1, g2)| {
+    group_pairs.into_par_iter().for_each_with((tx, plot_tx), |(s, ps), (g1, g2)| {
         let members1 = &group_members[g1];
         let members2 = &group_members[g2];
         let mut pair_dn_ds_ratios = Vec::new();
@@ -297,28 +352,50 @@ pub fn write_group_average(
             }
         }
 
-        let line = if pair_dn_ds_ratios.is_empty() {
-            format!("{}{s}{}{s}{}{s}{}{s}0{s}NaN{s}NaN{s}[NaN, NaN]\n",
+        let (line, plot_data) = if pair_dn_ds_ratios.is_empty() {
+            (format!("{}{s}{}{s}{}{s}{}{s}0{s}NaN{s}NaN{s}[NaN, NaN]\n",
                 &group_names[g1], &group_names[g2],
-                members1.len(), members2.len(), s = sep)
+                members1.len(), members2.len(), s = sep),
+             GroupPlotData {
+                 label: format!("{} vs {}", &group_names[g1], &group_names[g2]),
+                 mean: f64::NAN, ci_low: f64::NAN, ci_high: f64::NAN,
+             })
         } else {
             let n = pair_dn_ds_ratios.len();
             let mean: f64 = pair_dn_ds_ratios.iter().sum::<f64>() / n as f64;
             if n == 1 {
-                format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}N/A{s}N/A\n",
+                (format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}N/A{s}N/A\n",
                     &group_names[g1], &group_names[g2],
-                    members1.len(), members2.len(), n, mean, s = sep)
+                    members1.len(), members2.len(), n, mean, s = sep),
+                 GroupPlotData {
+                     label: format!("{} vs {}", &group_names[g1], &group_names[g2]),
+                     mean, ci_low: mean, ci_high: mean,
+                 })
             } else {
                 let variance: f64 =
                     pair_dn_ds_ratios.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
                 let se = (variance / n as f64).sqrt();
                 let ci_hw = Z_95_CONFIDENCE * se;
-                format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}[{:.6}, {:.6}]\n",
+                (format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}[{:.6}, {:.6}]\n",
                     &group_names[g1], &group_names[g2],
                     members1.len(), members2.len(), n,
-                    mean, se, mean - ci_hw, mean + ci_hw, s = sep)
+                    mean, se, mean - ci_hw, mean + ci_hw, s = sep),
+                 GroupPlotData {
+                     label: format!("{} vs {}", &group_names[g1], &group_names[g2]),
+                     mean, ci_low: mean - ci_hw, ci_high: mean + ci_hw,
+                 })
             }
         };
+
+        if let Some(ref stats) = summary {
+            for &r in &pair_dn_ds_ratios {
+                stats.record_pair_atomic(0.0, 0.0, r); // group mode: only ratio matters
+            }
+        }
+
+        if let Some(ref plot_s) = ps {
+            let _ = plot_s.send(plot_data);
+        }
 
         s.send(line).expect("Writer thread channel closed unexpectedly");
         pb_group.inc(1);
@@ -328,7 +405,14 @@ pub fn write_group_average(
         .expect("Writer thread panicked")
         .expect("Writer thread encountered an I/O error");
     pb_group.finish_with_message("Group average computation completed.");
-    Ok(())
+
+    let plot_data = if let Some(rx) = plot_rx {
+        rx.into_iter().collect()
+    } else {
+        Vec::new()
+    };
+
+    Ok(plot_data)
 }
 
 /// Writes pairwise sliding window results using a dedicated writer thread.
@@ -343,6 +427,8 @@ pub fn write_pairwise_windows(
     ext: &str,
     window_size: usize,
     window_step: usize,
+    summary: Option<&SummaryStats>,
+    window_stats: Option<&WindowStats>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let seq_len = unique_codon_indices.first().map(|v| v.len()).unwrap_or(0);
     let num_windows = if seq_len >= window_size {
@@ -383,9 +469,10 @@ pub fn write_pairwise_windows(
             (
                 tx.clone(),
                 String::with_capacity(1024 * 64),
+                FloatAccum::new(),
             )
         },
-        |(sender, local_buffer), i| {
+        |(sender, local_buffer, local_stats), i| {
             let u_i = uidx_by_id[i];
             for j in (i + 1)..ids.len() {
                 let u_j = uidx_by_id[j];
@@ -407,7 +494,15 @@ pub fn write_pairwise_windows(
                     } else {
                         result.dn / result.ds
                     };
-                    // Window positions in 1-based codon coordinates
+
+                    if let Some(stats) = summary {
+                        stats.record_pair_atomic(result.dn, result.ds, ratio);
+                        local_stats.record(result.dn, result.ds, ratio);
+                    }
+                    if let Some(ws) = window_stats {
+                        ws.record(w, ratio);
+                    }
+
                     let _ = writeln!(local_buffer, "{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
                         &ids[i], &ids[j], start + 1, end, result.dn, result.ds, ratio, s = sep);
 
@@ -418,6 +513,12 @@ pub fn write_pairwise_windows(
                 }
                 pb.inc(num_windows as u64);
             }
+
+            if let Some(stats) = summary {
+                stats.flush_local(local_stats);
+                local_stats.reset();
+            }
+
             if !local_buffer.is_empty() {
                 sender.send(std::mem::take(local_buffer))
                     .expect("Writer thread channel closed unexpectedly");

@@ -1,12 +1,15 @@
 mod codon;
 mod models;
 mod output;
+mod plot;
+mod stats;
 
 use clap::Parser;
 use log::{info, warn};
 use needletail::parse_fastx_file;
 
 use models::{DsDn, Model, OutputFormat};
+use stats::SummaryStats;
 
 /// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
 #[derive(Parser, Debug)]
@@ -55,6 +58,14 @@ struct Args {
     /// Sliding window step in codons (default: 1)
     #[arg(long, default_value_t = 1)]
     window_step: usize,
+
+    /// Print statistical summary to stderr after computation
+    #[arg(long)]
+    summary: bool,
+
+    /// Generate SVG plot file
+    #[arg(long)]
+    plot: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,8 +78,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_global()?;
 
     // --- Read sequences: convert FASTA bytes directly to codon indices ---
-    // We store codon indices (L/3 bytes each) instead of raw DNA5 (L bytes each),
-    // reducing memory by 3x and avoiding the intermediate DNA5 allocation.
     info!("Reading sequences from: {}", args.input_file);
     let mut all_codon_indices: Vec<Vec<u8>> = Vec::new();
     let mut ids: Vec<String> = Vec::new();
@@ -105,7 +114,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         warn!("{} sequence(s) contain {} total gap character(s) ('-' or '.'), treated as ambiguous.",
             seqs_with_gaps, gap_count_total);
     }
-    // Validate alignment: all sequences should have the same codon length
     if let Some(first_len) = all_codon_indices.first().map(|v| v.len()) {
         let mismatched = all_codon_indices.iter().filter(|v| v.len() != first_len).count();
         if mismatched > 0 {
@@ -139,7 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // --- Sort-based deduplication on codon indices (L/3 bytes, not L bytes) ---
+    // --- Sort-based deduplication on codon indices ---
     let mut sorted_indices: Vec<usize> = (0..ids.len()).collect();
     sorted_indices.sort_unstable_by(|&a, &b| all_codon_indices[a].cmp(&all_codon_indices[b]));
 
@@ -194,10 +202,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    // --- Output generation (streaming: compute pairs on-the-fly with per-row caching) ---
-    // Instead of precomputing and storing all U*(U-1)/2 pair results (O(U²) memory),
-    // each output function computes pairs on demand using lazy per-row caching.
-    // Memory: O(U) per thread instead of O(U²) total.
+    // --- Summary stats (only allocated when --summary or --plot is active) ---
+    let summary_stats = if args.summary || args.plot {
+        Some(SummaryStats::new())
+    } else {
+        None
+    };
+
     let compute_pair = |u_i: usize, u_j: usize| -> DsDn {
         if u_i == u_j {
             return DsDn { dn: 0.0, ds: 0.0 };
@@ -210,7 +221,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         DsDn { dn, ds }
     };
 
-    // Slice-based compute_pair for sliding window mode
     let compute_pair_slices = |s1: &[u8], s2: &[u8]| -> DsDn {
         let (dn, ds) = match (&li_tables, &nei_tables) {
             (Some(tables), _) => tables.compute_pair(s1, s2),
@@ -222,6 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ext = args.format.extension();
     let sep = args.format.separator();
+    let stats_ref = summary_stats.as_ref();
 
     if args.group_average {
         if args.window_size.is_some() {
@@ -229,8 +240,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
         info!("Computing group average dN/dS...");
-        output::write_group_average(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.first_letter_lineage, sep, ext)?;
+        let plot_data = output::write_group_average(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.first_letter_lineage, sep, ext, stats_ref)?;
         info!("Results saved to {}_group_avg_dn_ds.{}", args.output, ext);
+
+        if args.plot && !plot_data.is_empty() {
+            let plot_path = format!("{}_group_dnds.svg", args.output);
+            plot::group_bar_svg(&plot_data, &plot_path)?;
+            info!("Plot saved to {}", plot_path);
+        }
     } else if args.lineage {
         if args.window_size.is_some() {
             eprintln!("--window-size cannot be used with --lineage.");
@@ -251,21 +268,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 next_idx
             })
         }).collect();
-        output::write_lineage(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, &lineage_indices, &lineage_names, sep, ext)?;
+        let plot_data = output::write_lineage(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, &lineage_indices, &lineage_names, sep, ext, stats_ref)?;
         info!("Lineage summary saved to {}_lineage_summary.{}", args.output, ext);
+
+        if args.plot && !plot_data.is_empty() {
+            let lineage_plot_data: Vec<plot::LineagePlotData> = plot_data.into_iter()
+                .map(|(genome, lineage, ratio)| plot::LineagePlotData { genome, lineage, ratio })
+                .collect();
+            let plot_path = format!("{}_lineage_dnds.svg", args.output);
+            plot::lineage_bar_svg(&lineage_plot_data, &plot_path)?;
+            info!("Plot saved to {}", plot_path);
+        }
     } else if let Some(win_size) = args.window_size {
         let seq_len = unique_codon_indices.first().map(|v| v.len()).unwrap_or(0);
         if win_size == 0 || win_size > seq_len {
             eprintln!("--window-size must be between 1 and {} (sequence length in codons).", seq_len);
             std::process::exit(1);
         }
+        let num_windows = (seq_len - win_size) / args.window_step + 1;
+        let window_stats = if args.plot {
+            Some(stats::WindowStats::new(num_windows))
+        } else {
+            None
+        };
         info!("Generating sliding window pairwise results (window={}, step={})...", win_size, args.window_step);
-        output::write_pairwise_windows(&ids, &uidx_by_id, &unique_codon_indices, &compute_pair_slices, &args.output, args.model, sep, ext, win_size, args.window_step)?;
+        output::write_pairwise_windows(&ids, &uidx_by_id, &unique_codon_indices, &compute_pair_slices, &args.output, args.model, sep, ext, win_size, args.window_step, stats_ref, window_stats.as_ref())?;
         info!("Results saved to {}_pairwise_windows.{}", args.output, ext);
+
+        if let Some(ws) = &window_stats {
+            let plot_path = format!("{}_window_plot.svg", args.output);
+            plot::window_plot_svg(ws, &plot_path, win_size, args.window_step)?;
+            info!("Plot saved to {}", plot_path);
+        }
     } else {
         info!("Generating pairwise results...");
-        output::write_pairwise(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.model, sep, ext)?;
+        output::write_pairwise(&ids, &uidx_by_id, n_u, &compute_pair, &args.output, args.model, sep, ext, stats_ref)?;
         info!("Results saved to {}_pairwise_results.{}", args.output, ext);
+
+        if args.plot {
+            if let Some(ref stats) = summary_stats {
+                let plot_path = format!("{}_dnds_histogram.svg", args.output);
+                plot::histogram_svg(stats, &plot_path)?;
+                info!("Plot saved to {}", plot_path);
+            }
+        }
+    }
+
+    // --- Print summary if requested ---
+    if let Some(ref stats) = summary_stats {
+        if args.summary {
+            stats.print_summary();
+        }
     }
 
     info!("All processes completed successfully.");
