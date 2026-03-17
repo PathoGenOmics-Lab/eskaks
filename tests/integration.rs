@@ -310,3 +310,86 @@ fn sliding_window_csv_format() {
     assert_eq!(rows[0], vec!["Seq1", "Seq2", "Window_Start", "Window_End", "dN", "dS", "dN/dS"]);
     fs::remove_file(format!("{}_pairwise_windows.csv", out_prefix)).ok();
 }
+
+// ─── Summary and Plot ────────────────────────────────────────────────────────
+
+#[test]
+fn summary_prints_to_stderr() {
+    let out_prefix = "/tmp/eskaks_test_summary";
+    let output = Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--summary"])
+        .output()
+        .expect("Failed to spawn binary");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("dN/dS Summary"), "stderr should contain summary header, got: {}", stderr);
+    assert!(stderr.contains("Total pairs:"), "stderr should contain pair count");
+    assert!(stderr.contains("Distribution"), "stderr should contain histogram");
+    fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn plot_creates_histogram_svg() {
+    let out_prefix = "/tmp/eskaks_test_plot_hist";
+    let status = Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--plot"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let svg_path = format!("{}_dnds_histogram.svg", out_prefix);
+    let content = fs::read_to_string(&svg_path)
+        .unwrap_or_else(|_| panic!("SVG file not created at {}", svg_path));
+    assert!(content.contains("<svg"), "SVG should contain <svg tag");
+    assert!(content.contains("</svg>"), "SVG should contain closing </svg> tag");
+    assert!(content.contains("dN/dS Ratio Distribution"), "SVG should contain title");
+    fs::remove_file(&svg_path).ok();
+    fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn plot_window_creates_svg() {
+    let out_prefix = "/tmp/eskaks_test_plot_window";
+    let status = Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
+               "--window-size", "2", "--plot"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let svg_path = format!("{}_window_plot.svg", out_prefix);
+    let content = fs::read_to_string(&svg_path)
+        .unwrap_or_else(|_| panic!("SVG not created at {}", svg_path));
+    assert!(content.contains("Sliding Window"));
+    fs::remove_file(&svg_path).ok();
+    fs::remove_file(format!("{}_pairwise_windows.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn plot_group_creates_svg() {
+    let out_prefix = "/tmp/eskaks_test_plot_group";
+    let status = Command::new(binary_path())
+        .args([FASTA_GROUPED, "-o", out_prefix, "--group-average", "--workers", "2", "--plot"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let svg_path = format!("{}_group_dnds.svg", out_prefix);
+    let content = fs::read_to_string(&svg_path)
+        .unwrap_or_else(|_| panic!("SVG not created at {}", svg_path));
+    assert!(content.contains("Group Average"));
+    fs::remove_file(&svg_path).ok();
+    fs::remove_file(format!("{}_group_avg_dn_ds.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn summary_and_plot_together() {
+    let out_prefix = "/tmp/eskaks_test_both";
+    let output = Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--summary", "--plot"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("dN/dS Summary"));
+    assert!(fs::metadata(format!("{}_dnds_histogram.svg", out_prefix)).is_ok(), "SVG should exist");
+    fs::remove_file(format!("{}_dnds_histogram.svg", out_prefix)).ok();
+    fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
+}

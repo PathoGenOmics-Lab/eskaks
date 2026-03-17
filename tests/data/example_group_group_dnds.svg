@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+<style>
+  text { font-family: sans-serif; fill: #333333; }
+  .title { font-size: 16px; font-weight: bold; text-anchor: middle; }
+  .axis-label { font-size: 12px; text-anchor: middle; }
+  .tick-label { font-size: 10px; }
+  .grid { stroke: #e0e0e0; stroke-width: 0.5; }
+</style>
+<rect width="800" height="500" fill="white"/>
+<text x="400" y="30" class="title">Group Average dN/dS</text>
+<line x1="80" y1="420.0" x2="760" y2="420.0" class="grid"/>
+<text x="72" y="420.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.000</text>
+<line x1="80" y1="346.0" x2="760" y2="346.0" class="grid"/>
+<text x="72" y="346.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.085</text>
+<line x1="80" y1="272.0" x2="760" y2="272.0" class="grid"/>
+<text x="72" y="272.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.169</text>
+<line x1="80" y1="198.0" x2="760" y2="198.0" class="grid"/>
+<text x="72" y="198.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.254</text>
+<line x1="80" y1="124.0" x2="760" y2="124.0" class="grid"/>
+<text x="72" y="124.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.339</text>
+<line x1="80" y1="50.0" x2="760" y2="50.0" class="grid"/>
+<text x="72" y="50.0" class="tick-label" text-anchor="end" dominant-baseline="middle">0.423</text>
+<rect x="163.3" y="420.0" width="60.0" height="0.0" fill="#4a90d9" rx="2"/>
+<line x1="193.3" y1="420.0" x2="193.3" y2="420.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="184.3" y1="420.0" x2="202.3" y2="420.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="184.3" y1="420.0" x2="202.3" y2="420.0" stroke="#333333" stroke-width="1.5"/>
+<text x="193.3" y="440.0" class="tick-label" text-anchor="middle" transform="rotate(-30,193.3,440.0)">A vs A</text>
+<rect x="390.0" y="111.7" width="60.0" height="308.3" fill="#4a90d9" rx="2"/>
+<line x1="420.0" y1="111.7" x2="420.0" y2="111.7" stroke="#333333" stroke-width="1.5"/>
+<line x1="411.0" y1="111.7" x2="429.0" y2="111.7" stroke="#333333" stroke-width="1.5"/>
+<line x1="411.0" y1="111.7" x2="429.0" y2="111.7" stroke="#333333" stroke-width="1.5"/>
+<text x="420.0" y="440.0" class="tick-label" text-anchor="middle" transform="rotate(-30,420.0,440.0)">B vs B</text>
+<rect x="616.7" y="50.0" width="60.0" height="370.0" fill="#d94a4a" rx="2"/>
+<text x="646.7" y="45.0" class="tick-label" text-anchor="middle" font-weight="bold">inf</text>
+<text x="646.7" y="440.0" class="tick-label" text-anchor="middle" transform="rotate(-30,646.7,440.0)">A vs B</text>
+<line x1="80" y1="50" x2="80" y2="420" stroke="#333333" stroke-width="1.5"/>
+<line x1="80" y1="420" x2="760" y2="420" stroke="#333333" stroke-width="1.5"/>
+<text x="420.0" y="490.0" class="axis-label">Group Pair</text>
+<text x="15" y="235.0" class="axis-label" transform="rotate(-90,15,235.0)">Mean dN/dS</text>
+</svg>
