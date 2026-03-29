@@ -111,7 +111,7 @@ eskaks <input_file> [options]
 
 ### Required Arguments
 
-- `<input_file>`: Aligned coding sequences in FASTA format.
+- `<input_file>`: Aligned coding sequences in FASTA format. Use `-` to read from stdin.
 
 ### Options
 
@@ -120,7 +120,7 @@ eskaks <input_file> [options]
 | `-o, --output <PREFIX>` | Base name for output files | `output` |
 | `-w, --workers <N>` | Number of parallel threads | `4` |
 | `--model <nei\|li>` | Model to use for calculation | `nei` |
-| `--format <tsv\|csv>` | Output format | `tsv` |
+| `--format <tsv\|csv\|json>` | Output format (JSON uses `null` for NaN) | `tsv` |
 | `--lineage` | Compute summary results by lineage (mutually exclusive with `--group-average`) | off |
 | `--group-average` | Compute average dN/dS between groups (mutually exclusive with `--lineage`) | off |
 | `--first-letter-lineage` | Group sequences by first letter (requires `--lineage` or `--group-average`) | off |
@@ -186,6 +186,17 @@ eskaks <input_file> [options]
    ```bash
    eskaks --list-codes
    ```
+
+10. **JSON output for pipelines:**
+    ```bash
+    eskaks input.fasta --format json -o results
+    ```
+    Produces `results_pairwise_results.json` with NaN values as `null`.
+
+11. **Read from stdin:**
+    ```bash
+    cat input.fasta | eskaks - -o results
+    ```
 
 ## Architecture
 

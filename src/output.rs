@@ -12,6 +12,17 @@ use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
+/// Format f64 for JSON: NaN/Infinity → null, -0 → 0, otherwise 6 decimal places.
+fn format_json_f64(v: f64) -> String {
+    if v.is_nan() || v.is_infinite() {
+        "null".to_string()
+    } else if v == 0.0 {
+        "0.000000".to_string()
+    } else {
+        format!("{:.6}", v)
+    }
+}
+
 /// Lineage plot data: (genome_id, lineage_name, dn_ds_ratio).
 pub type LineagePlotResult = Vec<(String, String, f64)>;
 
@@ -52,6 +63,7 @@ pub fn write_pairwise(
     let nan_count = AtomicUsize::new(0);
     let (tx, rx) = unbounded::<String>();
 
+    let is_json = ext == "json";
     let writer_thread = thread::spawn({
         let output_path = format!("{}_pairwise_results.{}", output_prefix, ext);
         move || -> Result<(), std::io::Error> {
@@ -59,13 +71,26 @@ pub fn write_pairwise(
                 File::create(&output_path)
                     .map_err(|e| std::io::Error::new(e.kind(), format!("Cannot create '{}': {}", output_path, e)))?
             );
-            let header = match model {
-                Model::Li => format!("Seq1{s}Seq2{s}dN(Ka){s}dS(Ks){s}dN/dS\n", s = sep),
-                Model::Nei => format!("Seq1{s}Seq2{s}dN{s}dS{s}dN/dS\n", s = sep),
-            };
-            out_file.write_all(header.as_bytes())?;
-            for line_batch in rx {
-                out_file.write_all(line_batch.as_bytes())?;
+            if is_json {
+                out_file.write_all(b"[\n")?;
+                let mut first = true;
+                for line_batch in rx {
+                    for line in line_batch.lines() {
+                        if !first { out_file.write_all(b",\n")?; }
+                        out_file.write_all(line.as_bytes())?;
+                        first = false;
+                    }
+                }
+                out_file.write_all(b"\n]\n")?;
+            } else {
+                let header = match model {
+                    Model::Li => format!("Seq1{s}Seq2{s}dN(Ka){s}dS(Ks){s}dN/dS\n", s = sep),
+                    Model::Nei => format!("Seq1{s}Seq2{s}dN{s}dS{s}dN/dS\n", s = sep),
+                };
+                out_file.write_all(header.as_bytes())?;
+                for line_batch in rx {
+                    out_file.write_all(line_batch.as_bytes())?;
+                }
             }
             Ok(())
         }
@@ -110,8 +135,15 @@ pub fn write_pairwise(
                     local_stats.record(result.dn, result.ds, ratio);
                 }
 
-                let _ = writeln!(local_buffer, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
-                    &ids[i], &ids[j], result.dn, result.ds, ratio, s = sep);
+                if is_json {
+                    let _ = writeln!(local_buffer,
+                        "{{\"seq1\":\"{}\",\"seq2\":\"{}\",\"dN\":{},\"dS\":{},\"dN_dS\":{}}}",
+                        &ids[i], &ids[j],
+                        format_json_f64(result.dn), format_json_f64(result.ds), format_json_f64(ratio));
+                } else {
+                    let _ = writeln!(local_buffer, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
+                        &ids[i], &ids[j], result.dn, result.ds, ratio, s = sep);
+                }
 
                 if local_buffer.len() > 1024 * 32 {
                     sender.send(std::mem::take(local_buffer))

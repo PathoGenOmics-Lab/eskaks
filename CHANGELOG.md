@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-03-29
+
+### Added
+- **Stdin support**: Read FASTA from stdin via `-` or `/dev/stdin` (`cat seqs.fasta | eskaks -`).
+- **JSON output format**: `--format json` produces a JSON array of objects with `seq1`, `seq2`, `dN`, `dS`, `dN_dS` keys. NaN/Infinity values are serialized as `null`.
+- **Internal stop codon warnings**: Detects premature stop codons (excluding the terminal codon) and warns about potential frameshifts or pseudogenes.
+- **Makefile**: `make benchmark` runs the full benchmark pipeline (generate → run → plot). Also: `make test`, `make clippy`, `make check`, `make release`.
+
 ## [1.2.0] - 2026-03-29
 
 ### Changed

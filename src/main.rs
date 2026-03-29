@@ -52,7 +52,8 @@ fn main() -> anyhow::Result<()> {
         .input_file
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("No input file specified"))?;
-    let data = input::load_sequences(input_file, args.model, args.min_codons)?;
+    let stop_indices = genetic_code::stop_codon_indices(gc, args.model);
+    let data = input::load_sequences(input_file, args.model, args.min_codons, Some(&stop_indices))?;
 
     // Build compute engine
     let engine = ComputeEngine::new(args.model, gc);

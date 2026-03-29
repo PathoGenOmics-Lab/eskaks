@@ -16,6 +16,7 @@ pub enum Model {
 pub enum OutputFormat {
     Tsv,
     Csv,
+    Json,
 }
 
 impl OutputFormat {
@@ -23,14 +24,17 @@ impl OutputFormat {
         match self {
             OutputFormat::Tsv => '\t',
             OutputFormat::Csv => ',',
+            OutputFormat::Json => ',', // unused for JSON, but needed for the trait
         }
     }
     pub fn extension(self) -> &'static str {
         match self {
             OutputFormat::Tsv => "tsv",
             OutputFormat::Csv => "csv",
+            OutputFormat::Json => "json",
         }
     }
+
 }
 
 #[derive(Clone, Copy, Debug)]

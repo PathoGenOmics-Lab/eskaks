@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context};
 use log::{info, warn};
-use needletail::parse_fastx_file;
+use needletail::{parse_fastx_file, parse_fastx_reader};
 
 use crate::codon;
 use crate::models::Model;
@@ -20,18 +20,45 @@ pub struct SequenceData {
     pub n_unique: usize,
 }
 
+/// Returns true if the input should be read from stdin.
+fn is_stdin(path: &str) -> bool {
+    path == "-" || path == "/dev/stdin"
+}
+
 /// Read FASTA, validate, filter, and deduplicate.
-pub fn load_sequences(input_file: &str, model: Model, min_codons: usize) -> anyhow::Result<SequenceData> {
-    info!("Reading sequences from: {}", input_file);
+/// `stop_codons` is an optional set of codon indices that are stop codons for the active genetic code.
+pub fn load_sequences(
+    input_file: &str,
+    model: Model,
+    min_codons: usize,
+    stop_codons: Option<&[u8]>,
+) -> anyhow::Result<SequenceData> {
+    let source = if is_stdin(input_file) { "stdin" } else { input_file };
+    info!("Reading sequences from: {}", source);
 
     let mut all_codon_indices: Vec<Vec<u8>> = Vec::new();
     let mut ids: Vec<String> = Vec::new();
     let mut gap_count_total = 0usize;
     let mut seqs_with_gaps = 0usize;
 
+    // Buffer for stdin data (must outlive the reader)
+    let stdin_buf: Vec<u8> = if is_stdin(input_file) {
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut buf)
+            .context("Failed to read from stdin")?;
+        buf
+    } else {
+        Vec::new()
+    };
+
     {
-        let mut reader = parse_fastx_file(input_file)
-            .with_context(|| format!("Failed to open input file '{}'", input_file))?;
+        let mut reader: Box<dyn needletail::FastxReader> = if is_stdin(input_file) {
+            parse_fastx_reader(&stdin_buf[..])
+                .context("Failed to parse FASTA from stdin")?
+        } else {
+            parse_fastx_file(input_file)
+                .with_context(|| format!("Failed to open input file '{}'", input_file))?
+        };
         while let Some(record) = reader.next() {
             let rec = record?;
             let seq = rec.seq();
@@ -49,6 +76,23 @@ pub fn load_sequences(input_file: &str, model: Model, min_codons: usize) -> anyh
                 );
             }
             let codons = codon::fasta_to_codon_indices(&seq, model);
+
+            // Check for internal stop codons (last codon excluded — it's expected)
+            if let Some(stops) = stop_codons {
+                let id = String::from_utf8_lossy(rec.id());
+                let last = codons.len().saturating_sub(1);
+                for (pos, &c) in codons.iter().enumerate() {
+                    if pos < last && c != codon::INVALID_CODON && stops.contains(&c) {
+                        warn!(
+                            "Sequence '{}' has internal stop codon at codon position {} (0-based). \
+                             This may indicate a frameshift, pseudogene, or wrong reading frame.",
+                            id, pos
+                        );
+                        break; // one warning per sequence is enough
+                    }
+                }
+            }
+
             let id_str = String::from_utf8_lossy(rec.id()).into_owned();
             all_codon_indices.push(codons);
             ids.push(id_str);
@@ -211,7 +255,7 @@ mod tests {
     #[test]
     fn load_two_identical_sequences() {
         let path = write_temp_fasta("ident", ">s1\nATGGCTGCT\n>s2\nATGGCTGCT\n");
-        let data = load_sequences(&path, Model::Nei, 0).unwrap();
+        let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
         assert_eq!(data.ids.len(), 2);
         assert_eq!(data.n_unique, 1, "identical seqs should deduplicate to 1");
         assert_eq!(data.uidx_by_id[0], data.uidx_by_id[1]);
@@ -221,7 +265,7 @@ mod tests {
     #[test]
     fn load_two_different_sequences() {
         let path = write_temp_fasta("diff", ">s1\nATGGCTGCT\n>s2\nATGATTGCT\n");
-        let data = load_sequences(&path, Model::Nei, 0).unwrap();
+        let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
         assert_eq!(data.ids.len(), 2);
         assert_eq!(data.n_unique, 2);
         assert_ne!(data.uidx_by_id[0], data.uidx_by_id[1]);
@@ -235,7 +279,7 @@ mod tests {
             "mincodon",
             ">s1\nATGGCTGCT\n>s2\nATGNNNNNN\n>s3\nATGATTGCT\n",
         );
-        let data = load_sequences(&path, Model::Nei, 2).unwrap();
+        let data = load_sequences(&path, Model::Nei, 2, None).unwrap();
         // s2 has only 1 valid codon → filtered out
         assert_eq!(data.ids.len(), 2);
         assert!(data.ids.contains(&"s1".to_string()));
@@ -246,7 +290,7 @@ mod tests {
     #[test]
     fn load_empty_file_errors() {
         let path = write_temp_fasta("empty", "");
-        let result = load_sequences(&path, Model::Nei, 0);
+        let result = load_sequences(&path, Model::Nei, 0, None);
         assert!(result.is_err());
         fs::remove_file(&path).ok();
     }
@@ -254,7 +298,7 @@ mod tests {
     #[test]
     fn load_single_sequence_errors() {
         let path = write_temp_fasta("single", ">s1\nATGGCTGCT\n");
-        let result = load_sequences(&path, Model::Nei, 0);
+        let result = load_sequences(&path, Model::Nei, 0, None);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("at least 2"), "error: {}", err);
@@ -263,7 +307,7 @@ mod tests {
 
     #[test]
     fn load_nonexistent_file_errors() {
-        let result = load_sequences("/tmp/eskaks_nonexistent_xyz.fasta", Model::Nei, 0);
+        let result = load_sequences("/tmp/eskaks_nonexistent_xyz.fasta", Model::Nei, 0, None);
         assert!(result.is_err());
     }
 

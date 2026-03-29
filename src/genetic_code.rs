@@ -146,6 +146,24 @@ pub fn list_tables() -> Vec<(u8, &'static str)> {
     TABLES.iter().map(|t| (t.id, t.name)).collect()
 }
 
+/// Get all codon indices that encode stop codons for a given genetic code and model.
+/// Returns indices in the model's native indexing (Li or Nei).
+pub fn stop_codon_indices(gc: &GeneticCode, model: crate::models::Model) -> Vec<u8> {
+    match model {
+        crate::models::Model::Li => {
+            (0u8..64)
+                .filter(|&i| gc.aa_table[i as usize] == b'*')
+                .collect()
+        }
+        crate::models::Model::Nei => {
+            let nei_aa = li_to_nei_aa(&gc.aa_table);
+            (0u8..64)
+                .filter(|&i| nei_aa[i as usize] == '*')
+                .collect()
+        }
+    }
+}
+
 /// Convert a Li-indexed amino acid table to Nei indexing.
 ///
 /// Li index: `16*b1 + 4*b2 + b3` where A=0, C=1, G=2, T=3.

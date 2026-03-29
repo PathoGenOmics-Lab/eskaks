@@ -290,6 +290,53 @@ fn plot_flag_generates_svg() {
 
 // ─── Version flag ───────────────────────────────────────────────────────────
 
+// ─── JSON output ────────────────────────────────────────────────────────────
+
+#[test]
+fn json_format_produces_valid_json() {
+    let path = "tests/data/synthetic.fasta";
+    let status = Command::new(binary_path())
+        .args([path, "-o", "/tmp/eskaks_edge_json", "--format", "json"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let results = fs::read_to_string("/tmp/eskaks_edge_json_pairwise_results.json").unwrap();
+    assert!(results.starts_with('['), "JSON should start with [");
+    assert!(results.trim().ends_with(']'), "JSON should end with ]");
+    assert!(results.contains("\"seq1\""), "JSON should have seq1 key");
+    assert!(results.contains("\"dN\""), "JSON should have dN key");
+    // null for NaN/Infinity
+    assert!(results.contains("null") || !results.contains("NaN"),
+        "JSON should use null, not NaN");
+    fs::remove_file("/tmp/eskaks_edge_json_pairwise_results.json").ok();
+}
+
+// ─── Stdin support ──────────────────────────────────────────────────────────
+
+#[test]
+fn stdin_pipe_works() {
+    let fasta = fs::read("tests/data/synthetic.fasta").unwrap();
+    let output = Command::new(binary_path())
+        .args(["-", "-o", "/tmp/eskaks_edge_stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(&fasta).unwrap();
+            child.wait_with_output()
+        })
+        .expect("spawn");
+    assert!(output.status.success(), "stdin pipe should work. stderr: {}",
+        String::from_utf8_lossy(&output.stderr));
+    let results = fs::read_to_string("/tmp/eskaks_edge_stdin_pairwise_results.tsv").unwrap();
+    assert!(results.lines().count() > 1, "should have header + data rows");
+    fs::remove_file("/tmp/eskaks_edge_stdin_pairwise_results.tsv").ok();
+}
+
+// ─── Version flag ───────────────────────────────────────────────────────────
+
 #[test]
 fn version_flag_shows_current_version() {
     let output = Command::new(binary_path())
@@ -298,5 +345,5 @@ fn version_flag_shows_current_version() {
         .expect("spawn");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("1.2.0"), "version should be 1.2.0: {}", stdout);
+    assert!(stdout.contains("1.3.0"), "version should be 1.3.0: {}", stdout);
 }
