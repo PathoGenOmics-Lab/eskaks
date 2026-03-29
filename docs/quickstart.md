@@ -16,12 +16,18 @@ cat aligned_genes.fasta | eskaks fasta - -o results
 ## pN/pS per gene (VCF)
 
 ```bash
-# Compute pN/pS from a VCF + reference + annotation
-eskaks vcf --ref reference.fasta --gff annotation.gff3 --vcf variants.vcf -o results
+# One VCF per sample — AF computed as fraction of samples
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
+  --vcf sample1.vcf --vcf sample2.vcf --vcf sample3.vcf \
+  --af-weighted --genetic-code 11 -o population_pnps
 
-# With filters and Manhattan plot
+# Or use a list file with VCF paths
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
+  --vcf-list samples.txt --af-weighted --plot -o population_pnps
+
+# Single multi-sample VCF also works
 eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
-  --pass-only --min-af 0.05 --genetic-code 11 --plot -o filtered
+  --pass-only --min-af 0.05 -o filtered
 ```
 
 ## Input requirements

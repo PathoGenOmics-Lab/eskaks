@@ -19,9 +19,28 @@ While dN/dS measures *fixed* substitutions between species, **pN/pS** measures t
 
 ## Usage
 
+### One VCF per sample (typical workflow)
+
 ```bash
-eskaks vcf --ref reference.fasta --gff annotation.gff3 --vcf variants.vcf -o results
+# Provide each sample's VCF individually
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
+  --vcf sample1.vcf --vcf sample2.vcf --vcf sample3.vcf \
+  --af-weighted --genetic-code 11 -o population_pnps
+
+# Or use a file with one VCF path per line
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
+  --vcf-list samples.txt --af-weighted -o population_pnps
 ```
+
+When multiple VCFs are provided, eskaks **merges** them and computes the allele frequency as the fraction of samples carrying each variant. For example, if 30 out of 100 samples have a SNP → AF = 0.3.
+
+### Single multi-sample VCF
+
+```bash
+eskaks vcf --ref reference.fasta --gff annotation.gff3 --vcf population.vcf -o results
+```
+
+When a single VCF is provided, allele frequencies are taken from INFO/AF or calculated from GT fields.
 
 ### Required arguments
 
@@ -29,17 +48,20 @@ eskaks vcf --ref reference.fasta --gff annotation.gff3 --vcf variants.vcf -o res
 |---|---|
 | `--ref <FASTA>` | Reference genome in FASTA format |
 | `--gff <GFF3>` | Gene annotation in GFF3 format (CDS features) |
-| `--vcf <VCF>` | Variants in VCF format (SNPs) |
+| `--vcf <VCF>` | VCF file(s) — use multiple times for per-sample VCFs |
 
 ### Options
 
 | Flag | Description | Default |
 |---|---|---|
+| `--vcf-list <FILE>` | File with one VCF path per line (alternative to multiple `--vcf`) | none |
+| `--af-weighted` | Weight SNP counts by allele frequency (πN/πS instead of pN/pS) | off |
 | `-o, --output <PREFIX>` | Base name for output files | `output` |
 | `--format <tsv\|csv\|json>` | Output format | `tsv` |
 | `--genetic-code <N>` | NCBI translation table | `1` |
 | `--pass-only` | Only include FILTER=PASS (or `.`) variants | off |
 | `--min-af <FLOAT>` | Minimum allele frequency (0.0–1.0) | none |
+| `--max-af <FLOAT>` | Maximum allele frequency — use 0.99 to exclude fixed variants | none |
 | `--min-depth <INT>` | Minimum read depth (INFO/DP) | none |
 | `--plot` | Generate Manhattan-style SVG plot | off |
 
@@ -60,28 +82,38 @@ File: `<prefix>_pnps.tsv` (or `.csv` / `.json`)
 | Syn_SNPs | Count of synonymous SNPs in this gene |
 | Total_SNPs | Total SNPs falling in this gene |
 
+## pN/pS vs πN/πS
+
+| Mode | Flag | How SNPs count | Best for |
+|---|---|---|---|
+| **pN/pS** | (default) | Each SNP counts as 1 | Presence/absence of variants |
+| **πN/πS** | `--af-weighted` | Each SNP weighted by AF | Population diversity analysis |
+
+**Example**: A SNP at AF=0.3 contributes 1.0 to pN/pS but only 0.3 to πN/πS.
+
 ## Examples
 
 ```bash
-# Basic pN/pS for M. tuberculosis
-eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf population.vcf \
-  --genetic-code 11 -o mtb_pnps
+# Population πN/πS from per-sample VCFs (M. tuberculosis)
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
+  --vcf-list samples.txt --af-weighted --genetic-code 11 \
+  --min-af 0.01 --max-af 0.99 --plot -o mtb_pnps
 
-# Filter: only PASS variants with AF ≥ 0.05 and depth ≥ 10
+# Simple pN/pS from a single multi-sample VCF
 eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
-  --pass-only --min-af 0.05 --min-depth 10 -o filtered
+  --pass-only --min-depth 10 -o filtered
 
-# JSON output with Manhattan plot
+# JSON output
 eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
-  --format json --plot -o results
+  --format json -o results
 ```
 
 ## How it works
 
 1. **Load reference**: Parse FASTA into a sequence map
 2. **Parse GFF3**: Extract CDS features, group by gene (Parent/gene_id), handle multi-exon, strand, phase
-3. **Parse VCF**: Extract SNPs (skip indels), parse allele frequencies from INFO/AF or GT fields
-4. **Apply filters**: PASS-only, minimum AF, minimum depth
+3. **Parse VCF(s)**: Extract SNPs (skip indels). Multiple per-sample VCFs are merged; AF = fraction of samples with the variant. Single VCFs use INFO/AF or GT fields.
+4. **Apply filters**: PASS-only, min/max AF, minimum depth
 5. **For each gene**:
    - Extract the CDS sequence from the reference (handling exon order, reverse complement for minus strand, phase offset)
    - **Count sites**: For each reference codon, enumerate all 9 possible single-nucleotide changes. Classify each as synonymous or nonsynonymous. S_sites = syn_changes/3, N_sites = nonsyn_changes/3.
@@ -94,8 +126,10 @@ eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
 - Standard VCFv4.x format
 - Only single-base SNPs are used (indels and MNPs are skipped)
 - Multi-allelic sites are supported (each ALT allele classified independently)
-- Allele frequency: parsed from `INFO/AF`, or calculated from `GT` fields if AF is absent
+- **One VCF per sample** (recommended): provide via `--vcf sample1.vcf --vcf sample2.vcf` or `--vcf-list samples.txt`. AF is computed as fraction of samples carrying the variant.
+- **Single multi-sample VCF**: AF parsed from `INFO/AF`, or calculated from `GT` fields
 - Read depth: parsed from `INFO/DP`
+- REF allele is verified against the reference genome (mismatches are warned and skipped)
 
 ### GFF3
 - Standard GFF3 format
@@ -113,4 +147,5 @@ eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
 1. **pN/pS ≠ dN/dS**: pN/pS does not correct for multiple substitutions (no Jukes-Cantor or Kimura). It measures raw polymorphism proportions, not evolutionary rates.
 2. **Low SNP counts**: Genes with very few SNPs produce unreliable pN/pS estimates. Consider filtering genes with < 5 total SNPs.
 3. **Overlapping genes**: Each SNP is assigned to all genes whose CDS regions overlap its position. Overlapping genes on opposite strands will classify the same SNP differently.
-4. **Allele frequency weighting**: Currently, each SNP is counted once regardless of its allele frequency. Future versions may support AF-weighted counting.
+4. **Fixed variants**: By default, fixed variants (AF=1.0) are included. Use `--max-af 0.99` to exclude them and analyze only segregating polymorphisms.
+5. **pN/pS vs πN/πS**: Without `--af-weighted`, all SNPs count equally (pN/pS). With `--af-weighted`, rare variants contribute less than common ones (πN/πS). Choose based on your question.

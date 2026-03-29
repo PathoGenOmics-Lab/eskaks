@@ -77,12 +77,17 @@ cat input.fasta | eskaks fasta - -o results
 ### pN/pS per gene (VCF)
 
 ```bash
-# Compute pN/pS from population variants
-eskaks vcf --ref reference.fasta --gff annotation.gff3 --vcf variants.vcf -o results
+# One VCF per sample, AF-weighted (πN/πS)
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
+  --vcf sample1.vcf --vcf sample2.vcf --vcf sample3.vcf \
+  --af-weighted --genetic-code 11 -o population_pnps
 
-# M. tuberculosis with filters and Manhattan plot
-eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf population.vcf \
-  --genetic-code 11 --pass-only --min-af 0.05 --plot -o mtb_pnps
+# Or use a file listing VCF paths
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
+  --vcf-list samples.txt --af-weighted --plot -o population_pnps
+
+# Single multi-sample VCF also works
+eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf population.vcf -o results
 ```
 
 > [!TIP]
@@ -91,9 +96,9 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf population.vcf \
 ## Usage
 
 ```bash
-eskaks fasta <input_file> [options]    # pairwise dN/dS
-eskaks vcf --ref --gff --vcf [options] # per-gene pN/pS
-eskaks --list-codes                    # show genetic code tables
+eskaks fasta <input_file> [options]           # pairwise dN/dS
+eskaks vcf --ref --gff --vcf ... [options]    # per-gene pN/pS (one VCF per sample)
+eskaks --list-codes                           # show genetic code tables
 ```
 
 See [docs/cli-reference.md](docs/cli-reference.md) for all flags and examples.

@@ -79,29 +79,34 @@ eskaks vcf --ref <FASTA> --gff <GFF3> --vcf <VCF> [OPTIONS]
 |---|---|---|
 | `--ref <FASTA>` | Reference genome in FASTA format | required |
 | `--gff <GFF3>` | Gene annotation in GFF3 format | required |
-| `--vcf <VCF>` | Variants in VCF format | required |
+| `--vcf <VCF>` | VCF file(s) — use multiple times for per-sample VCFs | required |
+| `--vcf-list <FILE>` | File with one VCF path per line | none |
+| `--af-weighted` | Weight counts by AF (πN/πS instead of pN/pS) | off |
 | `-o, --output <PREFIX>` | Base name for output files | `output` |
 | `--format <tsv\|csv\|json>` | Output format | `tsv` |
 | `--genetic-code <N>` | NCBI translation table number | `1` |
 | `--pass-only` | Only include FILTER=PASS variants | off |
 | `--min-af <FLOAT>` | Minimum allele frequency (0.0–1.0) | none |
+| `--max-af <FLOAT>` | Maximum allele frequency (exclude fixed variants) | none |
 | `--min-depth <INT>` | Minimum read depth (INFO/DP) | none |
 | `--plot` | Generate Manhattan-style SVG plot | off |
 
 ### Examples
 
 ```bash
-# Basic pN/pS for M. tuberculosis
-eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf population.vcf \
-  --genetic-code 11 -o mtb_pnps
+# Population πN/πS from per-sample VCFs
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
+  --vcf sample1.vcf --vcf sample2.vcf --vcf sample3.vcf \
+  --af-weighted --genetic-code 11 -o mtb_pnps
 
-# Filter: only PASS, AF ≥ 0.05, depth ≥ 10
+# Or via a list file
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
+  --vcf-list samples.txt --af-weighted \
+  --min-af 0.01 --max-af 0.99 --plot -o mtb_pnps
+
+# Single multi-sample VCF with filters
 eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
   --pass-only --min-af 0.05 --min-depth 10 -o filtered
-
-# JSON output with plot
-eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
-  --format json --plot -o results
 ```
 
 ---
