@@ -88,23 +88,38 @@ pub fn compute_pn_ps(
             for snp in snps_list.iter() {
                 // Check if this SNP falls within any exon of this gene
                 if let Some(cds_offset) = genomic_to_cds_offset(gene, snp.pos) {
+                    let codon_idx = cds_offset / 3;
+                    let pos_in_codon = cds_offset % 3;
+                    let codon_start = codon_idx * 3;
+
+                    if codon_start + 3 > cds_seq.len() {
+                        continue;
+                    }
+
+                    // Get reference codon from the extracted CDS
+                    let ref_codon = [
+                        cds_seq[codon_start],
+                        cds_seq[codon_start + 1],
+                        cds_seq[codon_start + 2],
+                    ];
+
+                    // Verify VCF REF allele matches the reference sequence
+                    let expected_ref = if gene.strand == Strand::Minus {
+                        complement(cds_seq[codon_start + pos_in_codon])
+                    } else {
+                        cds_seq[codon_start + pos_in_codon]
+                    };
+                    if snp.ref_allele != expected_ref {
+                        warn!(
+                            "VCF REF mismatch at {}:{} — VCF says {}, reference has {}. Skipping.",
+                            snp.chrom, snp.pos,
+                            snp.ref_allele as char, expected_ref as char
+                        );
+                        continue;
+                    }
+
                     // For each ALT allele at this position
                     for alt_base in &snp.alt_alleles {
-                        let codon_idx = cds_offset / 3;
-                        let pos_in_codon = cds_offset % 3;
-                        let codon_start = codon_idx * 3;
-
-                        if codon_start + 3 > cds_seq.len() {
-                            continue;
-                        }
-
-                        // Get reference codon
-                        let ref_codon = [
-                            cds_seq[codon_start],
-                            cds_seq[codon_start + 1],
-                            cds_seq[codon_start + 2],
-                        ];
-
                         // Build alternate codon
                         let mut alt_codon = ref_codon;
                         let alt_in_cds = if gene.strand == Strand::Minus {
@@ -118,14 +133,16 @@ pub fn compute_pn_ps(
                         let ref_aa = codon_to_aa(&ref_codon, gc);
                         let alt_aa = codon_to_aa(&alt_codon, gc);
 
-                        if ref_aa.is_none() || alt_aa.is_none() {
-                            continue;
-                        }
-
-                        if ref_aa == alt_aa {
-                            syn_count += 1;
-                        } else {
-                            nonsyn_count += 1;
+                        match (ref_aa, alt_aa) {
+                            (Some(r), Some(a)) if r != b'*' && a != b'*' => {
+                                if r == a {
+                                    syn_count += 1;
+                                } else {
+                                    nonsyn_count += 1;
+                                }
+                            }
+                            // Skip: ambiguous codons or mutations to/from stop
+                            _ => continue,
                         }
                     }
                 }
@@ -284,19 +301,25 @@ fn count_sites(cds: &[u8], gc: &GeneticCode) -> (f64, f64) {
                 let mut alt_codon = codon;
                 alt_codon[pos] = alt_base;
                 if let Some(alt_aa) = codon_to_aa(&alt_codon, gc) {
-                    if alt_aa == ref_aa {
+                    if alt_aa == b'*' {
+                        continue; // Exclude changes to stop codons from site counts
+                    } else if alt_aa == ref_aa {
                         syn += 1;
                     } else {
                         nonsyn += 1;
                     }
-                } else {
-                    nonsyn += 1; // Treat ambiguous as nonsynonymous
                 }
+                // Skip ambiguous codons entirely (don't count as either)
             }
         }
 
-        s_sites += syn as f64 / 3.0;
-        n_sites += nonsyn as f64 / 3.0;
+        // Each codon contributes exactly 3 sites. With stop-codon changes
+        // excluded, redistribute proportionally: S = 3 × syn/(syn+nonsyn)
+        let valid_changes = (syn + nonsyn) as f64;
+        if valid_changes > 0.0 {
+            s_sites += 3.0 * syn as f64 / valid_changes;
+            n_sites += 3.0 * nonsyn as f64 / valid_changes;
+        }
     }
 
     (n_sites, s_sites)
@@ -671,11 +694,13 @@ mod tests {
         // ATG GCT = Met Ala (2 codons)
         let cds = b"ATGGCT";
         let (n, s) = count_sites(cds, gc);
-        // ATG (Met): all 9 changes are nonsynonymous (Met is unique)
-        // GCT (Ala): 3 synonymous (GCA, GCC, GCG all = Ala), 6 nonsynonymous
-        // So N = 9/3 + 6/3 = 3 + 2 = 5, S = 0/3 + 3/3 = 0 + 1 = 1
-        assert!((n - 5.0).abs() < 0.01, "N_sites: expected 5.0, got {}", n);
-        assert!((s - 1.0).abs() < 0.01, "S_sites: expected 1.0, got {}", s);
+        // Each codon contributes exactly 3 sites total (S + N = 3 per codon, 6 total)
+        let total = n + s;
+        assert!((total - 6.0).abs() < 0.01, "Total sites should be 6.0, got {}", total);
+        // ATG (Met): 0 syn, 8 nonsyn (1 change → stop TAA excluded) → N=3*8/8=3, S=0
+        // GCT (Ala): 3 syn (GCA,GCC,GCG), 6 nonsyn, 0 stops → N=3*6/9=2, S=3*3/9=1
+        assert!(n > 4.5 && n < 5.5, "N_sites: expected ~5.0, got {}", n);
+        assert!(s > 0.5 && s < 1.5, "S_sites: expected ~1.0, got {}", s);
     }
 
     #[test]

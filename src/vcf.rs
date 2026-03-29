@@ -219,10 +219,10 @@ pub fn filter_snps(
                 return false;
             }
             if let Some(min_dp) = min_depth {
-                if let Some(dp) = snp.depth {
-                    if dp < min_dp {
-                        return false;
-                    }
+                match snp.depth {
+                    Some(dp) if dp < min_dp => return false,
+                    None => return false, // No DP info → filter out when min_depth requested
+                    _ => {}
                 }
             }
             if let Some(min) = min_af {
