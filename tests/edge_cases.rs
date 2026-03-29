@@ -10,7 +10,7 @@ fn binary_path() -> std::path::PathBuf {
 #[test]
 fn nonexistent_file_gives_clear_error() {
     let output = Command::new(binary_path())
-        .args(["nonexistent_file.fasta", "-o", "/tmp/eskaks_edge_nonexist"])
+        .args(["fasta", "nonexistent_file.fasta", "-o", "/tmp/eskaks_edge_nonexist"])
         .output()
         .expect("spawn");
     assert!(!output.status.success());
@@ -23,7 +23,7 @@ fn empty_file_gives_clear_error() {
     let path = "/tmp/eskaks_test_empty.fasta";
     fs::write(path, "").unwrap();
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_empty"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_empty"])
         .output()
         .expect("spawn");
     assert!(!output.status.success());
@@ -41,7 +41,7 @@ fn single_sequence_gives_clear_error() {
     let path = "/tmp/eskaks_test_single.fasta";
     fs::write(path, ">seq1\nATGAAACCC\n").unwrap();
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_single"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_single"])
         .output()
         .expect("spawn");
     assert!(!output.status.success());
@@ -57,7 +57,7 @@ fn not_fasta_gives_error() {
     let path = "/tmp/eskaks_test_notfasta.txt";
     fs::write(path, "this is not a FASTA file\njust plain text\n").unwrap();
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_notfasta"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_notfasta"])
         .output()
         .expect("spawn");
     assert!(!output.status.success(), "should fail on non-FASTA input");
@@ -71,7 +71,7 @@ fn sequence_not_divisible_by_3_still_works() {
     fs::write(path, ">seq1\nATGAAACCCG\n>seq2\nATGAAACCCT\n").unwrap();
     let output = Command::new(binary_path())
         .env("RUST_LOG", "warn")
-        .args([path, "-o", "/tmp/eskaks_edge_mod3"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_mod3"])
         .output()
         .expect("spawn");
     assert!(output.status.success(), "should succeed with warning");
@@ -88,7 +88,7 @@ fn all_gap_sequences_different_produce_nan() {
     // One all-gaps, one real → NaN because no valid codon pairs
     fs::write(path, ">seq1\n---------\n>seq2\nATGAAACCC\n").unwrap();
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_allgap"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_allgap"])
         .output()
         .expect("spawn");
     assert!(output.status.success(), "should succeed but produce NaN results");
@@ -105,7 +105,7 @@ fn identical_sequences_produce_zero() {
     let path = "/tmp/eskaks_test_identical.fasta";
     fs::write(path, ">seq1\nATGAAACCCGGG\n>seq2\nATGAAACCCGGG\n").unwrap();
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_identical"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_identical"])
         .output()
         .expect("spawn");
     assert!(output.status.success());
@@ -126,7 +126,7 @@ fn identical_sequences_produce_zero() {
 fn window_size_zero_fails() {
     let path = "tests/data/synthetic.fasta";
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_win0", "--window-size", "0"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_win0", "--window-size", "0"])
         .output()
         .expect("spawn");
     assert!(!output.status.success());
@@ -136,7 +136,7 @@ fn window_size_zero_fails() {
 fn window_with_group_average_fails() {
     let path = "tests/data/synthetic.fasta";
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_wingrp", "--window-size", "10", "--group-average"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_wingrp", "--window-size", "10", "--group-average"])
         .output()
         .expect("spawn");
     assert!(!output.status.success());
@@ -150,7 +150,7 @@ fn window_with_group_average_fails() {
 fn csv_format_produces_commas() {
     let path = "tests/data/synthetic.fasta";
     let status = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_csv", "--format", "csv"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_csv", "--format", "csv"])
         .status()
         .expect("spawn");
     assert!(status.success());
@@ -168,7 +168,7 @@ fn mostly_gaps_still_computes() {
     // 4 codons: 3 gaps + 1 real
     fs::write(path, ">seq1\n---------ATG\n>seq2\n---------ATG\n").unwrap();
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_gaps"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_gaps"])
         .output()
         .expect("spawn");
     assert!(output.status.success());
@@ -195,7 +195,7 @@ fn genetic_code_2_works() {
     let path = "/tmp/eskaks_test_gc2.fasta";
     fs::write(path, ">seq1\nATGGCTGCTGCT\n>seq2\nATGATTGCTGCT\n").unwrap();
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_gc2", "--genetic-code", "2"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_gc2", "--genetic-code", "2"])
         .output()
         .expect("spawn");
     assert!(output.status.success(), "genetic code 2 should work");
@@ -208,7 +208,7 @@ fn genetic_code_invalid_fails() {
     let path = "/tmp/eskaks_test_gc_bad.fasta";
     fs::write(path, ">seq1\nATGGCTGCT\n>seq2\nATGATTGCT\n").unwrap();
     let output = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_gc_bad", "--genetic-code", "99"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_gc_bad", "--genetic-code", "99"])
         .output()
         .expect("spawn");
     assert!(!output.status.success());
@@ -223,10 +223,10 @@ fn genetic_code_changes_results() {
     // AGA is Arg in standard (1) but Stop in vert mito (2)
     fs::write(path, ">seq1\nATGGCTAGAGCT\n>seq2\nATGATTAGAGCT\n").unwrap();
     let out_std = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_gc_std", "--genetic-code", "1"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_gc_std", "--genetic-code", "1"])
         .output().expect("spawn");
     let out_mito = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_gc_mito", "--genetic-code", "2"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_gc_mito", "--genetic-code", "2"])
         .output().expect("spawn");
     assert!(out_std.status.success());
     assert!(out_mito.status.success());
@@ -245,7 +245,7 @@ fn genetic_code_changes_results() {
 fn li_model_produces_different_columns() {
     let path = "tests/data/synthetic.fasta";
     let status = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_li", "--model", "li"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_li", "--model", "li"])
         .status()
         .expect("spawn");
     assert!(status.success());
@@ -262,7 +262,7 @@ fn summary_flag_prints_to_stderr() {
     let path = "tests/data/synthetic.fasta";
     let output = Command::new(binary_path())
         .env("RUST_LOG", "info")
-        .args([path, "-o", "/tmp/eskaks_edge_summary", "--summary"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_summary", "--summary"])
         .output()
         .expect("spawn");
     assert!(output.status.success());
@@ -278,7 +278,7 @@ fn summary_flag_prints_to_stderr() {
 fn plot_flag_generates_svg() {
     let path = "tests/data/synthetic.fasta";
     let status = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_plot", "--plot", "--summary"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_plot", "--plot", "--summary"])
         .status()
         .expect("spawn");
     assert!(status.success());
@@ -296,7 +296,7 @@ fn plot_flag_generates_svg() {
 fn json_format_produces_valid_json() {
     let path = "tests/data/synthetic.fasta";
     let status = Command::new(binary_path())
-        .args([path, "-o", "/tmp/eskaks_edge_json", "--format", "json"])
+        .args(["fasta", path, "-o", "/tmp/eskaks_edge_json", "--format", "json"])
         .status()
         .expect("spawn");
     assert!(status.success());
@@ -317,7 +317,7 @@ fn json_format_produces_valid_json() {
 fn stdin_pipe_works() {
     let fasta = fs::read("tests/data/synthetic.fasta").unwrap();
     let output = Command::new(binary_path())
-        .args(["-", "-o", "/tmp/eskaks_edge_stdin"])
+        .args(["fasta", "-", "-o", "/tmp/eskaks_edge_stdin"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -345,5 +345,5 @@ fn version_flag_shows_current_version() {
         .expect("spawn");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("1.3.0"), "version should be 1.3.0: {}", stdout);
+    assert!(stdout.contains("1.4.0"), "version should be 1.4.0: {}", stdout);
 }

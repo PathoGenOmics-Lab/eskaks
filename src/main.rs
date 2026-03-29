@@ -2,17 +2,20 @@ mod cli;
 mod codon;
 mod compute;
 mod genetic_code;
+mod gff;
 mod input;
 mod models;
 mod output;
 mod plot;
 mod stats;
+mod vcf;
+mod vcf_analysis;
 
 use anyhow::bail;
 use clap::Parser;
 use log::info;
 
-use cli::Args;
+use cli::{Args, SubCmd};
 use compute::ComputeEngine;
 use models::DsDn;
 use output::OutputConfig;
@@ -22,7 +25,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    // Handle --list-codes
+    // Handle --list-codes (top-level flag)
     if args.list_codes {
         eprintln!("Available NCBI genetic code tables:");
         for (id, name) in genetic_code::list_tables() {
@@ -31,6 +34,20 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    match args.command {
+        Some(SubCmd::Fasta(fasta_args)) => run_fasta(fasta_args),
+        Some(SubCmd::Vcf(vcf_args)) => run_vcf(vcf_args),
+        None => {
+            // No subcommand: print help
+            use clap::CommandFactory;
+            Args::command().print_help()?;
+            println!();
+            Ok(())
+        }
+    }
+}
+
+fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
     // Validate genetic code
     let gc = genetic_code::get_table(args.genetic_code).ok_or_else(|| {
         anyhow::anyhow!(
@@ -48,12 +65,8 @@ fn main() -> anyhow::Result<()> {
         .build_global()?;
 
     // Load, validate, filter, and deduplicate sequences
-    let input_file = args
-        .input_file
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("No input file specified"))?;
     let stop_indices = genetic_code::stop_codon_indices(gc, args.model);
-    let data = input::load_sequences(input_file, args.model, args.min_codons, Some(&stop_indices))?;
+    let data = input::load_sequences(&args.input_file, args.model, args.min_codons, Some(&stop_indices))?;
 
     // Build compute engine
     let engine = ComputeEngine::new(args.model, gc);
@@ -98,9 +111,68 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
+    let gc = genetic_code::get_table(args.genetic_code).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Unknown genetic code table {}. Use --list-codes to see available tables.",
+            args.genetic_code
+        )
+    })?;
+    if args.genetic_code != 1 {
+        info!("Using genetic code table {}: {}", gc.id, gc.name);
+    }
+
+    let ref_path = std::path::Path::new(&args.reference);
+    let gff_path = std::path::Path::new(&args.gff);
+    let vcf_path = std::path::Path::new(&args.vcf);
+
+    info!("Loading reference FASTA: {}", args.reference);
+    let reference = vcf_analysis::parse_reference_fasta(ref_path)?;
+
+    info!("Parsing GFF3 annotations: {}", args.gff);
+    let genes = gff::parse_gff3(gff_path)?;
+    info!("Found {} genes with CDS features", genes.len());
+
+    info!("Parsing VCF file: {}", args.vcf);
+    let snps = vcf::parse_vcf(vcf_path)?;
+    info!("Found {} SNP records", snps.len());
+
+    // Apply filters
+    let snps = vcf::filter_snps(snps, args.pass_only, args.min_af, args.min_depth);
+    info!("{} SNPs after filtering", snps.len());
+
+    // Compute pN/pS
+    let results = vcf_analysis::compute_pn_ps(&reference, &genes, &snps, gc);
+
+    // Write results
+    let output_path = vcf_analysis::write_results(&results, &args.output, &args.format)?;
+    info!("Results saved to {}", output_path);
+
+    // Generate plot if requested
+    if args.plot {
+        let plot_path = vcf_analysis::write_pnps_plot(&results, &args.output)?;
+        info!("Plot saved to {}", plot_path);
+    }
+
+    // Print summary statistics
+    let total_genes = results.len();
+    let genes_with_snps = results.iter().filter(|r| r.total_snps > 0).count();
+    let total_syn: u32 = results.iter().map(|r| r.syn_snps).sum();
+    let total_nonsyn: u32 = results.iter().map(|r| r.nonsyn_snps).sum();
+    eprintln!("\n── pN/pS Summary ──────────────────────────");
+    eprintln!("  Genes analyzed:     {}", total_genes);
+    eprintln!("  Genes with SNPs:    {}", genes_with_snps);
+    eprintln!("  Total synonymous:   {}", total_syn);
+    eprintln!("  Total nonsynonymous: {}", total_nonsyn);
+    eprintln!("───────────────────────────────────────────");
+
+    info!("VCF analysis completed successfully.");
+    Ok(())
+}
+
 /// Dispatch to the correct output mode based on CLI flags.
 fn dispatch_output(
-    args: &Args,
+    args: &cli::FastaArgs,
     data: &input::SequenceData,
     cfg: &OutputConfig,
     compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
@@ -202,7 +274,7 @@ fn dispatch_output(
 
 /// Window mode dispatch with validation.
 fn dispatch_window(
-    args: &Args,
+    args: &cli::FastaArgs,
     data: &input::SequenceData,
     cfg: &OutputConfig,
     compute_pair_slices: impl Fn(&[u8], &[u8]) -> DsDn + Sync,

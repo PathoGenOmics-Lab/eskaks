@@ -1,0 +1,5 @@
+##gff-version 3
+chr1	test	gene	1	24	.	+	.	ID=gene1;Name=geneA
+chr1	test	CDS	1	24	.	+	0	Parent=gene1;gene=geneA
+chr1	test	gene	25	48	.	+	.	ID=gene2;Name=geneB
+chr1	test	CDS	25	48	.	+	0	Parent=gene2;gene=geneB

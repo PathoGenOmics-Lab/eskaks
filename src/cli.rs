@@ -1,6 +1,6 @@
 //! Command-line argument parsing and validation.
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 use crate::models::{Model, OutputFormat};
 
@@ -8,9 +8,27 @@ use crate::models::{Model, OutputFormat};
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Args {
+    /// List all available genetic code tables and exit
+    #[arg(long)]
+    pub list_codes: bool,
+
+    #[command(subcommand)]
+    pub command: Option<SubCmd>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SubCmd {
+    /// Compute pairwise dN/dS from codon-aligned FASTA sequences
+    Fasta(FastaArgs),
+    /// Compute pN/pS per gene from a VCF file, reference FASTA, and GFF3 annotation
+    Vcf(VcfArgs),
+}
+
+/// Arguments for the FASTA subcommand (original behavior).
+#[derive(Parser, Debug)]
+pub struct FastaArgs {
     /// Input file with aligned sequences in FASTA format
-    #[arg(required_unless_present = "list_codes")]
-    pub input_file: Option<String>,
+    pub input_file: String,
 
     /// Base name for output files
     #[arg(short, long, default_value = "output")]
@@ -66,8 +84,50 @@ pub struct Args {
     /// Common alternatives: 2 (Vertebrate Mito), 4 (Mycoplasma), 11 (Bacterial)
     #[arg(long, default_value_t = 1)]
     pub genetic_code: u8,
+}
 
-    /// List all available genetic code tables and exit
+/// Arguments for the VCF subcommand.
+#[derive(Parser, Debug)]
+pub struct VcfArgs {
+    /// Reference FASTA file
+    #[arg(long = "ref")]
+    pub reference: String,
+
+    /// GFF3 annotation file
     #[arg(long)]
-    pub list_codes: bool,
+    pub gff: String,
+
+    /// VCF file with variants
+    #[arg(long)]
+    pub vcf: String,
+
+    /// Base name for output files
+    #[arg(short, long, default_value = "output")]
+    pub output: String,
+
+    /// Output format
+    #[arg(long, value_enum, default_value_t = OutputFormat::Tsv)]
+    pub format: OutputFormat,
+
+    /// NCBI genetic code table number (default: 1 = Standard).
+    /// Use --list-codes to see all available tables.
+    /// Common alternatives: 2 (Vertebrate Mito), 4 (Mycoplasma), 11 (Bacterial)
+    #[arg(long, default_value_t = 1)]
+    pub genetic_code: u8,
+
+    /// Only include variants with FILTER=PASS (or '.')
+    #[arg(long)]
+    pub pass_only: bool,
+
+    /// Minimum allele frequency threshold (0.0-1.0)
+    #[arg(long)]
+    pub min_af: Option<f64>,
+
+    /// Minimum read depth (from INFO/DP)
+    #[arg(long)]
+    pub min_depth: Option<u32>,
+
+    /// Generate SVG Manhattan-style plot of pN/pS per gene
+    #[arg(long)]
+    pub plot: bool,
 }

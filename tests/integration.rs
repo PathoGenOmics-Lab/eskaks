@@ -46,7 +46,7 @@ fn find_pair<'a>(rows: &'a [Vec<String>], seq1: &str, seq2: &str) -> Option<&'a 
 fn pairwise_nei_exits_ok() {
     let out_prefix = "/tmp/eskaks_test_pairwise_nei";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
         .status()
         .expect("Failed to spawn binary");
     assert!(status.success(), "eskaks exited with non-zero status: {:?}", status);
@@ -57,7 +57,7 @@ fn pairwise_nei_exits_ok() {
 fn pairwise_nei_correct_header_and_row_count() {
     let out_prefix = "/tmp/eskaks_test_pairwise_header";
     Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
         .status().expect("spawn");
     let rows = parse_tsv(&format!("{}_pairwise_results.tsv", out_prefix));
     // Header + 5*(5-1)/2 = 10 data rows
@@ -72,7 +72,7 @@ fn pairwise_nei_identical_seqs_give_zero() {
     // seq1_A and seq5_A are identical → dN=dS=0, ratio=0
     let out_prefix = "/tmp/eskaks_test_pairwise_identical";
     Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
         .status().expect("spawn");
     let rows = parse_tsv(&format!("{}_pairwise_results.tsv", out_prefix));
     let row = find_pair(&rows, "seq1_A", "seq5_A")
@@ -92,7 +92,7 @@ fn pairwise_nei_one_synonymous_change() {
     // Expected: dN=0.0, dS≈0.82396
     let out_prefix = "/tmp/eskaks_test_pairwise_syn";
     Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
         .status().expect("spawn");
     let rows = parse_tsv(&format!("{}_pairwise_results.tsv", out_prefix));
     let row = find_pair(&rows, "seq1_A", "seq2_A")
@@ -114,7 +114,7 @@ fn pairwise_nei_one_nonsynonymous_change() {
     // S=11/6, N=43/6, pN=12/43, dN=-0.75*ln(1-16/43) ~ 0.34902
     let out_prefix = "/tmp/eskaks_test_pairwise_nonsyn";
     Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
         .status().expect("spawn");
     let rows = parse_tsv(&format!("{}_pairwise_results.tsv", out_prefix));
     let row = find_pair(&rows, "seq1_A", "seq3_B")
@@ -131,7 +131,7 @@ fn pairwise_nei_nonsyn_only_ratio_is_infinity() {
     // When dS=0 and dN>0, ratio should be "inf"
     let out_prefix = "/tmp/eskaks_test_pairwise_inf";
     Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2"])
         .status().expect("spawn");
     let rows = parse_tsv(&format!("{}_pairwise_results.tsv", out_prefix));
     let row = find_pair(&rows, "seq1_A", "seq3_B")
@@ -146,7 +146,7 @@ fn pairwise_nei_nonsyn_only_ratio_is_infinity() {
 fn pairwise_li_exits_ok_and_has_correct_header() {
     let out_prefix = "/tmp/eskaks_test_pairwise_li";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "li", "--workers", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "li", "--workers", "2"])
         .status().expect("spawn");
     assert!(status.success());
     let rows = parse_tsv(&format!("{}_pairwise_results.tsv", out_prefix));
@@ -160,7 +160,7 @@ fn pairwise_li_exits_ok_and_has_correct_header() {
 fn pairwise_li_identical_seqs_give_zero() {
     let out_prefix = "/tmp/eskaks_test_pairwise_li_identical";
     Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "li", "--workers", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "li", "--workers", "2"])
         .status().expect("spawn");
     let rows = parse_tsv(&format!("{}_pairwise_results.tsv", out_prefix));
     let row = find_pair(&rows, "seq1_A", "seq5_A").expect("pair not found");
@@ -177,7 +177,7 @@ fn pairwise_li_identical_seqs_give_zero() {
 fn lineage_exits_ok_and_has_correct_header() {
     let out_prefix = "/tmp/eskaks_test_lineage";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--lineage", "--workers", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--lineage", "--workers", "2"])
         .status().expect("spawn");
     assert!(status.success());
     let rows = parse_tsv(&format!("{}_lineage_summary.tsv", out_prefix));
@@ -193,7 +193,7 @@ fn group_average_exits_ok_and_has_correct_header() {
     // Uses FASTA_GROUPED where IDs start with "A_" or "B_", so group = "A" or "B"
     let out_prefix = "/tmp/eskaks_test_group";
     let status = Command::new(binary_path())
-        .args([FASTA_GROUPED, "-o", out_prefix, "--group-average", "--workers", "2"])
+        .args(["fasta", FASTA_GROUPED, "-o", out_prefix, "--group-average", "--workers", "2"])
         .status().expect("spawn");
     assert!(status.success());
     let rows = parse_tsv(&format!("{}_group_avg_dn_ds.tsv", out_prefix));
@@ -213,7 +213,7 @@ fn group_average_within_group_a_has_only_syn_changes() {
     // All within-A pairs are synonymous only → mean dN/dS = 0
     let out_prefix = "/tmp/eskaks_test_group_a";
     Command::new(binary_path())
-        .args([FASTA_GROUPED, "-o", out_prefix, "--group-average", "--workers", "2"])
+        .args(["fasta", FASTA_GROUPED, "-o", out_prefix, "--group-average", "--workers", "2"])
         .status().expect("spawn");
     let rows = parse_tsv(&format!("{}_group_avg_dn_ds.tsv", out_prefix));
     let row = rows.iter().find(|r| r.len() >= 6 && r[0] == "A" && r[1] == "A")
@@ -230,7 +230,7 @@ fn group_average_within_group_a_has_only_syn_changes() {
 fn pairwise_csv_format_has_correct_header_and_separators() {
     let out_prefix = "/tmp/eskaks_test_csv";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--format", "csv"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--format", "csv"])
         .status()
         .expect("Failed to spawn binary");
     assert!(status.success());
@@ -250,7 +250,7 @@ fn pairwise_csv_format_has_correct_header_and_separators() {
 fn lineage_csv_has_correct_header() {
     let out_prefix = "/tmp/eskaks_test_lineage_csv";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--lineage", "--workers", "2", "--format", "csv"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--lineage", "--workers", "2", "--format", "csv"])
         .status()
         .expect("spawn");
     assert!(status.success());
@@ -265,7 +265,7 @@ fn lineage_csv_has_correct_header() {
 fn sliding_window_exits_ok_and_has_correct_header() {
     let out_prefix = "/tmp/eskaks_test_window";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
                "--window-size", "2", "--window-step", "1"])
         .status()
         .expect("spawn");
@@ -282,7 +282,7 @@ fn sliding_window_correct_row_count() {
     // 10 pairs × 2 windows = 20 data rows + 1 header = 21
     let out_prefix = "/tmp/eskaks_test_window_count";
     Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
                "--window-size", "2", "--window-step", "1"])
         .status()
         .expect("spawn");
@@ -301,7 +301,7 @@ fn sliding_window_correct_row_count() {
 fn sliding_window_csv_format() {
     let out_prefix = "/tmp/eskaks_test_window_csv";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
                "--window-size", "2", "--format", "csv"])
         .status()
         .expect("spawn");
@@ -329,7 +329,7 @@ fn list_codes_exits_ok() {
 fn genetic_code_2_runs_ok() {
     let out_prefix = "/tmp/eskaks_test_gc2";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--genetic-code", "2"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--genetic-code", "2"])
         .status()
         .expect("spawn");
     assert!(status.success());
@@ -345,10 +345,10 @@ fn genetic_code_affects_results() {
     let prefix_std = "/tmp/eskaks_test_gc_std";
     let prefix_mito = "/tmp/eskaks_test_gc_mito";
     Command::new(binary_path())
-        .args([FASTA, "-o", prefix_std, "--model", "nei", "--workers", "1", "--genetic-code", "1"])
+        .args(["fasta", FASTA, "-o", prefix_std, "--model", "nei", "--workers", "1", "--genetic-code", "1"])
         .status().expect("spawn");
     Command::new(binary_path())
-        .args([FASTA, "-o", prefix_mito, "--model", "nei", "--workers", "1", "--genetic-code", "4"])
+        .args(["fasta", FASTA, "-o", prefix_mito, "--model", "nei", "--workers", "1", "--genetic-code", "4"])
         .status().expect("spawn");
 
     let rows_std = parse_tsv(&format!("{}_pairwise_results.tsv", prefix_std));
@@ -366,7 +366,7 @@ fn genetic_code_affects_results() {
 #[test]
 fn invalid_genetic_code_exits_with_error() {
     let status = Command::new(binary_path())
-        .args([FASTA, "--genetic-code", "99"])
+        .args(["fasta", FASTA, "--genetic-code", "99"])
         .status()
         .expect("spawn");
     assert!(!status.success(), "invalid genetic code should fail");
@@ -378,7 +378,7 @@ fn invalid_genetic_code_exits_with_error() {
 fn summary_prints_to_stderr() {
     let out_prefix = "/tmp/eskaks_test_summary";
     let output = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--summary"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--summary"])
         .output()
         .expect("Failed to spawn binary");
     assert!(output.status.success());
@@ -393,7 +393,7 @@ fn summary_prints_to_stderr() {
 fn plot_creates_histogram_svg() {
     let out_prefix = "/tmp/eskaks_test_plot_hist";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--plot"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--plot"])
         .status()
         .expect("spawn");
     assert!(status.success());
@@ -411,7 +411,7 @@ fn plot_creates_histogram_svg() {
 fn plot_window_creates_svg() {
     let out_prefix = "/tmp/eskaks_test_plot_window";
     let status = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2",
                "--window-size", "2", "--plot"])
         .status()
         .expect("spawn");
@@ -428,7 +428,7 @@ fn plot_window_creates_svg() {
 fn plot_group_creates_svg() {
     let out_prefix = "/tmp/eskaks_test_plot_group";
     let status = Command::new(binary_path())
-        .args([FASTA_GROUPED, "-o", out_prefix, "--group-average", "--workers", "2", "--plot"])
+        .args(["fasta", FASTA_GROUPED, "-o", out_prefix, "--group-average", "--workers", "2", "--plot"])
         .status()
         .expect("spawn");
     assert!(status.success());
@@ -444,7 +444,7 @@ fn plot_group_creates_svg() {
 fn summary_and_plot_together() {
     let out_prefix = "/tmp/eskaks_test_both";
     let output = Command::new(binary_path())
-        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--summary", "--plot"])
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--summary", "--plot"])
         .output()
         .expect("spawn");
     assert!(output.status.success());
