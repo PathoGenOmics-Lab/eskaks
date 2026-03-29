@@ -185,7 +185,7 @@ impl LiTables {
     ///    - 3 diff: enumerate 6 pathways, exclude stop intermediates, equal weight
     ///
     /// Build lookup tables using the standard genetic code (table 1).
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn new() -> Box<Self> {
         use crate::genetic_code;
         let gc = genetic_code::get_table(1).unwrap();

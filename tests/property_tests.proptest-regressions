@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a88fe99935f5af52e6e25fddc7890d492bed957e172ea5cf15a545e915cb85fa # shrinks to seq1 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], seq2 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 0, 33, 25, 0, 21, 5, 0, 5, 0, 0, 5, 5, 0, 0, 0, 0, 255, 0, 5, 0, 45, 0, 0, 0, 0, 29, 0, 0, 0, 53, 45, 0, 5, 0]
+cc 0204214e061e8691a55889e21367752c5ee0589a016c50ba3359bf349d6e0daf # shrinks to seq1 = [0, 32, 34, 20, 0, 14, 0, 4, 0, 0, 2, 16, 0, 12, 16, 12, 0, 4, 255, 0, 0, 0, 0, 16, 24, 0, 0, 0, 0, 0, 20, 16, 0, 12, 14, 0, 16, 255, 4, 0, 4, 17, 0, 16, 0, 24, 26, 8, 11, 7], seq2 = [0, 0, 0, 0, 0, 15, 255, 8, 4, 20, 29, 43, 57, 11, 44, 19, 19, 0, 0, 0, 1, 0, 15, 0, 0, 20, 20, 52, 12, 4, 0, 33, 13, 9, 1, 11, 13, 0, 19, 1, 0, 42, 3, 0, 1, 4, 20, 4, 20, 8]

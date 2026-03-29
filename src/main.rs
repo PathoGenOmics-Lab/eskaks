@@ -269,6 +269,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ext = args.format.extension();
     let sep = args.format.separator();
     let stats_ref = summary_stats.as_ref();
+    let out_cfg = output::OutputConfig {
+        prefix: &args.output,
+        sep,
+        ext,
+        model: args.model,
+        summary: stats_ref,
+    };
 
     if args.group_average {
         if args.window_size.is_some() {
@@ -276,7 +283,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
         info!("Computing group average dN/dS...");
-        let plot_data = output::write_group_average(&ids, &uidx_by_id, n_u, compute_pair, &args.output, args.first_letter_lineage, sep, ext, stats_ref)?;
+        let plot_data = output::write_group_average(&ids, &uidx_by_id, compute_pair, args.first_letter_lineage, &out_cfg)?;
         info!("Results saved to {}_group_avg_dn_ds.{}", args.output, ext);
 
         if args.plot && !plot_data.is_empty() {
@@ -300,7 +307,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 next_idx
             })
         }).collect();
-        let plot_data = output::write_lineage(&ids, &uidx_by_id, n_u, compute_pair, &args.output, &lineage_indices, &lineage_names, sep, ext, stats_ref)?;
+        let plot_data = output::write_lineage(&ids, &uidx_by_id, n_u, compute_pair, &lineage_indices, &lineage_names, &out_cfg)?;
         info!("Lineage summary saved to {}_lineage_summary.{}", args.output, ext);
 
         if args.plot && !plot_data.is_empty() {
@@ -339,7 +346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         };
         info!("Generating sliding window pairwise results (window={}, step={})...", win_size, args.window_step);
-        output::write_pairwise_windows(&ids, &uidx_by_id, &unique_codon_indices, compute_pair_slices, &args.output, args.model, sep, ext, win_size, args.window_step, stats_ref, window_stats.as_ref())?;
+        output::write_pairwise_windows(&ids, &uidx_by_id, &unique_codon_indices, compute_pair_slices, win_size, args.window_step, window_stats.as_ref(), &out_cfg)?;
         info!("Results saved to {}_pairwise_windows.{}", args.output, ext);
 
         if let Some(ws) = &window_stats {
@@ -349,7 +356,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     } else {
         info!("Generating pairwise results...");
-        output::write_pairwise(&ids, &uidx_by_id, n_u, compute_pair, &args.output, args.model, sep, ext, stats_ref)?;
+        output::write_pairwise(&ids, &uidx_by_id, n_u, compute_pair, &out_cfg)?;
         info!("Results saved to {}_pairwise_results.{}", args.output, ext);
 
         if args.plot {

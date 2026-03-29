@@ -21,3 +21,6 @@ lto            = "fat"
 codegen-units  = 1
 panic          = "abort"
 strip          = true
+
+[dev-dependencies]
+proptest = "1.11.0"

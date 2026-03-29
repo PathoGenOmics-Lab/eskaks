@@ -1,0 +1,40 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [1.1.0] - 2026-03-29
+
+### Added
+- **20 NCBI genetic code tables** (`--genetic-code <N>`): Standard, Vertebrate/Invertebrate
+  Mitochondrial, Yeast Mito, Bacterial/Plastid, Ciliate, Echinoderm, Euplotid, and 12 more.
+- `--list-codes` flag to list all available translation tables.
+- New `genetic_code` module with Li↔Nei index conversion and dynamic synonymous site computation.
+- Property-based tests (proptest): symmetry, non-negativity, identity, NaN handling for both models.
+- `OutputConfig` struct to reduce function argument count in output module.
+- `LineagePlotResult` type alias for cleaner return types.
+- SAFETY comments on all 7 `unsafe` blocks.
+- `lib.rs` for library-level access to models and utilities.
+
+### Fixed
+- Version mismatch: Cargo.toml and CLI now both report `1.1.0`.
+- 19 clippy warnings resolved (0 remaining).
+- Documented that Nei pathway fallback values (2-diff: 0.5/1.5, 3-diff: 1.0/2.0)
+  are unreachable with standard genetic code but triggered by alternative codes.
+
+### Changed
+- `NeiTables` and `LiTables` constructors accept any genetic code via `with_genetic_code()`.
+- Output functions now take `&OutputConfig` instead of 5+ separate parameters.
+- Removed unused `_n_u` parameter from `write_group_average`.
+
+## [1.0.0] - 2026-03-28
+
+### Added
+- Initial release with Nei-Gojobori (1986) and Li (1993)/LPB93 models.
+- Pairwise, lineage, group average, and sliding window output modes.
+- L1-cache-optimized lookup tables (32 KB Nei, 288 KB Li).
+- Fast-path for identical codons (~95% of comparisons).
+- Multi-threaded computation via rayon.
+- TSV/CSV output with optional SVG plots.
+- 21 integration tests.
+- Benchmarks: 1,280× faster than KaKs_Calculator, 18,600× faster than BioPython.
+- Accuracy: R²=1.0 vs KaKs_Calculator (Li), R²≈0.995-0.999 (Nei).

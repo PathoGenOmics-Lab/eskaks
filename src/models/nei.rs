@@ -30,7 +30,7 @@ fn slots_to_index(s: &[u8; 3]) -> usize {
 
 impl NeiTables {
     /// Build the pathway analysis diff table using the standard genetic code (table 1).
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn new() -> Box<NeiTables> {
         let gc = genetic_code::get_table(1).unwrap();
         Self::with_genetic_code(gc)

@@ -12,20 +12,37 @@ use std::io::{BufWriter, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 
+/// Lineage plot data: (genome_id, lineage_name, dn_ds_ratio).
+pub type LineagePlotResult = Vec<(String, String, f64)>;
+
+/// Common output configuration shared across all write functions.
+pub struct OutputConfig<'a> {
+    /// Output file prefix (e.g., "results" → "results_pairwise_results.tsv")
+    pub prefix: &'a str,
+    /// Column separator character ('\\t' for TSV, ',' for CSV)
+    pub sep: char,
+    /// File extension ("tsv" or "csv")
+    pub ext: &'a str,
+    /// Which model was used (for column headers)
+    pub model: Model,
+    /// Optional summary statistics accumulator
+    pub summary: Option<&'a SummaryStats>,
+}
+
 /// Writes pairwise results using a dedicated writer thread.
 /// Computes pairs on-the-fly with lazy per-row caching (O(U) memory per thread).
-#[allow(clippy::too_many_arguments)]
 pub fn write_pairwise(
     ids: &[String],
     uidx_by_id: &[usize],
     n_u: usize,
     compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
-    output_prefix: &str,
-    model: Model,
-    sep: char,
-    ext: &str,
-    summary: Option<&SummaryStats>,
+    cfg: &OutputConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let output_prefix = cfg.prefix;
+    let model = cfg.model;
+    let sep = cfg.sep;
+    let ext = cfg.ext;
+    let summary = cfg.summary;
     let total_pairs_to_write = ids.len() * (ids.len() - 1) / 2;
     let pb_write = ProgressBar::new(total_pairs_to_write as u64);
     pb_write.set_style(ProgressStyle::default_bar()
@@ -133,20 +150,20 @@ pub fn write_pairwise(
 
 /// Writes dN/dS summary by lineage using a dedicated writer thread.
 /// Computes pairs on-the-fly with lazy per-row caching.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 /// Returns lineage plot data if summary stats are being collected.
 pub fn write_lineage(
     ids: &[String],
     uidx_by_id: &[usize],
     n_u: usize,
     compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
-    output_prefix: &str,
     lineage_indices: &[usize],
     lineage_names: &[String],
-    sep: char,
-    ext: &str,
-    summary: Option<&SummaryStats>,
-) -> Result<Vec<(String, String, f64)>, Box<dyn std::error::Error>> {
+    cfg: &OutputConfig,
+) -> Result<LineagePlotResult, Box<dyn std::error::Error>> {
+    let output_prefix = cfg.prefix;
+    let sep = cfg.sep;
+    let ext = cfg.ext;
+    let summary = cfg.summary;
     let num_lineages = lineage_names.len();
     let output_path = format!("{}_lineage_summary.{}", output_prefix, ext);
 
@@ -262,20 +279,19 @@ pub fn write_lineage(
     Ok(plot_data)
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Writes grouped dN/dS averages using a dedicated writer thread.
 /// Returns group plot data if summary stats are being collected.
 pub fn write_group_average(
     ids: &[String],
     uidx_by_id: &[usize],
-    _n_u: usize,
     compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
-    output_prefix: &str,
     first_letter_lineage: bool,
-    sep: char,
-    ext: &str,
-    summary: Option<&SummaryStats>,
+    cfg: &OutputConfig,
 ) -> Result<Vec<GroupPlotData>, Box<dyn std::error::Error>> {
+    let output_prefix = cfg.prefix;
+    let sep = cfg.sep;
+    let ext = cfg.ext;
+    let summary = cfg.summary;
     let mut group_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
     let mut group_names: Vec<String> = Vec::new();
     let group_by_id: Vec<usize> = ids.iter().map(|id| {
@@ -431,15 +447,16 @@ pub fn write_pairwise_windows(
     uidx_by_id: &[usize],
     unique_codon_indices: &[Vec<u8>],
     compute_pair_slices: impl Fn(&[u8], &[u8]) -> DsDn + Sync,
-    output_prefix: &str,
-    model: Model,
-    sep: char,
-    ext: &str,
     window_size: usize,
     window_step: usize,
-    summary: Option<&SummaryStats>,
     window_stats: Option<&WindowStats>,
+    cfg: &OutputConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let output_prefix = cfg.prefix;
+    let model = cfg.model;
+    let sep = cfg.sep;
+    let ext = cfg.ext;
+    let summary = cfg.summary;
     let seq_len = unique_codon_indices.first().map(|v| v.len()).unwrap_or(0);
     let num_windows = if seq_len >= window_size {
         (seq_len - window_size) / window_step + 1

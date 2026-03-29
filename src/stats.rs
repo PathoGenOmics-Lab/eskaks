@@ -40,6 +40,10 @@ pub struct FloatAccum {
     pub valid_count: usize,
 }
 
+impl Default for FloatAccum {
+    fn default() -> Self { Self::new() }
+}
+
 impl FloatAccum {
     pub fn new() -> Self {
         FloatAccum {
@@ -96,6 +100,10 @@ impl FloatAccum {
     pub fn reset(&mut self) {
         *self = FloatAccum::new();
     }
+}
+
+impl Default for SummaryStats {
+    fn default() -> Self { Self::new() }
 }
 
 impl SummaryStats {
