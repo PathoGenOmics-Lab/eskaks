@@ -2,7 +2,7 @@
 CARGO := cargo
 RUSTFLAGS_NATIVE := RUSTFLAGS="-C target-cpu=native"
 
-.PHONY: all build release test clippy clean benchmark bench-generate bench-run bench-plot
+.PHONY: all build release test clippy clean benchmark bench-generate bench-run bench-plot docs docs-serve check
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,16 @@ benchmark: bench-run bench-plot
 	@echo "Benchmark complete. Results in $(BENCH_DIR)/cross_tool_results.json"
 	@echo "Plots in $(BENCH_DIR)/plots/"
 
+# ─── Documentation ────────────────────────────────────────────────────────────
+
+docs:
+	mdbook build docs
+
+docs-serve:
+	mdbook serve docs --open
+
 # ─── Clean ────────────────────────────────────────────────────────────────────
 
 clean:
 	$(CARGO) clean
+	rm -rf docs/book

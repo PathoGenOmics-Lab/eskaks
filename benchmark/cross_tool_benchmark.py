@@ -90,6 +90,86 @@ def parse_biopython(path):
     return results
 
 
+def parse_yn00(work_dir):
+    """Parse PAML yn00 output -> {(seq1,seq2): (dN, dS)}.
+
+    yn00 outputs a lower-triangular matrix in the Yang & Nielsen (2000) section.
+    We parse the 'Nei & Gojobori 1986' section for NG-comparable values,
+    and the 'Yang & Nielsen (2000)' section for YN values.
+    Returns (ng_results, yn_results) dicts.
+    """
+    out_file = os.path.join(work_dir, "yn00_output.txt")
+    if not os.path.exists(out_file):
+        return {}, {}
+
+    with open(out_file) as f:
+        content = f.read()
+
+    ng_results = {}
+    yn_results = {}
+
+    # Parse the "(A) Nei-Gojobori (1986) method" section
+    # Format: seq2         dS(±SE)    dN(±SE)    omega
+    import re
+    lines = content.split('\n')
+    seq_names = []
+    section = None
+
+    for i, line in enumerate(lines):
+        if 'Nei & Gojobori' in line or 'Nei-Gojobori' in line:
+            section = 'ng'
+            continue
+        if 'Yang & Nielsen' in line:
+            section = 'yn'
+            continue
+        if section is None:
+            continue
+
+        # Detect sequence names (lines with just a name at start)
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        # yn00 outputs matrix rows like:
+        # seq2        0.1234(0.0100)  0.0567(0.0080)  0.4567
+        # Each row has the row-sequence name, then pairs of dS(SE) dN(SE) omega
+        parts = stripped.split()
+        if not parts:
+            continue
+
+        # Try to parse as a matrix row
+        name = parts[0]
+        floats = []
+        for p in parts[1:]:
+            # Extract number before '(' or the whole thing
+            m = re.match(r'^([0-9.eE+-]+)', p)
+            if m:
+                try:
+                    floats.append(float(m.group(1)))
+                except ValueError:
+                    pass
+
+        # Each pair entry is: dS, dN, omega (3 values per pair)
+        if len(floats) >= 3 and len(floats) % 3 == 0:
+            n_pairs = len(floats) // 3
+            if name not in seq_names:
+                seq_names.append(name)
+            row_idx = seq_names.index(name)
+            for col in range(n_pairs):
+                ds_val = floats[col * 3]
+                dn_val = floats[col * 3 + 1]
+                if col < row_idx:
+                    s1 = seq_names[col]
+                    s2 = name
+                    key = (s1, s2)
+                    rev_key = (s2, s1)
+                    target = ng_results if section == 'ng' else yn_results
+                    target[key] = (dn_val, ds_val)
+                    target[rev_key] = (dn_val, ds_val)
+
+    return ng_results, yn_results
+
+
 # ── Tool runners ──────────────────────────────────────────────────────
 
 def time_cmd(cmd, **kwargs):
@@ -264,6 +344,10 @@ def main():
     bp_path = RESULTS_DIR / "biopython_ng_small.tsv"
     biopython_ng = parse_biopython(str(bp_path)) if bp_path.exists() else {}
 
+    # Parse yn00 results (NG and YN methods)
+    yn00_dir = RESULTS_DIR / "yn00_small_workdir"
+    yn00_ng, yn00_yn = parse_yn00(str(yn00_dir)) if yn00_dir.exists() else ({}, {})
+
     comparisons = {
         "eskaks_nei_vs_kakscalc_ng": (eskaks_nei, kakscalc_ng, "eskaks Nei", "KaKs_Calc NG"),
         "eskaks_li_vs_kakscalc_lpb": (eskaks_li, kakscalc_lpb, "eskaks Li", "KaKs_Calc LPB"),
@@ -271,6 +355,10 @@ def main():
     if biopython_ng:
         comparisons["eskaks_nei_vs_biopython"] = (eskaks_nei, biopython_ng, "eskaks Nei", "BioPython NG86")
         comparisons["kakscalc_ng_vs_biopython"] = (kakscalc_ng, biopython_ng, "KaKs_Calc NG", "BioPython NG86")
+    if yn00_ng:
+        comparisons["eskaks_nei_vs_yn00_ng"] = (eskaks_nei, yn00_ng, "eskaks Nei", "PAML yn00 (NG)")
+    if yn00_yn:
+        comparisons["eskaks_nei_vs_yn00_yn"] = (eskaks_nei, yn00_yn, "eskaks Nei", "PAML yn00 (YN)")
 
     scatter_data = {}
     for comp_name, (data_a, data_b, label_a, label_b) in comparisons.items():

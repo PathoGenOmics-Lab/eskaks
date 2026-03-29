@@ -240,7 +240,7 @@ eskaks was benchmarked against established dN/dS tools on synthetic datasets of 
 
 ### Accuracy
 
-Numerical accuracy was validated by comparing pairwise dN and dS values against [KaKs_Calculator](https://github.com/kullrich/kakscalculator2) and [BioPython](https://biopython.org/) on a dataset of 20 sequences (300 codons each, 190 pairs).
+Numerical accuracy was validated by comparing pairwise dN and dS values against [KaKs_Calculator](https://github.com/kullrich/kakscalculator2), [BioPython](https://biopython.org/), and [PAML yn00](http://abacus.gene.ucl.ac.uk/software/paml.html) on a dataset of 20 sequences (300 codons each, 190 pairs).
 
 | Comparison | Metric | n | Mean \|diff\| | Max \|diff\| | R² |
 |---|---|---|---|---|---|
