@@ -37,6 +37,12 @@ Yes! Use `--genetic-code <N>` with any of the 20 supported NCBI tables. Run `esk
 
 See the [CITATION.cff](https://github.com/PathoGenOmics-Lab/eskaks/blob/main/CITATION.cff) file, or use GitHub's "Cite this repository" button.
 
+## What is the difference between dN/dS and pN/pS?
+
+**dN/dS** measures fixed substitutions between diverged sequences (from aligned FASTA). It applies corrections for multiple substitutions (Jukes-Cantor or Kimura).
+
+**pN/pS** measures polymorphism within a population (from VCF). It counts raw variant proportions without multiple-hit correction. Use `eskaks fasta` for dN/dS and `eskaks vcf` for pN/pS.
+
 ## Can I use eskaks as a library?
 
 Yes. eskaks exposes a `lib.rs` with public modules. Add it as a dependency in your `Cargo.toml`:

@@ -1,16 +1,27 @@
 # Quick Start
 
-## Basic usage
+## Pairwise dN/dS (FASTA)
 
 ```bash
 # Compute pairwise dN/dS with Nei model (default)
-eskaks aligned_genes.fasta -o results
+eskaks fasta aligned_genes.fasta -o results
 
 # Use the Li (1993) model with 8 threads
-eskaks aligned_genes.fasta --model li --workers 8 -o results
+eskaks fasta aligned_genes.fasta --model li --workers 8 -o results
 
 # Read from stdin
-cat aligned_genes.fasta | eskaks - -o results
+cat aligned_genes.fasta | eskaks fasta - -o results
+```
+
+## pN/pS per gene (VCF)
+
+```bash
+# Compute pN/pS from a VCF + reference + annotation
+eskaks vcf --ref reference.fasta --gff annotation.gff3 --vcf variants.vcf -o results
+
+# With filters and Manhattan plot
+eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
+  --pass-only --min-af 0.05 --genetic-code 11 --plot -o filtered
 ```
 
 ## Input requirements
@@ -42,7 +53,7 @@ gene_A  gene_C  0.0891  0.4102  0.2172
 
 ```bash
 # Compute pairwise dN/dS with summary statistics
-eskaks genes.fasta --model nei --summary --plot -o scan
+eskaks fasta genes.fasta --model nei --summary --plot -o scan
 
 # Filter pairs with dN/dS > 1 (positive selection)
 awk -F'\t' 'NR>1 && $5>1' scan_pairwise_results.tsv
@@ -52,24 +63,24 @@ awk -F'\t' 'NR>1 && $5>1' scan_pairwise_results.tsv
 
 ```bash
 # 50-codon windows, stepping by 10
-eskaks genes.fasta --window-size 50 --window-step 10 --plot -o windows
+eskaks fasta genes.fasta --window-size 50 --window-step 10 --plot -o windows
 ```
 
 ### Group comparisons
 
 ```bash
 # Sequences named like "lineageA_gene1", "lineageB_gene2"
-eskaks genes.fasta --group-average -o groups
+eskaks fasta genes.fasta --group-average -o groups
 
 # Or group by first letter
-eskaks genes.fasta --lineage --first-letter-lineage -o lineages
+eskaks fasta genes.fasta --lineage --first-letter-lineage -o lineages
 ```
 
 ### JSON for pipelines
 
 ```bash
 # Machine-readable output
-eskaks genes.fasta --format json -o results
+eskaks fasta genes.fasta --format json -o results
 cat results_pairwise_results.json | python3 -c "
 import json, sys
 data = json.load(sys.stdin)

@@ -1,6 +1,6 @@
 # eskaks
 
-**eskaks** is a high-performance command-line tool for calculating pairwise dN/dS (Ka/Ks) ratios from codon-aligned sequences. It implements the Nei-Gojobori (1986) and Li (1993) models with precomputed lookup tables, achieving over 1,000× speedup compared to existing tools.
+**eskaks** is a high-performance command-line tool for evolutionary rate analysis. It calculates pairwise dN/dS (Ka/Ks) from codon-aligned sequences and per-gene pN/pS from VCF files. It implements the Nei-Gojobori (1986) and Li (1993) models with precomputed lookup tables, achieving over 1,000× speedup compared to existing tools.
 
 ## Why eskaks?
 

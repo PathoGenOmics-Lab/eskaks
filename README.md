@@ -6,9 +6,9 @@
 
 [![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-%23dea584?style=flat-square)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-152%20passing-%2332CD32?style=flat-square)](#project-structure)
+[![Tests](https://img.shields.io/badge/tests-192%20passing-%2332CD32?style=flat-square)](#project-structure)
 
-**Fast pairwise dN/dS (Ka/Ks) calculation from codon-aligned sequences.**
+**Fast pairwise dN/dS (Ka/Ks) and per-gene pN/pS from codon-aligned sequences or VCF files.**
 
 [Quick Start](#quick-start) · [Usage](#usage) · [Benchmarks](benchmarks/) · [Docs](docs/) · [Citation](#citation)
 
@@ -23,15 +23,23 @@ __and Mireia Coscolla<sup>1</sup>__
 
 ## What is eskaks?
 
-eskaks is a Rust tool that calculates pairwise dN/dS (Ka/Ks) ratios from codon-aligned sequences. It implements two classical substitution models with precomputed lookup tables, achieving **1,280× speedup** over KaKs_Calculator and **18,600× over BioPython** while maintaining numerical accuracy (R² = 1.0 for the Li model).
+eskaks is a Rust tool for evolutionary rate analysis. It computes **pairwise dN/dS** from codon-aligned sequences and **per-gene pN/pS** from VCF files. It implements two classical substitution models with precomputed lookup tables, achieving **1,280× speedup** over KaKs_Calculator while maintaining numerical accuracy (R² = 1.0 for the Li model).
+
+**Two modes:**
+
+| Mode | Command | Input | Output |
+|---|---|---|---|
+| **dN/dS** | `eskaks fasta` | Codon-aligned FASTA | Pairwise dN, dS, dN/dS |
+| **pN/pS** | `eskaks vcf` | VCF + reference + GFF3 | Per-gene pN, pS, pN/pS |
 
 **Key features:**
 - 🧬 **Two models** — [Nei-Gojobori (1986) + Li (1993)/LPB93](docs/models.md)
 - ⚡ **Fast** — Precomputed lookup tables + Rayon parallelism (~100 ms for 124,750 pairs)
 - 🔬 **[20 genetic codes](docs/genetic-codes.md)** — All NCBI translation tables (standard, mitochondrial, plastid, etc.)
-- 📊 **Multiple outputs** — Pairwise, lineage summary, group average, sliding window
+- 🧪 **[VCF analysis](docs/vcf-analysis.md)** — pN/pS per gene from population variants (VCF + GFF3)
+- 📊 **Multiple outputs** — Pairwise, lineage summary, group average, sliding window, per-gene
 - 📁 **[Flexible formats](docs/output-formats.md)** — TSV, CSV, JSON (`null` for NaN/Infinity)
-- 🖼️ **SVG plots** — Histograms, window plots, group bar charts
+- 🖼️ **SVG plots** — Histograms, window plots, group bar charts, Manhattan plots
 - 🔗 **Pipeline-friendly** — Stdin support, JSON output, non-zero exit on errors
 
 ## Installation
@@ -47,24 +55,34 @@ Requires [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70.0. `make relea
 
 ## Quick Start
 
+### Pairwise dN/dS (FASTA)
+
 ```bash
 # Basic pairwise dN/dS (Nei model, 4 threads)
-eskaks input.fasta -o results
+eskaks fasta input.fasta -o results
 
 # Li model with 8 threads
-eskaks input.fasta --model li --workers 8 -o results
+eskaks fasta input.fasta --model li --workers 8 -o results
 
 # Vertebrate mitochondrial genetic code
-eskaks mito_genes.fasta --genetic-code 2 -o mito
+eskaks fasta mito_genes.fasta --genetic-code 2 -o mito
 
 # Sliding window with SVG plot
-eskaks input.fasta --window-size 100 --window-step 10 --plot -o windows
+eskaks fasta input.fasta --window-size 100 --window-step 10 --plot -o windows
 
-# JSON for pipelines
-eskaks input.fasta --format json -o results
+# From stdin
+cat input.fasta | eskaks fasta - -o results
+```
 
-# Read from stdin
-cat input.fasta | eskaks - -o results
+### pN/pS per gene (VCF)
+
+```bash
+# Compute pN/pS from population variants
+eskaks vcf --ref reference.fasta --gff annotation.gff3 --vcf variants.vcf -o results
+
+# M. tuberculosis with filters and Manhattan plot
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf population.vcf \
+  --genetic-code 11 --pass-only --min-af 0.05 --plot -o mtb_pnps
 ```
 
 > [!TIP]
@@ -73,27 +91,12 @@ cat input.fasta | eskaks - -o results
 ## Usage
 
 ```bash
-eskaks <input_file> [options]
+eskaks fasta <input_file> [options]    # pairwise dN/dS
+eskaks vcf --ref --gff --vcf [options] # per-gene pN/pS
+eskaks --list-codes                    # show genetic code tables
 ```
 
-| Flag | Description | Default |
-|---|---|---|
-| `-o, --output <PREFIX>` | Base name for output files | `output` |
-| `-w, --workers <N>` | Parallel threads | `4` |
-| `--model <nei\|li>` | Substitution model | `nei` |
-| `--format <tsv\|csv\|json>` | Output format | `tsv` |
-| `--genetic-code <N>` | NCBI translation table | `1` |
-| `--lineage` | Lineage summary mode | off |
-| `--group-average` | Group average mode | off |
-| `--first-letter-lineage` | Group by first character | off |
-| `--window-size <N>` | Sliding window (codons) | off |
-| `--window-step <N>` | Window step size | `1` |
-| `--min-codons <N>` | Min valid codons filter | `0` |
-| `--summary` | Print stats to stderr | off |
-| `--plot` | Generate SVG plots | off |
-| `--list-codes` | List genetic codes | — |
-
-See [docs/cli-reference.md](docs/cli-reference.md) for full details and examples.
+See [docs/cli-reference.md](docs/cli-reference.md) for all flags and examples.
 
 ## Performance
 
@@ -131,6 +134,7 @@ Li model achieves **R² = 1.0** vs KaKs_Calculator LPB. Full accuracy data and m
 | [Models](docs/models.md) | Nei-Gojobori vs Li, when to use each |
 | [Genetic Codes](docs/genetic-codes.md) | 20 NCBI translation tables |
 | [Output Formats](docs/output-formats.md) | TSV, CSV, JSON — modes and SVG plots |
+| [VCF Analysis (pN/pS)](docs/vcf-analysis.md) | VCF + reference + GFF3 → pN/pS per gene |
 | [Interpreting Results](docs/interpreting-results.md) | dN/dS ratios, selection, caveats |
 | [CLI Reference](docs/cli-reference.md) | All flags, examples, exit codes |
 | [FAQ](docs/faq.md) | Speed, NaN, stop codons, library usage |
@@ -141,8 +145,8 @@ Li model achieves **R² = 1.0** vs KaKs_Calculator LPB. Full accuracy data and m
 ```
 eskaks/
 ├── src/
-│   ├── main.rs           # Orchestration
-│   ├── cli.rs            # CLI definitions (clap)
+│   ├── main.rs           # Orchestration + subcommand dispatch
+│   ├── cli.rs            # CLI definitions (clap subcommands)
 │   ├── input.rs          # FASTA reading, validation, stdin
 │   ├── compute.rs        # ComputeEngine enum (Nei | Li)
 │   ├── codon.rs          # DNA5 encoding
@@ -150,8 +154,11 @@ eskaks/
 │   ├── output.rs         # Streaming writers
 │   ├── stats.rs          # Summary statistics
 │   ├── plot.rs           # SVG generation
+│   ├── vcf.rs            # VCF parser (SNPs, AF, multi-allelic)
+│   ├── gff.rs            # GFF3 parser (CDS, multi-exon, strand)
+│   ├── vcf_analysis.rs   # pN/pS computation + output + plot
 │   └── models/           # nei.rs, li.rs
-├── tests/                # 152 tests (integration + edge + property)
+├── tests/                # 192 tests (integration + edge + property + vcf)
 ├── benchmarks/           # Cross-tool accuracy & performance
 ├── docs/                 # Detailed documentation
 └── img/                  # Logo assets

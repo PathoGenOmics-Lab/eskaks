@@ -10,6 +10,7 @@
 - [Genetic Codes](./genetic-codes.md)
 - [Output Formats](./output-formats.md)
 - [Interpreting Results](./interpreting-results.md)
+- [VCF Analysis (pN/pS)](./vcf-analysis.md)
 
 # Reference
 

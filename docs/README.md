@@ -11,6 +11,7 @@ Detailed documentation for eskaks. Browse on GitHub or build locally with [mdboo
 | [Output Formats](output-formats.md) | TSV, CSV, JSON — output modes and SVG plot generation |
 | [Interpreting Results](interpreting-results.md) | What dN/dS values mean, common pitfalls, caveats |
 | [CLI Reference](cli-reference.md) | Complete flag list, exit codes, environment variables, examples |
+| [VCF Analysis (pN/pS)](vcf-analysis.md) | Compute pN/pS per gene from VCF + reference + GFF3 |
 | [FAQ](faq.md) | Why so fast? NaN values? Internal stop codons? Library usage? |
 | [Benchmarks](../benchmarks/) | Accuracy validation and performance comparison |
 
