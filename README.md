@@ -1,107 +1,146 @@
-
 <p align="center">
-  <a href="https://github.com/PathoGenOmics-Lab/eskaks">
-    <img src="img/esKaKs.svg" height="200" alt="eskaks">
-  </a>
+  <img src="img/esKaKs.svg" height="200" alt="eskaks logo" />
 </p>
+
+<div align="center">
+
+[![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-%23dea584?style=flat-square)](https://www.rust-lang.org/)
+[![Tests](https://img.shields.io/badge/tests-152%20passing-%2332CD32?style=flat-square)](#testing)
+
+**Fast pairwise dN/dS (Ka/Ks) calculation from codon-aligned sequences.**
+
+[Quick Start](#quick-start) · [Models](#models) · [Benchmarks](#benchmarks) · [Docs](docs/) · [Citation](#citation)
+
+</div>
 
 __Paula Ruiz-Rodriguez<sup>1</sup>__
 __and Mireia Coscolla<sup>1</sup>__
 <br>
 <sub> 1. Institute for Integrative Systems Biology, I<sup>2</sup>SysBio, University of Valencia-CSIC, Valencia, Spain </sub>
 
-**eskaks** is a high-performance command-line tool written in Rust for calculating dN/dS (Ka/Ks) ratios between pairs of aligned coding sequences. It supports both the Nei-Gojobori (1986) and Li (1993) models for estimating synonymous (dS) and nonsynonymous (dN) substitution rates. The tool leverages parallel processing via Rayon, sequence deduplication, and precomputed lookup tables for efficient computation on large datasets.
+---
 
-## Features
+## What is eskaks?
 
-- **Models**: Choose between the Nei-Gojobori (default) or Li (1993) model for dN/dS calculation.
-- **20 Genetic Codes**: Supports all NCBI translation tables (standard, mitochondrial, plastid, etc.) via `--genetic-code`.
-- **Parallel Processing**: Configurable multi-threaded computation via `--workers` using Rayon.
-- **Memory-Efficient Codon Encoding**: FASTA sequences are converted directly to codon indices (L/3 bytes per sequence instead of L), achieving a 3x memory reduction compared to storing raw nucleotides.
-- **Sequence Deduplication**: Automatically detects and groups identical sequences to avoid redundant pairwise computations.
-- **Precomputed Lookup Tables**: The Li model uses flat-array lookup tables (64×64 codon pairs, AoS layout) for cache-friendly, zero-allocation pair evaluation, with an L1-cache-resident fast path for identical codons (~95% of comparisons in typical alignments).
-- **Streaming Output**: Results are streamed via dedicated writer threads with buffered I/O and lazy per-row caching using generation counters, keeping memory usage at O(U) per thread instead of O(U²) total.
-- **Group Summaries**:
-  - **Group Average**: Compute mean dN/dS between predefined groups of sequences with 95% confidence intervals.
-  - **Lineage Summary**: Compute mean dN/dS for each sequence against sequences grouped by lineage.
-  - **Configurable Lineage Grouping**: Group by splitting on `_` (default) or by the first character of each sequence name (`--first-letter-lineage`).
+eskaks is a Rust tool that calculates pairwise dN/dS (Ka/Ks) ratios from codon-aligned sequences. It implements two classical substitution models with precomputed lookup tables, achieving **1,280× speedup** over KaKs_Calculator and **18,600× over BioPython** while maintaining numerical accuracy (R² = 1.0 for the Li model).
 
-## Models
-
-### Nei-Gojobori (1986)
-
-The Nei-Gojobori method is a straightforward counting approach:
-
-1. Counts synonymous and nonsynonymous sites for each codon using a precomputed site table.
-2. Classifies codon differences as synonymous (same amino acid) or nonsynonymous (different amino acid).
-3. Applies the **Jukes-Cantor correction** to account for multiple substitutions at the same site.
-4. Returns `NaN` when substitution proportions reach saturation (p >= 0.749).
-
-**Best for**: Fast exploratory analyses, large datasets, and when simplicity is preferred.
-
-### Li (1993)
-
-The Li method is more sophisticated:
-
-1. Classifies sites into three categories (0-fold, 2-fold, 4-fold degenerate) based on the genetic code.
-2. Considers all possible evolutionary pathways for codons differing at 2 or 3 positions, weighted by amino acid similarity.
-3. Separately estimates transition and transversion rates for each site category.
-4. Applies the **Kimura two-parameter correction** to each category.
-5. Uses precomputed 64×64 flat-array lookup tables (~288 KB, AoS layout) for zero-allocation pair computation, with a compact 1.5 KB `same_l` table for identical-codon fast path.
-
-**Best for**: More accurate estimates that account for codon usage bias, transition/transversion differences, and site degeneracy.
-
-## Input
-
-A FASTA file containing multiple aligned coding sequences. Requirements:
-
-- All sequences must be the same length.
-- Sequence length must be a multiple of 3 (complete codons only).
-- Standard DNA/RNA alphabet (A, C, G, T/U); ambiguous bases (N, etc.) are handled gracefully.
-
-## Output
-
-- **Pairwise results** (`<prefix>_pairwise_results.tsv`): Tab-separated file with columns:
-  - `Seq1`, `Seq2`, `dN`, `dS`, `dN/dS` (Nei model)
-  - `Seq1`, `Seq2`, `dN(Ka)`, `dS(Ks)`, `dN/dS` (Li model)
-
-- **Group average** (`<prefix>_group_avg_dn_ds.tsv`): Mean dN/dS between groups with columns:
-  - `Group1`, `Group2`, `NumSeqs1`, `NumSeqs2`, `NumComparisons`, `Mean_dN/dS`, `StdError`, `95%CI`
-
-- **Sliding window** (`<prefix>_pairwise_windows.tsv`): Per-window pairwise results with columns:
-  - `Seq1`, `Seq2`, `Window_Start`, `Window_End`, `dN`, `dS`, `dN/dS`
-
-- **Lineage summary** (`<prefix>_lineage_summary.tsv`): Mean dN/dS per lineage with columns:
-  - `Genome`, `Against_Lineage`, `Mean_dN`, `Mean_dS`, `dN/dS_Ratio`
+**Key features:**
+- 🧬 **Two models** — Nei-Gojobori (1986) + Li (1993)/LPB93
+- ⚡ **Fast** — Precomputed lookup tables + Rayon parallelism (~100 ms for 124,750 pairs)
+- 🔬 **20 genetic codes** — All NCBI translation tables (standard, mitochondrial, plastid, etc.)
+- 📊 **Multiple outputs** — Pairwise, lineage summary, group average, sliding window
+- 📁 **Flexible formats** — TSV, CSV, JSON (`null` for NaN/Infinity)
+- 🖼️ **SVG plots** — Histograms, window plots, group bar charts
+- 🔗 **Pipeline-friendly** — Stdin support, JSON output, non-zero exit on errors
 
 ## Installation
 
 ### From source (recommended)
 
 ```bash
-# Clone the repository
 git clone https://github.com/PathoGenOmics-Lab/eskaks.git
 cd eskaks
+make release
+```
 
-# Build with maximum optimizations
-RUSTFLAGS="-C target-cpu=native" cargo build --release
+The binary will be at `target/release/eskaks`. Copy it to your PATH:
 
-# The binary will be at target/release/eskaks
+```bash
+cp target/release/eskaks ~/.local/bin/
 ```
 
 ### Requirements
 
-- [Rust](https://www.rust-lang.org/tools/install) >= 1.70.0
+- [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70.0
 
-### Performance tip
+> [!TIP]
+> `make release` automatically enables native CPU optimizations (`-C target-cpu=native`).
+> This uses CPU-specific SIMD instructions for maximum performance on your hardware.
 
-For maximum performance on your specific CPU, compile with native target optimizations:
+## Quick Start
 
 ```bash
-RUSTFLAGS="-C target-cpu=native" cargo build --release
+# Basic pairwise dN/dS (Nei model, 4 threads)
+eskaks input.fasta -o results
+
+# Li model with 8 threads
+eskaks input.fasta --model li --workers 8 -o results
+
+# Vertebrate mitochondrial genetic code
+eskaks mito_genes.fasta --genetic-code 2 -o mito
+
+# Sliding window analysis with SVG plot
+eskaks input.fasta --window-size 100 --window-step 10 --plot -o windows
+
+# JSON output for pipelines
+eskaks input.fasta --format json -o results
+
+# Read from stdin
+cat input.fasta | eskaks - -o results
 ```
 
-This enables CPU-specific SIMD instructions and other architecture optimizations.
+## Models
+
+### Nei-Gojobori (1986)
+
+A straightforward counting approach:
+
+1. Classifies codon positions as synonymous or nonsynonymous based on single-nucleotide change effects.
+2. Classifies codon pair differences via pathway analysis (averaging over all minimal pathways, excluding stop codon intermediates).
+3. Applies **Jukes-Cantor correction** for multiple substitutions. Returns `NaN` at saturation (p ≥ 0.749).
+
+**Best for**: Fast exploratory analyses and large datasets.
+
+### Li (1993) / LPB93
+
+A more sophisticated model accounting for transition/transversion bias:
+
+1. Classifies sites into 0-fold, 2-fold, and 4-fold degenerate categories.
+2. Separately counts transitions and transversions for each degeneracy class.
+3. Applies **Kimura two-parameter correction** to each category.
+4. Uses precomputed 64×64 flat-array lookup tables (~288 KB, AoS layout) with a compact 1.5 KB fast path for identical codons (~95% of comparisons in typical alignments).
+
+**Best for**: Accurate estimates when transition/transversion ratios matter.
+
+| Aspect | Nei-Gojobori | Li (1993) |
+|---|---|---|
+| Correction | Jukes-Cantor (equal rates) | Kimura 2-parameter (ti/tv) |
+| Site classification | Syn / nonsyn | 0-fold / 2-fold / 4-fold |
+| Accuracy | Good for similar sequences | Better for divergent sequences |
+| Reference tool | KaKs_Calculator NG | KaKs_Calculator LPB |
+
+## Input
+
+A FASTA file containing multiple codon-aligned coding sequences:
+
+- All sequences must be the same length
+- Sequence length must be a multiple of 3 (complete codons)
+- Standard DNA/RNA alphabet (A, C, G, T/U)
+- Gaps (`-`, `.`) and ambiguous bases (N, etc.) are handled gracefully
+- Use `-` or `/dev/stdin` to read from stdin
+
+> [!TIP]
+> If your sequences are not codon-aligned, use [MAFFT](https://mafft.cbrc.jp/) + [PAL2NAL](http://www.bork.embl.de/pal2nal/) or [MACSE](https://bioweb.supagro.inra.fr/macse/) first.
+
+## Output
+
+| Mode | Flag | Output file | Description |
+|---|---|---|---|
+| Pairwise (default) | — | `<prefix>_pairwise_results.<ext>` | dN, dS, dN/dS for every pair |
+| Lineage summary | `--lineage` | `<prefix>_lineage_summary.<ext>` | Mean dN/dS per sequence vs each lineage |
+| Group average | `--group-average` | `<prefix>_group_avg_dn_ds.<ext>` | Mean dN/dS between groups with 95% CI |
+| Sliding window | `--window-size N` | `<prefix>_pairwise_windows.<ext>` | Per-window dN/dS along the alignment |
+
+Add `--plot` to generate SVG visualizations (histograms, window plots, bar charts).
+
+### Output formats
+
+| Format | Flag | NaN handling | Best for |
+|---|---|---|---|
+| TSV | `--format tsv` (default) | `NaN` | Bioinformatics tools, `awk` |
+| CSV | `--format csv` | `NaN` | Excel, pandas |
+| JSON | `--format json` | `null` | Pipelines, `jq`, APIs |
 
 ## Usage
 
@@ -109,149 +148,39 @@ This enables CPU-specific SIMD instructions and other architecture optimizations
 eskaks <input_file> [options]
 ```
 
-### Required Arguments
-
-- `<input_file>`: Aligned coding sequences in FASTA format. Use `-` to read from stdin.
-
-### Options
-
 | Flag | Description | Default |
-|------|-------------|---------|
+|---|---|---|
 | `-o, --output <PREFIX>` | Base name for output files | `output` |
 | `-w, --workers <N>` | Number of parallel threads | `4` |
-| `--model <nei\|li>` | Model to use for calculation | `nei` |
-| `--format <tsv\|csv\|json>` | Output format (JSON uses `null` for NaN) | `tsv` |
-| `--lineage` | Compute summary results by lineage (mutually exclusive with `--group-average`) | off |
-| `--group-average` | Compute average dN/dS between groups (mutually exclusive with `--lineage`) | off |
-| `--first-letter-lineage` | Group sequences by first letter (requires `--lineage` or `--group-average`) | off |
-| `--min-codons <N>` | Filter sequences with fewer than N valid codons | `0` |
-| `--window-size <N>` | Sliding window size in codons (pairwise mode only) | off |
-| `--window-step <N>` | Sliding window step in codons | `1` |
-| `--summary` | Print statistical summary to stderr | off |
-| `--plot` | Generate SVG plot file(s) | off |
-| `--genetic-code <N>` | NCBI genetic code table number | `1` (Standard) |
-| `--list-codes` | List all available genetic code tables and exit | off |
-
-## Examples
-
-1. **Basic Nei model calculation:**
-   ```bash
-   eskaks input.fasta
-   ```
-   Produces `output_pairwise_results.tsv` with pairwise dN/dS (Nei model, 4 threads).
-
-2. **Li model with 8 threads:**
-   ```bash
-   eskaks input.fasta --model li --workers 8 -o results
-   ```
-   Produces `results_pairwise_results.tsv` using the Li (1993) model with 8 parallel threads.
-
-3. **Lineage summary:**
-   ```bash
-   eskaks input.fasta --lineage -o analysis
-   ```
-   Produces `analysis_lineage_summary.tsv` with mean dN/dS for each sequence against each lineage group (lineages determined by splitting sequence IDs on `_`).
-
-4. **Lineage summary with first-letter grouping:**
-   ```bash
-   eskaks input.fasta --lineage --first-letter-lineage
-   ```
-   Groups sequences by their first character instead of splitting by `_`.
-
-5. **Group average with confidence intervals:**
-   ```bash
-   eskaks input.fasta --group-average --workers 16
-   ```
-   Computes mean dN/dS between all group pairs with standard error and 95% confidence intervals.
-
-6. **Sliding window analysis:**
-   ```bash
-   eskaks input.fasta --window-size 100 --window-step 10 -o sliding
-   ```
-   Computes pairwise dN/dS for each sliding window of 100 codons, stepping by 10.
-
-7. **Summary statistics and plots:**
-   ```bash
-   eskaks input.fasta --summary --plot -o results
-   ```
-   Prints statistical summary to stderr and generates an SVG histogram of dN/dS distribution.
-
-8. **Alternative genetic code (vertebrate mitochondrial):**
-   ```bash
-   eskaks mito_genes.fasta --genetic-code 2 -o mito_results
-   ```
-   Uses NCBI translation table 2 (Vertebrate Mitochondrial) for dN/dS calculation.
-
-9. **List available genetic codes:**
-   ```bash
-   eskaks --list-codes
-   ```
-
-10. **JSON output for pipelines:**
-    ```bash
-    eskaks input.fasta --format json -o results
-    ```
-    Produces `results_pairwise_results.json` with NaN values as `null`.
-
-11. **Read from stdin:**
-    ```bash
-    cat input.fasta | eskaks - -o results
-    ```
-
-## Architecture
-
-```
-src/
-  main.rs          - Thin orchestration: parse args, load data, dispatch output
-  lib.rs           - Public module exports for library usage
-  cli.rs           - CLI argument definitions (clap derive)
-  input.rs         - FASTA reading, validation, filtering, sort-based deduplication
-  compute.rs       - Unified ComputeEngine enum (Nei | Li) for model-agnostic dispatch
-  codon.rs         - DNA5 encoding, codon index conversion, group key extraction
-  genetic_code.rs  - 20 NCBI translation tables, Li↔Nei index conversion, syn site computation
-  output.rs        - Streaming output writers with OutputConfig + generation counters
-  stats.rs         - Thread-safe summary statistics and window accumulators
-  plot.rs          - SVG plot generation (histogram, window, group bar, lineage bar)
-  models/
-    mod.rs         - Model enum and shared types (DsDn, Z_95_CONFIDENCE)
-    nei.rs         - Nei-Gojobori (1986) with Jukes-Cantor correction
-    li.rs          - Li (1993) with AoS lookup tables + same_l fast path
-tests/
-  integration.rs       - 25 integration tests against the compiled binary
-  edge_cases.rs        - 11 edge case tests (malformed input, empty files, flag validation)
-  property_tests.rs    - 10 property-based tests (symmetry, identity, non-negativity)
-  data/
-    synthetic.fasta         - 5 hand-crafted sequences for pairwise/lineage tests
-    synthetic_grouped.fasta - 5 sequences with A_/B_ prefixes for group-average tests
-```
-
-### Key Performance Patterns
-
-- **3x memory reduction**: Sequences stored as codon indices (L/3 bytes) instead of raw nucleotides (L bytes)
-- **Sort-based deduplication**: O(n log n) on compact codon indices; only unique pairs are computed
-- **Chunk-of-4 processing**: Both models process 4 codons at a time with bitwise validity checks for branch-free fast paths
-- **Generation counters**: Thread-local per-row caches are invalidated in O(1) via wrapping counters instead of O(n) clearing
-- **L1-cache fast path (Li)**: Identical codons (~95% in typical alignments) use a 1.5 KB table instead of the full 288 KB lookup
-- **Streaming I/O**: Crossbeam channels with 64 KB batched buffers feed a dedicated writer thread
+| `--model <nei\|li>` | Substitution model | `nei` |
+| `--format <tsv\|csv\|json>` | Output format | `tsv` |
+| `--genetic-code <N>` | NCBI translation table number | `1` |
+| `--lineage` | Lineage summary mode | off |
+| `--group-average` | Group average mode | off |
+| `--first-letter-lineage` | Group by first character of ID | off |
+| `--window-size <N>` | Sliding window size (codons) | off |
+| `--window-step <N>` | Window step size | `1` |
+| `--min-codons <N>` | Filter sequences with < N valid codons | `0` |
+| `--summary` | Print summary statistics to stderr | off |
+| `--plot` | Generate SVG plot(s) | off |
+| `--list-codes` | List available genetic codes and exit | — |
 
 ## Benchmarks
 
-eskaks was benchmarked against established dN/dS tools on synthetic datasets of varying sizes. All benchmarks were run on a single machine; eskaks timings include both single-threaded (1t) and multi-threaded (4t) runs.
-
 ### Accuracy
 
-Numerical accuracy was validated by comparing pairwise dN and dS values against [KaKs_Calculator](https://github.com/kullrich/kakscalculator2), [BioPython](https://biopython.org/), and [PAML yn00](http://abacus.gene.ucl.ac.uk/software/paml.html) on a dataset of 20 sequences (300 codons each, 190 pairs).
+Numerical accuracy validated against [KaKs_Calculator](https://github.com/kullrich/kakscalculator2), [BioPython](https://biopython.org/), and [PAML yn00](http://abacus.gene.ucl.ac.uk/software/paml.html) on 20 sequences (300 codons, 190 pairs):
 
-| Comparison | Metric | n | Mean \|diff\| | Max \|diff\| | R² |
+| Comparison | Metric | n | Mean |diff| | Max |diff| | R² |
 |---|---|---|---|---|---|
-| eskaks Li vs KaKs_Calc LPB | dN | 154 | 0.000000 | 0.000001 | 1.000000 |
-| eskaks Li vs KaKs_Calc LPB | dS | 175 | 0.000000 | 0.000001 | 1.000000 |
+| eskaks Li vs KaKs_Calc LPB | dN | 154 | 0.000000 | 0.000001 | **1.000000** |
+| eskaks Li vs KaKs_Calc LPB | dS | 175 | 0.000000 | 0.000001 | **1.000000** |
 | eskaks Nei vs KaKs_Calc NG | dN | 124 | 0.000150 | 0.000416 | 0.999397 |
 | eskaks Nei vs KaKs_Calc NG | dS | 184 | 0.001146 | 0.003315 | 0.995155 |
 | eskaks Nei vs BioPython NG86 | dN | 190 | 0.000114 | 0.001169 | 0.998169 |
 | eskaks Nei vs BioPython NG86 | dS | 190 | 0.000338 | 0.003554 | 0.996981 |
 
-The Li model achieves near-exact agreement (R² = 1.0) with KaKs_Calculator's LPB method. Small differences in the Nei model are due to minor pathway-counting heuristics and are consistent with the inter-tool variation observed between KaKs_Calculator and BioPython themselves (R² = 0.993-0.996).
+The Li model achieves **exact agreement** (R² = 1.0) with KaKs_Calculator LPB. Small Nei differences reflect minor pathway-counting heuristics, consistent with inter-tool variation between KaKs_Calculator and BioPython (R² = 0.993–0.996).
 
 <p align="center">
   <img src="benchmark/plots/accuracy_scatter.png" width="700" alt="Accuracy scatter plots comparing eskaks against KaKs_Calculator and BioPython">
@@ -259,15 +188,15 @@ The Li model achieves near-exact agreement (R² = 1.0) with KaKs_Calculator's LP
 
 ### Performance
 
-Wall-clock time in milliseconds for pairwise dN/dS computation:
+Wall-clock time (ms) for pairwise dN/dS computation:
 
-| Dataset | eskaks Nei (1t) | eskaks Nei (4t) | eskaks Li (1t) | eskaks Li (4t) | KaKs_Calc NG | KaKs_Calc LPB | yn00 | BioPython NG |
-|---|---|---|---|---|---|---|---|---|
-| Small (20 seq, 300 cod) | 3 ms | 2 ms | 6 ms | 6 ms | 34 ms | 48 ms | 8 ms | 610 ms |
-| Medium (100 seq, 3000 cod) | 12 ms | 6 ms | 17 ms | 10 ms | 7,703 ms | 10,860 ms | 697 ms | 111,619 ms |
-| Large (500 seq, 3000 cod) | 227 ms | 74 ms | 235 ms | 88 ms | 195,456 ms | 271,807 ms | - | - |
+| Dataset | eskaks (4t) | KaKs_Calc NG | PAML yn00 | BioPython NG | Speedup |
+|---|---|---|---|---|---|
+| 20 seq × 300 bp | 2 ms | 34 ms | 8 ms | 610 ms | **17×** |
+| 100 seq × 3,000 bp | 6 ms | 7,703 ms | 697 ms | 111,619 ms | **1,280×** |
+| 500 seq × 3,000 bp | 74 ms | 195,456 ms | — | — | **2,641×** |
 
-On the medium dataset (100 sequences, 3000 codons), eskaks Nei (4t) is **~1,280x faster** than KaKs_Calculator NG and **~18,600x faster** than BioPython. On the large dataset (500 sequences, 3000 codons), eskaks computes 124,750 pairs in under 100 ms.
+On the large dataset (500 sequences, 124,750 pairs), eskaks finishes in **74 ms**.
 
 <p align="center">
   <img src="benchmark/plots/performance_bars.png" width="700" alt="Performance comparison bar chart">
@@ -277,36 +206,92 @@ On the medium dataset (100 sequences, 3000 codons), eskaks Nei (4t) is **~1,280x
   <img src="benchmark/plots/speedup_chart.png" width="700" alt="Speedup chart showing eskaks advantage over other tools">
 </p>
 
-### Reproducing Benchmarks
-
-The full benchmark suite is in the `benchmark/` directory:
+### Reproducing benchmarks
 
 ```bash
-# Generate synthetic test datasets
-python benchmark/generate_seqs.py
+make benchmark
+```
 
-# Run cross-tool benchmarks (requires KaKs_Calculator and BioPython installed)
-python benchmark/cross_tool_benchmark.py
+This runs: generate synthetic data → run all tools → compute accuracy → generate plots. Results in `benchmark/cross_tool_results.json`, plots in `benchmark/plots/`.
 
-# Results are saved to benchmark/cross_tool_results.json
-# Plots are saved to benchmark/plots/
+> Requires Python 3 + matplotlib + numpy. KaKs_Calculator, BioPython, and PAML yn00 are optional (skipped if not installed).
+
+## Comparison
+
+| | eskaks | KaKs_Calculator | BioPython | PAML yn00 |
+|---|---|---|---|---|
+| Nei-Gojobori model | ✅ | ✅ | ✅ | ✅ |
+| Li/LPB93 model | ✅ | ✅ | ❌ | ❌ |
+| Yang-Nielsen model | ❌ | ✅ | ❌ | ✅ |
+| Custom genetic codes | ✅ (20 tables) | ❌ | ❌ | Limited |
+| JSON output | ✅ | ❌ | ❌ | ❌ |
+| Stdin pipe | ✅ | ❌ | ❌ | ❌ |
+| Sliding windows | ✅ | ❌ | ❌ | ❌ |
+| Group comparisons | ✅ | ❌ | ❌ | ❌ |
+| SVG plots | ✅ | ❌ | ❌ | ❌ |
+| Parallel | ✅ (rayon) | ❌ | ❌ | ❌ |
+| Standalone binary | ✅ | ✅ | ❌ (Python) | ✅ |
+| Speed (100 seq) | **6 ms** | 7,703 ms | 111,619 ms | 697 ms |
+
+## Project Structure
+
+```
+eskaks/
+├── src/
+│   ├── main.rs          # Thin orchestration: parse args, load data, dispatch
+│   ├── lib.rs           # Public module exports for library usage
+│   ├── cli.rs           # CLI argument definitions (clap derive)
+│   ├── input.rs         # FASTA reading, validation, deduplication, stdin
+│   ├── compute.rs       # Unified ComputeEngine enum (Nei | Li)
+│   ├── codon.rs         # DNA5 encoding, codon index conversion
+│   ├── genetic_code.rs  # 20 NCBI translation tables + index conversion
+│   ├── output.rs        # Streaming writers + generation counters
+│   ├── stats.rs         # Thread-safe summary statistics
+│   ├── plot.rs          # SVG plot generation
+│   └── models/
+│       ├── mod.rs       # Model enum and shared types
+│       ├── nei.rs       # Nei-Gojobori (1986) + Jukes-Cantor
+│       └── li.rs        # Li (1993) + AoS lookup tables
+├── tests/
+│   ├── integration.rs       # 25 integration tests
+│   ├── edge_cases.rs        # 21 edge case tests
+│   └── property_tests.rs    # 10 property-based tests (proptest)
+├── benchmark/               # Cross-tool benchmarks + plots
+├── docs/                    # mdbook documentation site
+└── img/                     # Logo assets
+```
+
+## Citation
+
+If you use eskaks in your research, please cite:
+
+> Ruiz-Rodriguez P, Coscollá M. eskaks: Fast pairwise dN/dS calculation. https://github.com/PathoGenOmics-Lab/eskaks
+
+```bibtex
+@software{ruiz-rodriguez_eskaks_2026,
+  title   = {eskaks: Fast pairwise dN/dS calculation},
+  author  = {Ruiz-Rodriguez, Paula and Coscoll{\'a}, Mireia},
+  year    = {2026},
+  url     = {https://github.com/PathoGenOmics-Lab/eskaks}
+}
 ```
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+[GNU General Public License v3.0](LICENSE)
 
 ---
+
 <h2 id="contributors" align="center">
 
-Contributors
+✨ Contributors
 </h2>
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
 <div align="center">
-eskaks is developed by:
+eskaks is developed with ❤️ by:
 <table>
   <tr>
     <td align="center">
@@ -345,4 +330,3 @@ This project follows the [all-contributors](https://github.com/all-contributors/
 <!-- prettier-ignore-end -->
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
----
