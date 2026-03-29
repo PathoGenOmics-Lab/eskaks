@@ -15,4 +15,3 @@
 
 - [CLI Reference](./cli-reference.md)
 - [FAQ](./faq.md)
-- [Benchmarks](./benchmarks.md)
