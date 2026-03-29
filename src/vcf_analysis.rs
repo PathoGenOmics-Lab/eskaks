@@ -28,12 +28,12 @@ pub struct GenePnPs {
     pub ps: f64,
     /// pN/pS ratio
     pub pn_ps: f64,
-    /// Count of nonsynonymous SNPs
-    pub nonsyn_snps: u32,
-    /// Count of synonymous SNPs
-    pub syn_snps: u32,
-    /// Total SNPs in this gene
-    pub total_snps: u32,
+    /// Count of nonsynonymous SNPs (AF-weighted if --af-weighted)
+    pub nonsyn_snps: f64,
+    /// Count of synonymous SNPs (AF-weighted if --af-weighted)
+    pub syn_snps: f64,
+    /// Total SNPs in this gene (AF-weighted if --af-weighted)
+    pub total_snps: f64,
     /// Genomic start position (for plotting)
     pub genome_start: usize,
     /// Chromosome
@@ -41,11 +41,15 @@ pub struct GenePnPs {
 }
 
 /// Compute pN/pS for all genes given a reference sequence, gene annotations, and SNPs.
+///
+/// If `af_weighted` is true, each SNP contributes its allele frequency to the
+/// syn/nonsyn count instead of 1.0 (πN/πS instead of pN/pS).
 pub fn compute_pn_ps(
     reference: &HashMap<String, Vec<u8>>,
     genes: &[Gene],
     snps: &[VcfSnp],
     gc: &GeneticCode,
+    af_weighted: bool,
 ) -> Vec<GenePnPs> {
     // Index SNPs by chromosome and position for fast lookup
     let mut snp_map: HashMap<&str, Vec<&VcfSnp>> = HashMap::new();
@@ -81,8 +85,9 @@ pub fn compute_pn_ps(
         let (n_sites, s_sites) = count_sites(&cds_seq, gc);
 
         // Find SNPs that fall within this gene's CDS regions
-        let mut nonsyn_count = 0u32;
-        let mut syn_count = 0u32;
+        // Counts are f64 to support AF-weighted mode (πN/πS)
+        let mut nonsyn_count = 0.0f64;
+        let mut syn_count = 0.0f64;
 
         if let Some(snps_list) = chrom_snps {
             for snp in snps_list.iter() {
@@ -119,7 +124,14 @@ pub fn compute_pn_ps(
                     }
 
                     // For each ALT allele at this position
-                    for alt_base in &snp.alt_alleles {
+                    for (alt_idx, alt_base) in snp.alt_alleles.iter().enumerate() {
+                        // Weight: AF if weighted mode, 1.0 otherwise
+                        let weight = if af_weighted {
+                            snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0)
+                        } else {
+                            1.0
+                        };
+
                         // Build alternate codon
                         let mut alt_codon = ref_codon;
                         let alt_in_cds = if gene.strand == Strand::Minus {
@@ -136,9 +148,9 @@ pub fn compute_pn_ps(
                         match (ref_aa, alt_aa) {
                             (Some(r), Some(a)) if r != b'*' && a != b'*' => {
                                 if r == a {
-                                    syn_count += 1;
+                                    syn_count += weight;
                                 } else {
-                                    nonsyn_count += 1;
+                                    nonsyn_count += weight;
                                 }
                             }
                             // Skip: ambiguous codons or mutations to/from stop
@@ -151,12 +163,12 @@ pub fn compute_pn_ps(
 
         let total_snps = nonsyn_count + syn_count;
         let pn = if n_sites > 0.0 {
-            nonsyn_count as f64 / n_sites
+            nonsyn_count / n_sites
         } else {
             0.0
         };
         let ps = if s_sites > 0.0 {
-            syn_count as f64 / s_sites
+            syn_count / s_sites
         } else {
             0.0
         };
@@ -426,7 +438,7 @@ pub fn write_results(
                 let comma = if i + 1 < results.len() { "," } else { "" };
                 writeln!(
                     file,
-                    "  {{\"gene\":\"{}\",\"length_bp\":{},\"N_sites\":{:.4},\"S_sites\":{:.4},\"pN\":{},\"pS\":{},\"pN_pS\":{},\"nonsyn_snps\":{},\"syn_snps\":{},\"total_snps\":{}}}{}",
+                    "  {{\"gene\":\"{}\",\"length_bp\":{},\"N_sites\":{:.4},\"S_sites\":{:.4},\"pN\":{},\"pS\":{},\"pN_pS\":{},\"nonsyn_snps\":{:.4},\"syn_snps\":{:.4},\"total_snps\":{:.4}}}{}",
                     r.name, r.length_bp, r.n_sites, r.s_sites,
                     format_json_f64(r.pn), format_json_f64(r.ps), format_json_f64(r.pn_ps),
                     r.nonsyn_snps, r.syn_snps, r.total_snps, comma
@@ -445,7 +457,7 @@ pub fn write_results(
             for r in results {
                 writeln!(
                     file,
-                    "{}{s}{}{s}{:.4}{s}{:.4}{s}{:.6}{s}{:.6}{s}{}{s}{}{s}{}{s}{}",
+                    "{}{s}{}{s}{:.4}{s}{:.4}{s}{:.6}{s}{:.6}{s}{}{s}{:.4}{s}{:.4}{s}{:.4}",
                     r.name, r.length_bp, r.n_sites, r.s_sites,
                     r.pn, r.ps, format_pnps(r.pn_ps),
                     r.nonsyn_snps, r.syn_snps, r.total_snps,
@@ -496,7 +508,7 @@ pub fn write_pnps_plot(results: &[GenePnPs], prefix: &str) -> anyhow::Result<Str
     // Filter out genes with no SNPs or NaN/infinite pN/pS
     let plot_data: Vec<&GenePnPs> = results
         .iter()
-        .filter(|r| r.total_snps > 0 && r.pn_ps.is_finite())
+        .filter(|r| r.total_snps > 0.0 && r.pn_ps.is_finite())
         .collect();
 
     if plot_data.is_empty() {
@@ -587,7 +599,7 @@ pub fn write_pnps_plot(results: &[GenePnPs], prefix: &str) -> anyhow::Result<Str
         let x = to_x(r.genome_start);
         let y = to_y(r.pn_ps);
         let color = if r.pn_ps < 1.0 { C_PURIFYING } else { C_POSITIVE };
-        let radius = (r.total_snps as f64).sqrt().clamp(2.0, 8.0);
+        let radius = r.total_snps.sqrt().clamp(2.0, 8.0);
         let _ = writeln!(
             svg,
             "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"{r:.1}\" fill=\"{c}\" opacity=\"0.7\">",

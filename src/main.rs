@@ -142,7 +142,7 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     info!("{} SNPs after filtering", snps.len());
 
     // Compute pN/pS
-    let results = vcf_analysis::compute_pn_ps(&reference, &genes, &snps, gc);
+    let results = vcf_analysis::compute_pn_ps(&reference, &genes, &snps, gc, args.af_weighted);
 
     // Write results
     let output_path = vcf_analysis::write_results(&results, &args.output, &args.format)?;
@@ -156,14 +156,15 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
 
     // Print summary statistics
     let total_genes = results.len();
-    let genes_with_snps = results.iter().filter(|r| r.total_snps > 0).count();
-    let total_syn: u32 = results.iter().map(|r| r.syn_snps).sum();
-    let total_nonsyn: u32 = results.iter().map(|r| r.nonsyn_snps).sum();
-    eprintln!("\n── pN/pS Summary ──────────────────────────");
-    eprintln!("  Genes analyzed:     {}", total_genes);
-    eprintln!("  Genes with SNPs:    {}", genes_with_snps);
-    eprintln!("  Total synonymous:   {}", total_syn);
-    eprintln!("  Total nonsynonymous: {}", total_nonsyn);
+    let genes_with_snps = results.iter().filter(|r| r.total_snps > 0.0).count();
+    let total_syn: f64 = results.iter().map(|r| r.syn_snps).sum();
+    let total_nonsyn: f64 = results.iter().map(|r| r.nonsyn_snps).sum();
+    let mode = if args.af_weighted { "πN/πS (AF-weighted)" } else { "pN/pS" };
+    eprintln!("\n── {} Summary ──────────────────────────", mode);
+    eprintln!("  Genes analyzed:      {}", total_genes);
+    eprintln!("  Genes with SNPs:     {}", genes_with_snps);
+    eprintln!("  Total synonymous:    {:.2}", total_syn);
+    eprintln!("  Total nonsynonymous: {:.2}", total_nonsyn);
     eprintln!("───────────────────────────────────────────");
 
     info!("VCF analysis completed successfully.");

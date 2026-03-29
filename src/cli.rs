@@ -133,6 +133,13 @@ pub struct VcfArgs {
     #[arg(long)]
     pub min_depth: Option<u32>,
 
+    /// Weight SNP counts by allele frequency instead of counting each SNP as 1.
+    /// With this flag, a SNP at AF=0.3 contributes 0.3 to the syn/nonsyn count
+    /// instead of 1.0. This computes πN/πS (nucleotide diversity ratio) rather
+    /// than simple pN/pS.
+    #[arg(long)]
+    pub af_weighted: bool,
+
     /// Generate SVG Manhattan-style plot of pN/pS per gene
     #[arg(long)]
     pub plot: bool,

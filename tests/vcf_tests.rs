@@ -110,12 +110,12 @@ fn vcf_gene_a_has_correct_snp_classification() {
     let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
     let gene_a = rows.iter().find(|r| r[0] == "geneA")
         .expect("geneA not found in output");
-    let nonsyn: u32 = gene_a[7].parse().unwrap();
-    let syn: u32 = gene_a[8].parse().unwrap();
-    let total: u32 = gene_a[9].parse().unwrap();
-    assert_eq!(nonsyn, 1, "geneA should have 1 nonsynonymous SNP, got {}", nonsyn);
-    assert_eq!(syn, 1, "geneA should have 1 synonymous SNP, got {}", syn);
-    assert_eq!(total, 2, "geneA should have 2 total SNPs, got {}", total);
+    let nonsyn: f64 = gene_a[7].parse().unwrap();
+    let syn: f64 = gene_a[8].parse().unwrap();
+    let total: f64 = gene_a[9].parse().unwrap();
+    assert!((nonsyn - 1.0).abs() < 0.01, "geneA should have 1 nonsynonymous SNP, got {}", nonsyn);
+    assert!((syn - 1.0).abs() < 0.01, "geneA should have 1 synonymous SNP, got {}", syn);
+    assert!((total - 2.0).abs() < 0.01, "geneA should have 2 total SNPs, got {}", total);
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
 }
 
@@ -136,10 +136,10 @@ fn vcf_gene_b_has_one_syn_snp() {
     let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
     let gene_b = rows.iter().find(|r| r[0] == "geneB")
         .expect("geneB not found in output");
-    let nonsyn: u32 = gene_b[7].parse().unwrap();
-    let syn: u32 = gene_b[8].parse().unwrap();
-    assert_eq!(nonsyn, 0, "geneB should have 0 nonsynonymous SNPs, got {}", nonsyn);
-    assert_eq!(syn, 1, "geneB should have 1 synonymous SNP, got {}", syn);
+    let nonsyn: f64 = gene_b[7].parse().unwrap();
+    let syn: f64 = gene_b[8].parse().unwrap();
+    assert!((nonsyn - 0.0).abs() < 0.01, "geneB should have 0 nonsynonymous SNPs, got {}", nonsyn);
+    assert!((syn - 1.0).abs() < 0.01, "geneB should have 1 synonymous SNP, got {}", syn);
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
 }
 
@@ -247,8 +247,8 @@ fn vcf_min_depth_filter() {
     let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
     // All genes should have 0 SNPs
     for row in &rows[1..] {
-        let total: u32 = row[9].parse().unwrap();
-        assert_eq!(total, 0, "All SNPs should be filtered with min-depth 100");
+        let total: f64 = row[9].parse().unwrap();
+        assert!((total - 0.0).abs() < 0.01, "All SNPs should be filtered with min-depth 100");
     }
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
 }
