@@ -1,10 +1,9 @@
 
 <p align="center">
   <a href="https://github.com/PathoGenOmics-Lab/eskaks">
-    <img src="https://github.com/PathoGenOmics-Lab/eskaks/blob/main/.github/logos/esKaKs.png" height="350" alt="eskaks">
+    <img src="img/esKaKs.svg" height="200" alt="eskaks">
   </a>
 </p>
-</div>
 
 __Paula Ruiz-Rodriguez<sup>1</sup>__
 __and Mireia Coscolla<sup>1</sup>__
@@ -193,9 +192,10 @@ eskaks <input_file> [options]
 ```
 src/
   main.rs          - CLI, FASTA→codon index reading, deduplication, parallel dispatch
+  lib.rs           - Public module exports for library usage
   codon.rs         - DNA5 encoding, codon index conversion, group key extraction
   genetic_code.rs  - 20 NCBI translation tables, Li↔Nei index conversion, syn site computation
-  output.rs        - Streaming output writers with for_each_init + generation counters
+  output.rs        - Streaming output writers with OutputConfig + generation counters
   stats.rs         - Thread-safe summary statistics and window accumulators
   plot.rs          - SVG plot generation (histogram, window, group bar, lineage bar)
   models/
@@ -203,7 +203,9 @@ src/
     nei.rs         - Nei-Gojobori (1986) with Jukes-Cantor correction
     li.rs          - Li (1993) with AoS lookup tables + same_l fast path
 tests/
-  integration.rs   - 21 integration tests against the compiled binary
+  integration.rs       - 25 integration tests against the compiled binary
+  edge_cases.rs        - 11 edge case tests (malformed input, empty files, flag validation)
+  property_tests.rs    - 10 property-based tests (symmetry, identity, non-negativity)
   data/
     synthetic.fasta         - 5 hand-crafted sequences for pairwise/lineage tests
     synthetic_grouped.fasta - 5 sequences with A_/B_ prefixes for group-average tests
