@@ -138,7 +138,7 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     info!("Found {} SNP records", snps.len());
 
     // Apply filters
-    let snps = vcf::filter_snps(snps, args.pass_only, args.min_af, args.min_depth);
+    let snps = vcf::filter_snps(snps, args.pass_only, args.min_af, args.max_af, args.min_depth);
     info!("{} SNPs after filtering", snps.len());
 
     // Compute pN/pS

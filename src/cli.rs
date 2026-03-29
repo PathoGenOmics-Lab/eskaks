@@ -123,6 +123,12 @@ pub struct VcfArgs {
     #[arg(long)]
     pub min_af: Option<f64>,
 
+    /// Maximum allele frequency threshold (0.0-1.0).
+    /// Use --max-af 0.99 to exclude fixed variants (AF=1.0) and keep only
+    /// segregating polymorphisms for pN/pS analysis.
+    #[arg(long)]
+    pub max_af: Option<f64>,
+
     /// Minimum read depth (from INFO/DP)
     #[arg(long)]
     pub min_depth: Option<u32>,

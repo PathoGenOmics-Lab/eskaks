@@ -211,6 +211,7 @@ pub fn filter_snps(
     snps: Vec<VcfSnp>,
     pass_only: bool,
     min_af: Option<f64>,
+    max_af: Option<f64>,
     min_depth: Option<u32>,
 ) -> Vec<VcfSnp> {
     snps.into_iter()
@@ -227,6 +228,11 @@ pub fn filter_snps(
             }
             if let Some(min) = min_af {
                 if snp.alt_freqs.iter().all(|&af| af < min) {
+                    return false;
+                }
+            }
+            if let Some(max) = max_af {
+                if snp.alt_freqs.iter().any(|&af| af > max) {
                     return false;
                 }
             }
@@ -286,8 +292,24 @@ chr1\t100\t.\tA\tG\t30\tPASS\tAF=0.5
 chr1\t200\t.\tC\tT\t30\tLowQual\tAF=0.3\n";
         let f = write_temp_vcf(vcf);
         let snps = parse_vcf(f.path()).unwrap();
-        let filtered = filter_snps(snps, true, None, None);
+        let filtered = filter_snps(snps, true, None, None, None);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].pos, 100);
+    }
+
+    #[test]
+    fn filter_max_af_excludes_fixed() {
+        let vcf = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chr1\t100\t.\tA\tG\t30\tPASS\tAF=0.3
+chr1\t200\t.\tC\tT\t30\tPASS\tAF=1.0
+chr1\t300\t.\tG\tA\t30\tPASS\tAF=0.95\n";
+        let f = write_temp_vcf(vcf);
+        let snps = parse_vcf(f.path()).unwrap();
+        let filtered = filter_snps(snps, false, None, Some(0.99), None);
+        assert_eq!(filtered.len(), 2, "AF=1.0 should be excluded");
+        assert_eq!(filtered[0].pos, 100);
+        assert_eq!(filtered[1].pos, 300);
     }
 }
