@@ -8,26 +8,8 @@ use crate::codon::INVALID_CODON;
 const LI_EPSILON: f64 = 1e-6;
 
 // --- Genetic code for stop codon detection ---
-
-/// Standard genetic code amino acid table. Stop codons encoded as '!'.
-static GENETIC_CODE: [u8; 64] = [
-    // AAA  AAC  AAG  AAT  ACA  ACC  ACG  ACT
-    b'K', b'N', b'K', b'N', b'T', b'T', b'T', b'T',
-    // AGA  AGC  AGG  AGT  ATA  ATC  ATG  ATT
-    b'R', b'S', b'R', b'S', b'I', b'I', b'M', b'I',
-    // CAA  CAC  CAG  CAT  CCA  CCC  CCG  CCT
-    b'Q', b'H', b'Q', b'H', b'P', b'P', b'P', b'P',
-    // CGA  CGC  CGG  CGT  CTA  CTC  CTG  CTT
-    b'R', b'R', b'R', b'R', b'L', b'L', b'L', b'L',
-    // GAA  GAC  GAG  GAT  GCA  GCC  GCG  GCT
-    b'E', b'D', b'E', b'D', b'A', b'A', b'A', b'A',
-    // GGA  GGC  GGG  GGT  GTA  GTC  GTG  GTT
-    b'G', b'G', b'G', b'G', b'V', b'V', b'V', b'V',
-    // TAA  TAC  TAG  TAT  TCA  TCC  TCG  TCT
-    b'!', b'Y', b'!', b'Y', b'S', b'S', b'S', b'S',
-    // TGA  TGC  TGG  TGT  TTA  TTC  TTG  TTT
-    b'!', b'C', b'W', b'C', b'L', b'F', b'L', b'F',
-];
+// The genetic code is now stored per-instance in LiTables.gc,
+// allowing alternative translation tables (mitochondrial, etc.).
 
 // --- Internal biological functions ---
 
@@ -49,24 +31,24 @@ fn decode_codon(n: usize) -> [char; 3] {
 }
 
 /// Returns the amino acid for a codon index (0-63). Stop codons return b'!'.
-fn get_amino_acid(idx: usize) -> u8 {
-    GENETIC_CODE[idx]
+fn get_amino_acid(gc: &[u8; 64], idx: usize) -> u8 {
+    gc[idx]
 }
 
 /// Returns true if the codon is a stop codon.
-fn is_stop_codon(cod: &[char; 3]) -> bool {
+fn is_stop_codon(gc: &[u8; 64], cod: &[char; 3]) -> bool {
     let idx = codon_to_index(cod);
-    idx >= 64 || get_amino_acid(idx) == b'!'
+    idx >= 64 || get_amino_acid(gc, idx) == b'!'
 }
 
 /// Classify degeneracy of a codon position (0, 2, or 4-fold).
 /// Matches KaKs_Calculator's getCodonClass: counts how many of the 3 alternative
 /// bases at this position produce the same amino acid.
 /// Returns 0 (0-fold), 1 (2-fold), or 2 (4-fold) as array index.
-fn get_codon_class(cod: &[char; 3], pos: usize) -> usize {
+fn get_codon_class(gc: &[u8; 64], cod: &[char; 3], pos: usize) -> usize {
     let idx = codon_to_index(cod);
     if idx >= 64 { return 0; }
-    let aa = get_amino_acid(idx);
+    let aa = get_amino_acid(gc, idx);
     if aa == b'!' { return 0; }
 
     let bases = ['A', 'C', 'G', 'T'];
@@ -77,7 +59,7 @@ fn get_codon_class(cod: &[char; 3], pos: usize) -> usize {
             alt[pos] = b;
             let alt_idx = codon_to_index(&alt);
             if alt_idx < 64 {
-                let alt_aa = get_amino_acid(alt_idx);
+                let alt_aa = get_amino_acid(gc, alt_idx);
                 if alt_aa != b'!' && alt_aa == aa {
                     count += 1;
                 }
@@ -106,12 +88,12 @@ fn is_transition(nt1: char, nt2: char) -> bool {
 ///   that look like transversions (C->A) but are classified as synonymous
 ///   transitions. In KaKs_Calculator LWL85, CGA<->AGA and CGG<->AGG at pos 0
 ///   get special handling: Si_temp[class1] += 0.5 and Vi_temp[class2] += 0.5.
-fn count_1diff_titv(cod1: &[char; 3], cod2: &[char; 3], weight: f64,
+fn count_1diff_titv(gc: &[u8; 64], cod1: &[char; 3], cod2: &[char; 3], weight: f64,
                      ti: &mut [f64; 3], tv: &mut [f64; 3]) {
     for pos in 0..3 {
         if cod1[pos] != cod2[pos] {
-            let class1 = get_codon_class(cod1, pos);
-            let class2 = get_codon_class(cod2, pos);
+            let class1 = get_codon_class(gc, cod1, pos);
+            let class2 = get_codon_class(gc, cod2, pos);
 
             // Special case: CGA<->AGA and CGG<->AGG at position 0 (Arg synonymous)
             // In KaKs_Calculator LWL85, this gets Si_temp[class1]+=0.5, Vi_temp[class2]+=0.5
@@ -167,6 +149,8 @@ impl Default for CodonPairData {
 pub struct LiTables {
     data: [CodonPairData; 4096],
     same_l: [[f64; 3]; 64],
+    /// The genetic code used for this instance.
+    gc: [u8; 64],
 }
 
 #[inline(always)]
@@ -199,7 +183,17 @@ impl LiTables {
     ///    - 1 diff: direct classification
     ///    - 2 diff: enumerate 2 pathways, exclude stop intermediates, equal weight
     ///    - 3 diff: enumerate 6 pathways, exclude stop intermediates, equal weight
+    /// Build lookup tables using the standard genetic code (table 1).
     pub fn new() -> Box<Self> {
+        use crate::genetic_code;
+        let gc = genetic_code::get_table(1).unwrap();
+        Self::with_genetic_code(&gc.aa_table)
+    }
+
+    /// Build lookup tables for any NCBI genetic code.
+    /// The input table uses `b'*'` for stop codons (NCBI convention);
+    /// internally we convert to `b'!'` for Li model compatibility.
+    pub fn with_genetic_code(gc_table: &[u8; 64]) -> Box<Self> {
         // Allocate AoS table (single heap allocation via Box, no double indirection)
         let mut tables: Box<LiTables> = unsafe {
             let layout = std::alloc::Layout::new::<LiTables>();
@@ -207,6 +201,15 @@ impl LiTables {
             if ptr.is_null() { std::alloc::handle_alloc_error(layout); }
             Box::from_raw(ptr)
         };
+        // Convert * → ! for stop codons (Li convention)
+        tables.gc = *gc_table;
+        for aa in tables.gc.iter_mut() {
+            if *aa == b'*' { *aa = b'!'; }
+        }
+        let gc = &tables.gc as *const [u8; 64];
+        // SAFETY: gc points into tables which lives for the duration of this function
+        // and the returned Box. All reads happen within this scope.
+        let gc = unsafe { &*gc };
 
         for i in 0..64usize {
             for j in i..64usize {
@@ -217,8 +220,8 @@ impl LiTables {
                 // Each codon contributes its classification; average of both (each × 0.5)
                 let mut l_accum = [0.0; 3];
                 for pos in 0..3 {
-                    let c1 = get_codon_class(&cod1, pos);
-                    let c2 = get_codon_class(&cod2, pos);
+                    let c1 = get_codon_class(gc, &cod1, pos);
+                    let c2 = get_codon_class(gc, &cod2, pos);
                     l_accum[c1] += 0.5;
                     l_accum[c2] += 0.5;
                 }
@@ -239,7 +242,7 @@ impl LiTables {
                 match ndiff {
                     0 => {} // identical codons: no substitutions
                     1 => {
-                        count_1diff_titv(&cod1, &cod2, 1.0, &mut ti_accum, &mut tv_accum);
+                        count_1diff_titv(gc, &cod1, &cod2, 1.0, &mut ti_accum, &mut tv_accum);
                     }
                     2 => {
                         // 2 pathways: change pos[0] first or pos[1] first
@@ -254,19 +257,19 @@ impl LiTables {
                         let mut int2 = cod1;
                         int2[d1] = cod2[d1];
 
-                        let p1_valid = !is_stop_codon(&int1);
-                        let p2_valid = !is_stop_codon(&int2);
+                        let p1_valid = !is_stop_codon(gc, &int1);
+                        let p2_valid = !is_stop_codon(gc, &int2);
 
                         let valid_count = p1_valid as u32 + p2_valid as u32;
                         if valid_count > 0 {
                             let w = 1.0 / valid_count as f64;
                             if p1_valid {
-                                count_1diff_titv(&cod1, &int1, w, &mut ti_accum, &mut tv_accum);
-                                count_1diff_titv(&int1, &cod2, w, &mut ti_accum, &mut tv_accum);
+                                count_1diff_titv(gc, &cod1, &int1, w, &mut ti_accum, &mut tv_accum);
+                                count_1diff_titv(gc, &int1, &cod2, w, &mut ti_accum, &mut tv_accum);
                             }
                             if p2_valid {
-                                count_1diff_titv(&cod1, &int2, w, &mut ti_accum, &mut tv_accum);
-                                count_1diff_titv(&int2, &cod2, w, &mut ti_accum, &mut tv_accum);
+                                count_1diff_titv(gc, &cod1, &int2, w, &mut ti_accum, &mut tv_accum);
+                                count_1diff_titv(gc, &int2, &cod2, w, &mut ti_accum, &mut tv_accum);
                             }
                         }
                     }
@@ -287,7 +290,7 @@ impl LiTables {
                             let mut int2 = int1;
                             int2[perm[1]] = cod2[perm[1]];
 
-                            if !is_stop_codon(&int1) && !is_stop_codon(&int2) {
+                            if !is_stop_codon(gc, &int1) && !is_stop_codon(gc, &int2) {
                                 path_valid[pi] = true;
                                 valid_count += 1;
                             }
@@ -302,9 +305,9 @@ impl LiTables {
                                 let mut int2 = int1;
                                 int2[perm[1]] = cod2[perm[1]];
 
-                                count_1diff_titv(&cod1, &int1, w, &mut ti_accum, &mut tv_accum);
-                                count_1diff_titv(&int1, &int2, w, &mut ti_accum, &mut tv_accum);
-                                count_1diff_titv(&int2, &cod2, w, &mut ti_accum, &mut tv_accum);
+                                count_1diff_titv(gc, &cod1, &int1, w, &mut ti_accum, &mut tv_accum);
+                                count_1diff_titv(gc, &int1, &int2, w, &mut ti_accum, &mut tv_accum);
+                                count_1diff_titv(gc, &int2, &cod2, w, &mut ti_accum, &mut tv_accum);
                             }
                         }
                     }

@@ -1,4 +1,5 @@
 mod codon;
+mod genetic_code;
 mod models;
 mod output;
 mod plot;
@@ -13,11 +14,11 @@ use stats::SummaryStats;
 
 /// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
 #[derive(Parser, Debug)]
-#[command(version = "1.0.0", about, long_about = None)]
+#[command(version, about, long_about = None)]
 struct Args {
     /// Input file with aligned sequences in FASTA format
-    #[arg(required = true)]
-    input_file: String,
+    #[arg(required_unless_present = "list_codes")]
+    input_file: Option<String>,
 
     /// Base name for output files
     #[arg(short, long, default_value = "output")]
@@ -67,11 +68,40 @@ struct Args {
     /// Generate SVG plot file
     #[arg(long)]
     plot: bool,
+
+    /// NCBI genetic code table number (default: 1 = Standard).
+    /// Use --list-codes to see all available tables.
+    /// Common alternatives: 2 (Vertebrate Mito), 4 (Mycoplasma), 11 (Bacterial)
+    #[arg(long, default_value_t = 1)]
+    genetic_code: u8,
+
+    /// List all available genetic code tables and exit
+    #[arg(long)]
+    list_codes: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let args = Args::parse();
+
+    // Handle --list-codes
+    if args.list_codes {
+        eprintln!("Available NCBI genetic code tables:");
+        for (id, name) in genetic_code::list_tables() {
+            eprintln!("  {:>2}  {}", id, name);
+        }
+        return Ok(());
+    }
+
+    // Validate genetic code
+    let gc = genetic_code::get_table(args.genetic_code)
+        .unwrap_or_else(|| {
+            eprintln!("Error: unknown genetic code table {}. Use --list-codes to see available tables.", args.genetic_code);
+            std::process::exit(1);
+        });
+    if args.genetic_code != 1 {
+        info!("Using genetic code table {}: {}", gc.id, gc.name);
+    }
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.workers)
@@ -79,13 +109,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_global()?;
 
     // --- Read sequences: convert FASTA bytes directly to codon indices ---
-    info!("Reading sequences from: {}", args.input_file);
+    let input_file = args.input_file.as_ref().unwrap_or_else(|| {
+        eprintln!("Error: no input file specified.");
+        std::process::exit(1);
+    });
+
+    info!("Reading sequences from: {}", input_file);
     let mut all_codon_indices: Vec<Vec<u8>> = Vec::new();
     let mut ids: Vec<String> = Vec::new();
     let mut gap_count_total = 0usize;
     let mut seqs_with_gaps = 0usize;
     {
-        let mut reader = parse_fastx_file(&args.input_file)?;
+        let mut reader = parse_fastx_file(input_file)?;
         while let Some(record) = reader.next() {
             let rec = record?;
             let seq = rec.seq();
@@ -187,7 +222,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- Precomputation for model lookup tables ---
     let li_tables = if args.model == Model::Li {
         info!("Precomputing lookup tables for Li (1993) model...");
-        let tables = models::li::LiTables::new();
+        let tables = models::li::LiTables::with_genetic_code(&gc.aa_table);
         info!("Li precomputation finished.");
         Some(tables)
     } else {
@@ -196,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let nei_tables = if args.model == Model::Nei {
         info!("Precomputing lookup tables for Nei-Gojobori (1986) model...");
-        let tables = models::nei::NeiTables::new();
+        let tables = models::nei::NeiTables::with_genetic_code(gc);
         info!("Nei precomputation finished.");
         Some(tables)
     } else {

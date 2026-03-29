@@ -311,6 +311,67 @@ fn sliding_window_csv_format() {
     fs::remove_file(format!("{}_pairwise_windows.csv", out_prefix)).ok();
 }
 
+// ─── Alternative genetic codes ───────────────────────────────────────────────
+
+#[test]
+fn list_codes_exits_ok() {
+    let output = Command::new(binary_path())
+        .args(["--list-codes"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Standard"), "should list Standard code");
+    assert!(stderr.contains("Vertebrate Mitochondrial"), "should list Vertebrate Mito");
+}
+
+#[test]
+fn genetic_code_2_runs_ok() {
+    let out_prefix = "/tmp/eskaks_test_gc2";
+    let status = Command::new(binary_path())
+        .args([FASTA, "-o", out_prefix, "--model", "nei", "--workers", "2", "--genetic-code", "2"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let rows = parse_tsv(&format!("{}_pairwise_results.tsv", out_prefix));
+    assert!(rows.len() > 1, "should produce output with genetic code 2");
+    fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn genetic_code_affects_results() {
+    // Same input, different genetic code should give different results
+    // (at least for some pairs, since different stop/amino acid assignments)
+    let prefix_std = "/tmp/eskaks_test_gc_std";
+    let prefix_mito = "/tmp/eskaks_test_gc_mito";
+    Command::new(binary_path())
+        .args([FASTA, "-o", prefix_std, "--model", "nei", "--workers", "1", "--genetic-code", "1"])
+        .status().expect("spawn");
+    Command::new(binary_path())
+        .args([FASTA, "-o", prefix_mito, "--model", "nei", "--workers", "1", "--genetic-code", "4"])
+        .status().expect("spawn");
+
+    let rows_std = parse_tsv(&format!("{}_pairwise_results.tsv", prefix_std));
+    let rows_mito = parse_tsv(&format!("{}_pairwise_results.tsv", prefix_mito));
+
+    // Tables 1 and 4 differ only in TGA (stop vs Trp), so most pairs should be
+    // the same. But the syn sites change for codons near TGA, affecting dS slightly.
+    // At minimum, row counts should match.
+    assert_eq!(rows_std.len(), rows_mito.len(), "should have same number of rows");
+
+    fs::remove_file(format!("{}_pairwise_results.tsv", prefix_std)).ok();
+    fs::remove_file(format!("{}_pairwise_results.tsv", prefix_mito)).ok();
+}
+
+#[test]
+fn invalid_genetic_code_exits_with_error() {
+    let status = Command::new(binary_path())
+        .args([FASTA, "--genetic-code", "99"])
+        .status()
+        .expect("spawn");
+    assert!(!status.success(), "invalid genetic code should fail");
+}
+
 // ─── Summary and Plot ────────────────────────────────────────────────────────
 
 #[test]

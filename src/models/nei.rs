@@ -1,23 +1,8 @@
 use crate::codon::INVALID_CODON;
+use crate::genetic_code::{self, GeneticCode};
 
 /// Jukes-Cantor saturation threshold: p-values >= this indicate saturation.
 const JC_SATURATION_THRESHOLD: f64 = 0.749;
-
-/// Standard genetic code amino acids, indexed by Nei codon index.
-/// Index: 16*remap(b2) + 4*remap(b1) + remap(b3), where remap: A→2, C→1, G→3, T→0.
-const AA_ARRAY: [char; 64] = [
-    'F', 'F', 'L', 'L', 'L', 'L', 'L', 'L', 'I', 'I', 'I', 'M', 'V', 'V', 'V', 'V',
-    'S', 'S', 'S', 'S', 'P', 'P', 'P', 'P', 'T', 'T', 'T', 'T', 'A', 'A', 'A', 'A',
-    'Y', 'Y', '*', '*', 'H', 'H', 'Q', 'Q', 'N', 'N', 'K', 'K', 'D', 'D', 'E', 'E',
-    'C', 'C', '*', 'W', 'R', 'R', 'R', 'R', 'S', 'S', 'R', 'R', 'G', 'G', 'G', 'G',
-];
-
-/// Synonymous sites per codon (x3). Divide by 3 to get actual synonymous sites.
-const SYN_SITE_ARRAY: [usize; 64] = [
-    1, 1, 2, 2, 3, 3, 4, 4, 2, 2, 2, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-    3, 3, 3, 3, 3, 3, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-    3, 3, 4, 4, 1, 1, 2, 2, 3, 3, 3, 3,
-];
 
 /// Precomputed table of (synonymous_diffs, nonsynonymous_diffs) for each pair of
 /// Nei codon indices, using Nei-Gojobori (1986) pathway analysis.
@@ -31,6 +16,10 @@ const SYN_SITE_ARRAY: [usize; 64] = [
 /// Table is 4096 entries * 8 bytes = 32 KB, fits in L1 cache.
 pub struct NeiTables {
     diff_table: [(f32, f32); 4096],
+    /// Amino acid array (Nei indexing) for the active genetic code.
+    aa_array: [char; 64],
+    /// Synonymous sites ×3 per codon (Nei indexing) for the active genetic code.
+    syn_site_array: [usize; 64],
 }
 
 /// Reconstruct a Nei codon index from 3 slot values.
@@ -40,11 +29,24 @@ fn slots_to_index(s: &[u8; 3]) -> usize {
 }
 
 impl NeiTables {
-    /// Build the pathway analysis diff table for all 4096 codon pairs.
+    /// Build the pathway analysis diff table using the standard genetic code (table 1).
     pub fn new() -> Box<NeiTables> {
+        let gc = genetic_code::get_table(1).unwrap();
+        Self::with_genetic_code(gc)
+    }
+
+    /// Build the pathway analysis diff table for any NCBI genetic code.
+    pub fn with_genetic_code(gc: &GeneticCode) -> Box<NeiTables> {
+        let aa_array = genetic_code::li_to_nei_aa(&gc.aa_table);
+        let syn_site_array = genetic_code::compute_syn_sites(&aa_array);
+
         let mut tables = Box::new(NeiTables {
             diff_table: [(0.0f32, 0.0f32); 4096],
+            aa_array,
+            syn_site_array,
         });
+
+        let aa = &tables.aa_array;
 
         for idx_a in 0u8..64 {
             for idx_b in (idx_a + 1)..64 {
@@ -67,14 +69,14 @@ impl NeiTables {
                 let (sd, nd) = match ndiffs {
                     1 => {
                         // Single nucleotide change, no intermediates
-                        if AA_ARRAY[idx_a as usize] == AA_ARRAY[idx_b as usize] {
+                        if aa[idx_a as usize] == aa[idx_b as usize] {
                             (1.0f64, 0.0f64)
                         } else {
                             (0.0f64, 1.0f64)
                         }
                     }
-                    2 => Self::pathway_2diff(&slots_a, &slots_b, &diffs, idx_a, idx_b),
-                    3 => Self::pathway_3diff(&slots_a, &slots_b, idx_a, idx_b),
+                    2 => Self::pathway_2diff(aa, &slots_a, &slots_b, &diffs, idx_a, idx_b),
+                    3 => Self::pathway_3diff(aa, &slots_a, &slots_b, idx_a, idx_b),
                     _ => unreachable!(),
                 };
 
@@ -91,6 +93,7 @@ impl NeiTables {
     /// Pathway analysis for codons differing at exactly 2 positions.
     /// 2 pathways (permutations of 2 diff positions).
     fn pathway_2diff(
+        aa: &[char; 64],
         slots_a: &[u8; 3], slots_b: &[u8; 3], diffs: &[usize; 3],
         idx_a: u8, idx_b: u8,
     ) -> (f64, f64) {
@@ -106,16 +109,16 @@ impl NeiTables {
             let inter_idx = slots_to_index(&inter);
 
             // Skip pathway if intermediate is a stop codon
-            if AA_ARRAY[inter_idx] == '*' { continue; }
+            if aa[inter_idx] == '*' { continue; }
 
             // Step 1: codon_a -> intermediate
-            if AA_ARRAY[idx_a as usize] == AA_ARRAY[inter_idx] {
+            if aa[idx_a as usize] == aa[inter_idx] {
                 total_sd += 1.0;
             } else {
                 total_nd += 1.0;
             }
             // Step 2: intermediate -> codon_b
-            if AA_ARRAY[inter_idx] == AA_ARRAY[idx_b as usize] {
+            if aa[inter_idx] == aa[idx_b as usize] {
                 total_sd += 1.0;
             } else {
                 total_nd += 1.0;
@@ -134,6 +137,7 @@ impl NeiTables {
     /// Pathway analysis for codons differing at all 3 positions.
     /// 6 pathways (3! = 6 permutations).
     fn pathway_3diff(
+        aa: &[char; 64],
         slots_a: &[u8; 3], slots_b: &[u8; 3],
         idx_a: u8, idx_b: u8,
     ) -> (f64, f64) {
@@ -151,18 +155,18 @@ impl NeiTables {
             // Intermediate 1: change `first` position
             cur[first] = slots_b[first];
             let inter1_idx = slots_to_index(&cur);
-            if AA_ARRAY[inter1_idx] == '*' { continue; }
+            if aa[inter1_idx] == '*' { continue; }
 
             // Intermediate 2: change `second` position
             cur[second] = slots_b[second];
             let inter2_idx = slots_to_index(&cur);
-            if AA_ARRAY[inter2_idx] == '*' { continue; }
+            if aa[inter2_idx] == '*' { continue; }
 
             // All intermediates valid, classify 3 steps
-            let aa_a = AA_ARRAY[idx_a as usize];
-            let aa_1 = AA_ARRAY[inter1_idx];
-            let aa_2 = AA_ARRAY[inter2_idx];
-            let aa_b = AA_ARRAY[idx_b as usize];
+            let aa_a = aa[idx_a as usize];
+            let aa_1 = aa[inter1_idx];
+            let aa_2 = aa[inter2_idx];
+            let aa_b = aa[idx_b as usize];
 
             let mut path_sd = 0.0;
             let mut path_nd = 0.0;
@@ -208,17 +212,17 @@ impl NeiTables {
 
             if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize {
                 // SAFETY: all indices verified < 64, which is within bounds for
-                // SYN_SITE_ARRAY (64 entries) and diff_table (4096 entries, max index = 63*64+63 = 4095)
+                // SAFETY: all indices verified < 64, within bounds for syn_site_array (64 entries) and diff_table (4096 entries, max index = 63*64+63 = 4095)
                 unsafe {
                     count_valid_codons += 4;
-                    sum_syn_sites_seq1 += *SYN_SITE_ARRAY.get_unchecked(a1) as f64
-                        + *SYN_SITE_ARRAY.get_unchecked(a2) as f64
-                        + *SYN_SITE_ARRAY.get_unchecked(a3) as f64
-                        + *SYN_SITE_ARRAY.get_unchecked(a4) as f64;
-                    sum_syn_sites_seq2 += *SYN_SITE_ARRAY.get_unchecked(b1) as f64
-                        + *SYN_SITE_ARRAY.get_unchecked(b2) as f64
-                        + *SYN_SITE_ARRAY.get_unchecked(b3) as f64
-                        + *SYN_SITE_ARRAY.get_unchecked(b4) as f64;
+                    sum_syn_sites_seq1 += *self.syn_site_array.get_unchecked(a1) as f64
+                        + *self.syn_site_array.get_unchecked(a2) as f64
+                        + *self.syn_site_array.get_unchecked(a3) as f64
+                        + *self.syn_site_array.get_unchecked(a4) as f64;
+                    sum_syn_sites_seq2 += *self.syn_site_array.get_unchecked(b1) as f64
+                        + *self.syn_site_array.get_unchecked(b2) as f64
+                        + *self.syn_site_array.get_unchecked(b3) as f64
+                        + *self.syn_site_array.get_unchecked(b4) as f64;
                     if a1 != b1 { let e = *self.diff_table.get_unchecked(a1 * 64 + b1); syn_diffs += e.0 as f64; nonsyn_diffs += e.1 as f64; }
                     if a2 != b2 { let e = *self.diff_table.get_unchecked(a2 * 64 + b2); syn_diffs += e.0 as f64; nonsyn_diffs += e.1 as f64; }
                     if a3 != b3 { let e = *self.diff_table.get_unchecked(a3 * 64 + b3); syn_diffs += e.0 as f64; nonsyn_diffs += e.1 as f64; }
@@ -230,8 +234,8 @@ impl NeiTables {
                     let i2 = c2 as usize;
                     if i1 >= INVALID_CODON as usize || i2 >= INVALID_CODON as usize { continue; }
                     count_valid_codons += 1;
-                    sum_syn_sites_seq1 += SYN_SITE_ARRAY[i1] as f64;
-                    sum_syn_sites_seq2 += SYN_SITE_ARRAY[i2] as f64;
+                    sum_syn_sites_seq1 += self.syn_site_array[i1] as f64;
+                    sum_syn_sites_seq2 += self.syn_site_array[i2] as f64;
                     if i1 != i2 {
                         let e = self.diff_table[i1 * 64 + i2];
                         syn_diffs += e.0 as f64;
@@ -247,8 +251,8 @@ impl NeiTables {
             let idx2 = c2 as usize;
             if idx1 >= INVALID_CODON as usize || idx2 >= INVALID_CODON as usize { continue; }
             count_valid_codons += 1;
-            sum_syn_sites_seq1 += SYN_SITE_ARRAY[idx1] as f64;
-            sum_syn_sites_seq2 += SYN_SITE_ARRAY[idx2] as f64;
+            sum_syn_sites_seq1 += self.syn_site_array[idx1] as f64;
+            sum_syn_sites_seq2 += self.syn_site_array[idx2] as f64;
             if idx1 != idx2 {
                 let e = self.diff_table[idx1 * 64 + idx2];
                 syn_diffs += e.0 as f64;

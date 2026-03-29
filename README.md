@@ -16,6 +16,7 @@ __and Mireia Coscolla<sup>1</sup>__
 ## Features
 
 - **Models**: Choose between the Nei-Gojobori (default) or Li (1993) model for dN/dS calculation.
+- **20 Genetic Codes**: Supports all NCBI translation tables (standard, mitochondrial, plastid, etc.) via `--genetic-code`.
 - **Parallel Processing**: Configurable multi-threaded computation via `--workers` using Rayon.
 - **Memory-Efficient Codon Encoding**: FASTA sequences are converted directly to codon indices (L/3 bytes per sequence instead of L), achieving a 3x memory reduction compared to storing raw nucleotides.
 - **Sequence Deduplication**: Automatically detects and groups identical sequences to avoid redundant pairwise computations.
@@ -129,6 +130,8 @@ eskaks <input_file> [options]
 | `--window-step <N>` | Sliding window step in codons | `1` |
 | `--summary` | Print statistical summary to stderr | off |
 | `--plot` | Generate SVG plot file(s) | off |
+| `--genetic-code <N>` | NCBI genetic code table number | `1` (Standard) |
+| `--list-codes` | List all available genetic code tables and exit | off |
 
 ## Examples
 
@@ -174,12 +177,24 @@ eskaks <input_file> [options]
    ```
    Prints statistical summary to stderr and generates an SVG histogram of dN/dS distribution.
 
+8. **Alternative genetic code (vertebrate mitochondrial):**
+   ```bash
+   eskaks mito_genes.fasta --genetic-code 2 -o mito_results
+   ```
+   Uses NCBI translation table 2 (Vertebrate Mitochondrial) for dN/dS calculation.
+
+9. **List available genetic codes:**
+   ```bash
+   eskaks --list-codes
+   ```
+
 ## Architecture
 
 ```
 src/
   main.rs          - CLI, FASTA→codon index reading, deduplication, parallel dispatch
   codon.rs         - DNA5 encoding, codon index conversion, group key extraction
+  genetic_code.rs  - 20 NCBI translation tables, Li↔Nei index conversion, syn site computation
   output.rs        - Streaming output writers with for_each_init + generation counters
   stats.rs         - Thread-safe summary statistics and window accumulators
   plot.rs          - SVG plot generation (histogram, window, group bar, lineage bar)
