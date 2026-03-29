@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-03-29
+
+### Added
+- **VCF subcommand** (`eskaks vcf`): Compute pN/pS per gene from VCF + reference FASTA + GFF3.
+  - Classifies SNPs as synonymous or nonsynonymous using the reference codon context
+  - Counts N and S sites per gene (fractional, based on all possible single-nucleotide changes)
+  - Supports all 20 NCBI genetic codes via `--genetic-code`
+  - Filters: `--pass-only`, `--min-af`, `--min-depth`
+  - Output: TSV/CSV/JSON with gene-level pN, pS, pN/pS, SNP counts
+  - Manhattan-style SVG plot via `--plot`
+  - Multi-exon genes, minus strand, phase handling
+- New modules: `vcf.rs` (VCF parser), `gff.rs` (GFF3 parser), `vcf_analysis.rs` (pN/pS computation)
+- 16 integration tests for VCF subcommand, 12 unit tests in new modules
+
+### Changed
+- CLI restructured to subcommands: `eskaks fasta <input>` (original) and `eskaks vcf` (new)
+- `eskaks --list-codes` still works at top level
+- All existing tests updated for subcommand syntax
+
 ## [1.3.0] - 2026-03-29
 
 ### Added
