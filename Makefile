@@ -27,7 +27,7 @@ check: clippy test
 # ─── Benchmarks ───────────────────────────────────────────────────────────────
 # Requirements: python3, KaKs_Calculator (optional), BioPython (optional)
 
-BENCH_DIR := benchmark
+BENCH_DIR := benchmarks
 
 ## Generate synthetic datasets for benchmarking
 bench-generate:

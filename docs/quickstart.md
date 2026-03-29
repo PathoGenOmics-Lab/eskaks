@@ -1,0 +1,79 @@
+# Quick Start
+
+## Basic usage
+
+```bash
+# Compute pairwise dN/dS with Nei model (default)
+eskaks aligned_genes.fasta -o results
+
+# Use the Li (1993) model with 8 threads
+eskaks aligned_genes.fasta --model li --workers 8 -o results
+
+# Read from stdin
+cat aligned_genes.fasta | eskaks - -o results
+```
+
+## Input requirements
+
+Your input must be a **codon-aligned** FASTA file:
+
+- All sequences should be the same length
+- Sequence length should be a multiple of 3 (complete codons)
+- Standard DNA/RNA alphabet (A, C, G, T/U)
+- Gaps (`-`, `.`) are treated as ambiguous and skipped
+- Ambiguous bases (N, etc.) produce invalid codons (also skipped)
+
+> **Tip**: If your sequences are not codon-aligned, use tools like [MAFFT](https://mafft.cbrc.jp/) + [PAL2NAL](http://www.bork.embl.de/pal2nal/) or [MACSE](https://bioweb.supagro.inra.fr/macse/) first.
+
+## Output
+
+By default, eskaks produces a TSV file with pairwise results:
+
+```
+Seq1    Seq2    dN      dS      dN/dS
+gene_A  gene_B  0.0523  0.3214  0.1627
+gene_A  gene_C  0.0891  0.4102  0.2172
+...
+```
+
+## Common workflows
+
+### Positive selection scan
+
+```bash
+# Compute pairwise dN/dS with summary statistics
+eskaks genes.fasta --model nei --summary --plot -o scan
+
+# Filter pairs with dN/dS > 1 (positive selection)
+awk -F'\t' 'NR>1 && $5>1' scan_pairwise_results.tsv
+```
+
+### Sliding window analysis
+
+```bash
+# 50-codon windows, stepping by 10
+eskaks genes.fasta --window-size 50 --window-step 10 --plot -o windows
+```
+
+### Group comparisons
+
+```bash
+# Sequences named like "lineageA_gene1", "lineageB_gene2"
+eskaks genes.fasta --group-average -o groups
+
+# Or group by first letter
+eskaks genes.fasta --lineage --first-letter-lineage -o lineages
+```
+
+### JSON for pipelines
+
+```bash
+# Machine-readable output
+eskaks genes.fasta --format json -o results
+cat results_pairwise_results.json | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+pos = [r for r in data if r['dN_dS'] and r['dN_dS'] > 1]
+print(f'{len(pos)} pairs under positive selection')
+"
+```
