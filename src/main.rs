@@ -11,7 +11,7 @@ mod stats;
 mod vcf;
 mod vcf_analysis;
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use clap::Parser;
 use log::info;
 
@@ -124,7 +124,6 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
 
     let ref_path = std::path::Path::new(&args.reference);
     let gff_path = std::path::Path::new(&args.gff);
-    let vcf_path = std::path::Path::new(&args.vcf);
 
     info!("Loading reference FASTA: {}", args.reference);
     let reference = vcf_analysis::parse_reference_fasta(ref_path)?;
@@ -133,12 +132,38 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     let genes = gff::parse_gff3(gff_path)?;
     info!("Found {} genes with CDS features", genes.len());
 
-    info!("Parsing VCF file: {}", args.vcf);
-    let snps = vcf::parse_vcf(vcf_path)?;
-    info!("Found {} SNP records", snps.len());
+    // Collect all VCF paths
+    let mut vcf_paths: Vec<String> = args.vcf.clone();
+    if let Some(ref list_path) = args.vcf_list {
+        let content = std::fs::read_to_string(list_path)
+            .with_context(|| format!("Failed to read VCF list file: {}", list_path))?;
+        for line in content.lines() {
+            let line = line.trim();
+            if !line.is_empty() && !line.starts_with('#') {
+                vcf_paths.push(line.to_string());
+            }
+        }
+    }
+    if vcf_paths.is_empty() {
+        bail!("No VCF files provided. Use --vcf <file> or --vcf-list <file>");
+    }
 
-    // Apply filters
-    let snps = vcf::filter_snps(snps, args.pass_only, args.min_af, args.max_af, args.min_depth);
+    // Parse and merge SNPs from all VCF files.
+    // When multiple VCFs (one per sample), AF = fraction of samples carrying the ALT.
+    let n_samples = vcf_paths.len();
+    info!("Loading {} VCF file(s)...", n_samples);
+
+    let snps = if n_samples == 1 {
+        // Single VCF: use AF as-is (could be multi-sample VCF)
+        let snps = vcf::parse_vcf(std::path::Path::new(&vcf_paths[0]))?;
+        info!("Found {} SNP records", snps.len());
+        vcf::filter_snps(snps, args.pass_only, args.min_af, args.max_af, args.min_depth)
+    } else {
+        // Multiple single-sample VCFs: merge and compute AF as fraction of samples
+        let merged = vcf::merge_vcfs(&vcf_paths, args.pass_only, args.min_depth)?;
+        info!("Merged {} unique SNP positions from {} samples", merged.len(), n_samples);
+        vcf::filter_snps(merged, false, args.min_af, args.max_af, None)
+    };
     info!("{} SNPs after filtering", snps.len());
 
     // Compute pN/pS

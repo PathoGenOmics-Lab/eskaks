@@ -97,9 +97,15 @@ pub struct VcfArgs {
     #[arg(long)]
     pub gff: String,
 
-    /// VCF file with variants
+    /// VCF file(s) with variants. One per sample.
+    /// Use multiple times: --vcf s1.vcf --vcf s2.vcf
+    /// Or provide a file with one VCF path per line: --vcf-list samples.txt
     #[arg(long)]
-    pub vcf: String,
+    pub vcf: Vec<String>,
+
+    /// File containing one VCF path per line (alternative to multiple --vcf flags)
+    #[arg(long)]
+    pub vcf_list: Option<String>,
 
     /// Base name for output files
     #[arg(short, long, default_value = "output")]
