@@ -30,6 +30,7 @@ fn slots_to_index(s: &[u8; 3]) -> usize {
 
 impl NeiTables {
     /// Build the pathway analysis diff table using the standard genetic code (table 1).
+    #[cfg(test)]
     pub fn new() -> Box<NeiTables> {
         let gc = genetic_code::get_table(1).unwrap();
         Self::with_genetic_code(gc)
@@ -211,8 +212,8 @@ impl NeiTables {
             let b3 = ch2[2] as usize; let b4 = ch2[3] as usize;
 
             if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize {
-                // SAFETY: all indices verified < 64, which is within bounds for
-                // SAFETY: all indices verified < 64, within bounds for syn_site_array (64 entries) and diff_table (4096 entries, max index = 63*64+63 = 4095)
+                // SAFETY: All indices verified < 64 (INVALID_CODON) by the bitwise OR check above.
+                // syn_site_array has 64 entries, diff_table has 4096 entries (max index = 63*64+63 = 4095).
                 unsafe {
                     count_valid_codons += 4;
                     sum_syn_sites_seq1 += *self.syn_site_array.get_unchecked(a1) as f64

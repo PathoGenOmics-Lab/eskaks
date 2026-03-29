@@ -156,12 +156,12 @@ pub fn li_to_nei_aa(li_table: &[u8; 64]) -> [char; 64] {
         match b { 0 => 2, 1 => 1, 2 => 3, 3 => 0, _ => unreachable!() }
     };
 
-    for li_idx in 0..64usize {
+    for (li_idx, &aa) in li_table.iter().enumerate() {
         let b1 = li_idx / 16;
         let b2 = (li_idx / 4) % 4;
         let b3 = li_idx % 4;
         let nei_idx = 16 * remap(b2) + 4 * remap(b1) + remap(b3);
-        nei_table[nei_idx] = li_table[li_idx] as char;
+        nei_table[nei_idx] = aa as char;
     }
     nei_table
 }

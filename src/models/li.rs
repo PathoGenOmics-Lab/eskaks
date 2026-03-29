@@ -183,7 +183,9 @@ impl LiTables {
     ///    - 1 diff: direct classification
     ///    - 2 diff: enumerate 2 pathways, exclude stop intermediates, equal weight
     ///    - 3 diff: enumerate 6 pathways, exclude stop intermediates, equal weight
+    ///
     /// Build lookup tables using the standard genetic code (table 1).
+    #[cfg(test)]
     pub fn new() -> Box<Self> {
         use crate::genetic_code;
         let gc = genetic_code::get_table(1).unwrap();
@@ -194,7 +196,9 @@ impl LiTables {
     /// The input table uses `b'*'` for stop codons (NCBI convention);
     /// internally we convert to `b'!'` for Li model compatibility.
     pub fn with_genetic_code(gc_table: &[u8; 64]) -> Box<Self> {
-        // Allocate AoS table (single heap allocation via Box, no double indirection)
+        // SAFETY: LiTables is 256 KB+, too large for stack. We allocate on the heap
+        // and zero-initialize. All fields (data: [CodonPairData; 4096], same_l, gc)
+        // are valid when zero-filled (f64 zero, [u8] zero). Layout matches LiTables exactly.
         let mut tables: Box<LiTables> = unsafe {
             let layout = std::alloc::Layout::new::<LiTables>();
             let ptr = std::alloc::alloc_zeroed(layout) as *mut LiTables;

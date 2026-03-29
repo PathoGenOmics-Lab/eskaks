@@ -14,6 +14,7 @@ use std::thread;
 
 /// Writes pairwise results using a dedicated writer thread.
 /// Computes pairs on-the-fly with lazy per-row caching (O(U) memory per thread).
+#[allow(clippy::too_many_arguments)]
 pub fn write_pairwise(
     ids: &[String],
     uidx_by_id: &[usize],
@@ -132,6 +133,7 @@ pub fn write_pairwise(
 
 /// Writes dN/dS summary by lineage using a dedicated writer thread.
 /// Computes pairs on-the-fly with lazy per-row caching.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 /// Returns lineage plot data if summary stats are being collected.
 pub fn write_lineage(
     ids: &[String],
@@ -260,6 +262,7 @@ pub fn write_lineage(
     Ok(plot_data)
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Writes grouped dN/dS averages using a dedicated writer thread.
 /// Returns group plot data if summary stats are being collected.
 pub fn write_group_average(
@@ -390,7 +393,7 @@ pub fn write_group_average(
             }
         };
 
-        if let Some(ref stats) = summary {
+        if let Some(stats) = summary {
             for _ in 0..nan_pair_count {
                 stats.record_pair_atomic(f64::NAN, f64::NAN, f64::NAN);
             }
@@ -422,6 +425,7 @@ pub fn write_group_average(
 }
 
 /// Writes pairwise sliding window results using a dedicated writer thread.
+#[allow(clippy::too_many_arguments)]
 pub fn write_pairwise_windows(
     ids: &[String],
     uidx_by_id: &[usize],
