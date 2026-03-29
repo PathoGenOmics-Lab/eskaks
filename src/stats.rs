@@ -147,7 +147,7 @@ impl SummaryStats {
 
     /// Flush a thread-local FloatAccum into the shared Mutex.
     pub fn flush_local(&self, local: &FloatAccum) {
-        let mut shared = self.floats.lock().unwrap();
+        let mut shared = self.floats.lock().expect("SummaryStats mutex poisoned");
         shared.merge(local);
     }
 
@@ -156,7 +156,7 @@ impl SummaryStats {
         let total = self.total_count.load(Ordering::Relaxed);
         let nans = self.nan_count.load(Ordering::Relaxed);
         let valid = total.saturating_sub(nans);
-        let floats = self.floats.lock().unwrap();
+        let floats = self.floats.lock().expect("SummaryStats mutex poisoned");
 
         eprintln!();
         eprintln!("\u{2550}\u{2550}\u{2550} dN/dS Summary \u{2550}\u{2550}\u{2550}");
@@ -234,7 +234,7 @@ impl WindowStats {
     #[inline]
     pub fn record(&self, window_idx: usize, ratio: f64) {
         if ratio.is_finite() {
-            let mut bin = self.bins[window_idx].lock().unwrap();
+            let mut bin = self.bins[window_idx].lock().expect("WindowStats bin mutex poisoned");
             bin.sum_ratio += ratio;
             bin.sum_sq += ratio * ratio;
             bin.count += 1;
@@ -244,7 +244,7 @@ impl WindowStats {
     /// Get per-window (mean, std_err) for plotting.
     pub fn get_window_data(&self) -> Vec<(f64, f64)> {
         self.bins.iter().map(|b| {
-            let bin = b.lock().unwrap();
+            let bin = b.lock().expect("WindowStats bin mutex poisoned");
             if bin.count == 0 {
                 (f64::NAN, f64::NAN)
             } else {

@@ -8,6 +8,7 @@ use crate::codon;
 use crate::models::Model;
 
 /// Fully processed input data ready for pairwise computation.
+#[derive(Debug)]
 pub struct SequenceData {
     /// Original sequence IDs in input order.
     pub ids: Vec<String>,
@@ -194,4 +195,93 @@ fn deduplicate(
         .collect();
 
     (uidx_by_id, unique_codon_indices, n_unique)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn write_temp_fasta(name: &str, content: &str) -> String {
+        let path = format!("/tmp/eskaks_input_test_{}.fasta", name);
+        fs::write(&path, content).unwrap();
+        path
+    }
+
+    #[test]
+    fn load_two_identical_sequences() {
+        let path = write_temp_fasta("ident", ">s1\nATGGCTGCT\n>s2\nATGGCTGCT\n");
+        let data = load_sequences(&path, Model::Nei, 0).unwrap();
+        assert_eq!(data.ids.len(), 2);
+        assert_eq!(data.n_unique, 1, "identical seqs should deduplicate to 1");
+        assert_eq!(data.uidx_by_id[0], data.uidx_by_id[1]);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_two_different_sequences() {
+        let path = write_temp_fasta("diff", ">s1\nATGGCTGCT\n>s2\nATGATTGCT\n");
+        let data = load_sequences(&path, Model::Nei, 0).unwrap();
+        assert_eq!(data.ids.len(), 2);
+        assert_eq!(data.n_unique, 2);
+        assert_ne!(data.uidx_by_id[0], data.uidx_by_id[1]);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_filters_by_min_codons() {
+        // seq1: 3 valid codons, seq2: 1 valid + 2 N-codons, seq3: 3 valid
+        let path = write_temp_fasta(
+            "mincodon",
+            ">s1\nATGGCTGCT\n>s2\nATGNNNNNN\n>s3\nATGATTGCT\n",
+        );
+        let data = load_sequences(&path, Model::Nei, 2).unwrap();
+        // s2 has only 1 valid codon → filtered out
+        assert_eq!(data.ids.len(), 2);
+        assert!(data.ids.contains(&"s1".to_string()));
+        assert!(data.ids.contains(&"s3".to_string()));
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_empty_file_errors() {
+        let path = write_temp_fasta("empty", "");
+        let result = load_sequences(&path, Model::Nei, 0);
+        assert!(result.is_err());
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_single_sequence_errors() {
+        let path = write_temp_fasta("single", ">s1\nATGGCTGCT\n");
+        let result = load_sequences(&path, Model::Nei, 0);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("at least 2"), "error: {}", err);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn load_nonexistent_file_errors() {
+        let result = load_sequences("/tmp/eskaks_nonexistent_xyz.fasta", Model::Nei, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn dedup_preserves_order() {
+        // 4 seqs: A, B, A, C → uidx: [0, 1, 0, 2], n_unique=3
+        let ids = vec!["s1".into(), "s2".into(), "s3".into(), "s4".into()];
+        let codons = vec![
+            vec![1u8, 2, 3],
+            vec![4, 5, 6],
+            vec![1, 2, 3], // same as s1
+            vec![7, 8, 9],
+        ];
+        let (uidx, unique, n) = deduplicate(&ids, codons);
+        assert_eq!(n, 3);
+        assert_eq!(uidx[0], uidx[2], "s1 and s3 should share unique index");
+        assert_ne!(uidx[0], uidx[1]);
+        assert_ne!(uidx[1], uidx[3]);
+        assert_eq!(unique.len(), 3);
+    }
 }

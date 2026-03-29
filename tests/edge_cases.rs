@@ -175,3 +175,128 @@ fn mostly_gaps_still_computes() {
     fs::remove_file(path).ok();
     fs::remove_file("/tmp/eskaks_edge_gaps_pairwise_results.tsv").ok();
 }
+
+// ─── Genetic code flags ─────────────────────────────────────────────────────
+
+#[test]
+fn list_codes_shows_standard() {
+    let output = Command::new(binary_path())
+        .args(["--list-codes"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Standard"), "should list Standard code: {}", stderr);
+    assert!(stderr.contains("Vertebrate Mitochondrial"), "should list Mito: {}", stderr);
+}
+
+#[test]
+fn genetic_code_2_works() {
+    let path = "/tmp/eskaks_test_gc2.fasta";
+    fs::write(path, ">seq1\nATGGCTGCTGCT\n>seq2\nATGATTGCTGCT\n").unwrap();
+    let output = Command::new(binary_path())
+        .args([path, "-o", "/tmp/eskaks_edge_gc2", "--genetic-code", "2"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success(), "genetic code 2 should work");
+    fs::remove_file(path).ok();
+    fs::remove_file("/tmp/eskaks_edge_gc2_pairwise_results.tsv").ok();
+}
+
+#[test]
+fn genetic_code_invalid_fails() {
+    let path = "/tmp/eskaks_test_gc_bad.fasta";
+    fs::write(path, ">seq1\nATGGCTGCT\n>seq2\nATGATTGCT\n").unwrap();
+    let output = Command::new(binary_path())
+        .args([path, "-o", "/tmp/eskaks_edge_gc_bad", "--genetic-code", "99"])
+        .output()
+        .expect("spawn");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Unknown genetic code"), "stderr: {}", stderr);
+    fs::remove_file(path).ok();
+}
+
+#[test]
+fn genetic_code_changes_results() {
+    let path = "/tmp/eskaks_test_gc_diff.fasta";
+    // AGA is Arg in standard (1) but Stop in vert mito (2)
+    fs::write(path, ">seq1\nATGGCTAGAGCT\n>seq2\nATGATTAGAGCT\n").unwrap();
+    let out_std = Command::new(binary_path())
+        .args([path, "-o", "/tmp/eskaks_gc_std", "--genetic-code", "1"])
+        .output().expect("spawn");
+    let out_mito = Command::new(binary_path())
+        .args([path, "-o", "/tmp/eskaks_gc_mito", "--genetic-code", "2"])
+        .output().expect("spawn");
+    assert!(out_std.status.success());
+    assert!(out_mito.status.success());
+    let r_std = fs::read_to_string("/tmp/eskaks_gc_std_pairwise_results.tsv").unwrap();
+    let r_mito = fs::read_to_string("/tmp/eskaks_gc_mito_pairwise_results.tsv").unwrap();
+    // Results should differ because AGA changes meaning
+    assert_ne!(r_std, r_mito, "Standard and mito codes should produce different results");
+    fs::remove_file(path).ok();
+    fs::remove_file("/tmp/eskaks_gc_std_pairwise_results.tsv").ok();
+    fs::remove_file("/tmp/eskaks_gc_mito_pairwise_results.tsv").ok();
+}
+
+// ─── Model selection ────────────────────────────────────────────────────────
+
+#[test]
+fn li_model_produces_different_columns() {
+    let path = "tests/data/synthetic.fasta";
+    let status = Command::new(binary_path())
+        .args([path, "-o", "/tmp/eskaks_edge_li", "--model", "li"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let results = fs::read_to_string("/tmp/eskaks_edge_li_pairwise_results.tsv").unwrap();
+    assert!(results.contains("dN(Ka)"), "Li model should have dN(Ka) header");
+    assert!(results.contains("dS(Ks)"), "Li model should have dS(Ks) header");
+    fs::remove_file("/tmp/eskaks_edge_li_pairwise_results.tsv").ok();
+}
+
+// ─── Summary and plot flags ─────────────────────────────────────────────────
+
+#[test]
+fn summary_flag_prints_to_stderr() {
+    let path = "tests/data/synthetic.fasta";
+    let output = Command::new(binary_path())
+        .env("RUST_LOG", "info")
+        .args([path, "-o", "/tmp/eskaks_edge_summary", "--summary"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Summary") || stderr.contains("pairs") || stderr.contains("Total"),
+        "summary should print stats to stderr: {}", stderr
+    );
+    fs::remove_file("/tmp/eskaks_edge_summary_pairwise_results.tsv").ok();
+}
+
+#[test]
+fn plot_flag_generates_svg() {
+    let path = "tests/data/synthetic.fasta";
+    let status = Command::new(binary_path())
+        .args([path, "-o", "/tmp/eskaks_edge_plot", "--plot", "--summary"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let svg_path = "/tmp/eskaks_edge_plot_dnds_histogram.svg";
+    assert!(std::path::Path::new(svg_path).exists(), "SVG plot should be generated");
+    fs::remove_file("/tmp/eskaks_edge_plot_pairwise_results.tsv").ok();
+    fs::remove_file(svg_path).ok();
+}
+
+// ─── Version flag ───────────────────────────────────────────────────────────
+
+#[test]
+fn version_flag_shows_current_version() {
+    let output = Command::new(binary_path())
+        .args(["--version"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("1.2.0"), "version should be 1.2.0: {}", stdout);
+}

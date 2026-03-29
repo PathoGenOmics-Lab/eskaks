@@ -56,3 +56,83 @@ impl ComputeEngine {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codon::fasta_to_codon_indices;
+
+    fn make_data(seqs: &[&[u8]], model: Model) -> SequenceData {
+        let indices: Vec<Vec<u8>> = seqs.iter().map(|s| fasta_to_codon_indices(s, model)).collect();
+        let ids: Vec<String> = (0..seqs.len()).map(|i| format!("s{}", i)).collect();
+        let uidx_by_id: Vec<usize> = (0..seqs.len()).collect();
+        let n_unique = seqs.len();
+        SequenceData {
+            ids,
+            uidx_by_id,
+            unique_codon_indices: indices,
+            n_unique,
+        }
+    }
+
+    #[test]
+    fn nei_engine_identical_gives_zero() {
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let data = make_data(&[b"ATGGCTGCT", b"ATGGCTGCT"], Model::Nei);
+        let result = engine.compute_pair(&data, 0, 0);
+        assert_eq!(result.dn, 0.0);
+        assert_eq!(result.ds, 0.0);
+    }
+
+    #[test]
+    fn li_engine_identical_gives_zero() {
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Li, gc);
+        let data = make_data(&[b"ATGGCTGCTGCT", b"ATGGCTGCTGCT"], Model::Li);
+        let result = engine.compute_pair(&data, 0, 0);
+        assert_eq!(result.dn, 0.0);
+        assert_eq!(result.ds, 0.0);
+    }
+
+    #[test]
+    fn nei_engine_synonymous_change() {
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let data = make_data(&[b"ATGGCTGCT", b"ATGGCCGCT"], Model::Nei);
+        let result = engine.compute_pair(&data, 0, 1);
+        assert_eq!(result.dn, 0.0);
+        assert!(result.ds > 0.0, "dS should be > 0 for synonymous change");
+    }
+
+    #[test]
+    fn compute_slices_matches_compute_pair() {
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let s1 = fasta_to_codon_indices(b"ATGGCTGCT", Model::Nei);
+        let s2 = fasta_to_codon_indices(b"ATGATTGCT", Model::Nei);
+        let data = make_data(&[b"ATGGCTGCT", b"ATGATTGCT"], Model::Nei);
+        let pair = engine.compute_pair(&data, 0, 1);
+        let (dn, ds) = engine.compute_slices(&s1, &s2);
+        assert!((pair.dn - dn).abs() < 1e-10);
+        assert!((pair.ds - ds).abs() < 1e-10);
+    }
+
+    #[test]
+    fn mito_genetic_code_changes_results() {
+        let std_gc = crate::genetic_code::get_table(1).unwrap();
+        let mito_gc = crate::genetic_code::get_table(2).unwrap();
+        let engine_std = ComputeEngine::new(Model::Nei, std_gc);
+        let engine_mito = ComputeEngine::new(Model::Nei, mito_gc);
+        // AGA codes Arg in standard, stop in vert mito
+        let data_std = make_data(&[b"ATGGCTAGA", b"ATGATTAGA"], Model::Nei);
+        let data_mito = make_data(&[b"ATGGCTAGA", b"ATGATTAGA"], Model::Nei);
+        let r_std = engine_std.compute_pair(&data_std, 0, 1);
+        let r_mito = engine_mito.compute_pair(&data_mito, 0, 1);
+        // Results should differ because AGA changes meaning
+        assert!(
+            (r_std.dn - r_mito.dn).abs() > 1e-6 || (r_std.ds - r_mito.ds).abs() > 1e-6,
+            "Standard and mito should give different results for AGA-containing sequences"
+        );
+    }
+}
