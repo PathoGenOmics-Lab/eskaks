@@ -5,6 +5,7 @@ mod output;
 mod plot;
 mod stats;
 
+use anyhow::{bail, Context};
 use clap::Parser;
 use log::{info, warn};
 use needletail::parse_fastx_file;
@@ -80,7 +81,7 @@ struct Args {
     list_codes: bool,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args = Args::parse();
 
@@ -95,10 +96,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Validate genetic code
     let gc = genetic_code::get_table(args.genetic_code)
-        .unwrap_or_else(|| {
-            eprintln!("Error: unknown genetic code table {}. Use --list-codes to see available tables.", args.genetic_code);
-            std::process::exit(1);
-        });
+        .ok_or_else(|| anyhow::anyhow!(
+            "Unknown genetic code table {}. Use --list-codes to see available tables.",
+            args.genetic_code
+        ))?;
     if args.genetic_code != 1 {
         info!("Using genetic code table {}: {}", gc.id, gc.name);
     }
@@ -109,10 +110,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_global()?;
 
     // --- Read sequences: convert FASTA bytes directly to codon indices ---
-    let input_file = args.input_file.as_ref().unwrap_or_else(|| {
-        eprintln!("Error: no input file specified.");
-        std::process::exit(1);
-    });
+    let input_file = args.input_file.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No input file specified"))?;
 
     info!("Reading sequences from: {}", input_file);
     let mut all_codon_indices: Vec<Vec<u8>> = Vec::new();
@@ -120,7 +119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut gap_count_total = 0usize;
     let mut seqs_with_gaps = 0usize;
     {
-        let mut reader = parse_fastx_file(input_file)?;
+        let mut reader = parse_fastx_file(input_file)
+            .with_context(|| format!("Failed to open input file '{}'", input_file))?;
         while let Some(record) = reader.next() {
             let rec = record?;
             let seq = rec.seq();
@@ -140,10 +140,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     if ids.is_empty() {
-        eprintln!("No sequences found in the input file.");
-        std::process::exit(1);
+        bail!("No sequences found in '{}'", input_file);
+    }
+    if ids.len() < 2 {
+        bail!("Need at least 2 sequences for pairwise comparison, found {}", ids.len());
     }
     info!("Found {} total sequences.", ids.len());
+
+    // --- Check for sequences with no valid codons ---
+    let empty_seqs: Vec<&str> = ids.iter()
+        .zip(all_codon_indices.iter())
+        .filter(|(_, codons)| codons.iter().all(|&c| c == codon::INVALID_CODON))
+        .map(|(id, _)| id.as_str())
+        .collect();
+    if !empty_seqs.is_empty() {
+        warn!("{} sequence(s) have no valid codons: {}", empty_seqs.len(),
+            if empty_seqs.len() <= 5 {
+                empty_seqs.join(", ")
+            } else {
+                format!("{}, ... and {} more", empty_seqs[..5].join(", "), empty_seqs.len() - 5)
+            }
+        );
+    }
 
     // --- Diagnostics: gaps and alignment ---
     if seqs_with_gaps > 0 {
@@ -178,8 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             all_codon_indices = new_codons;
         }
         if ids.is_empty() {
-            eprintln!("All sequences filtered out by --min-codons {}.", args.min_codons);
-            std::process::exit(1);
+            bail!("All sequences filtered out by --min-codons {}", args.min_codons);
         }
     }
 
@@ -279,8 +296,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if args.group_average {
         if args.window_size.is_some() {
-            eprintln!("--window-size cannot be used with --group-average.");
-            std::process::exit(1);
+            bail!("--window-size cannot be used with --group-average");
         }
         info!("Computing group average dN/dS...");
         let plot_data = output::write_group_average(&ids, &uidx_by_id, compute_pair, args.first_letter_lineage, &out_cfg)?;
@@ -293,8 +309,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     } else if args.lineage {
         if args.window_size.is_some() {
-            eprintln!("--window-size cannot be used with --lineage.");
-            std::process::exit(1);
+            bail!("--window-size cannot be used with --lineage");
         }
         info!("Computing dN/dS lineage summary...");
         let mut lineage_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
@@ -321,23 +336,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if let Some(win_size) = args.window_size {
         let seq_len = unique_codon_indices.first().map(|v| v.len()).unwrap_or(0);
         if seq_len == 0 {
-            eprintln!("Cannot use --window-size with empty sequences.");
-            std::process::exit(1);
+            bail!("Cannot use --window-size with empty sequences");
         }
         // Window mode requires uniform sequence lengths; misaligned sequences
         // would cause out-of-bounds panics when slicing window ranges.
         let misaligned = unique_codon_indices.iter().any(|v| v.len() != seq_len);
         if misaligned {
-            eprintln!("--window-size requires all sequences to have equal length. Sequences are not aligned.");
-            std::process::exit(1);
+            bail!("--window-size requires all sequences to have equal length. Sequences are not aligned");
         }
         if win_size == 0 || win_size > seq_len {
-            eprintln!("--window-size must be between 1 and {} (sequence length in codons).", seq_len);
-            std::process::exit(1);
+            bail!("--window-size must be between 1 and {} (sequence length in codons)", seq_len);
         }
         if args.window_step == 0 {
-            eprintln!("--window-step must be at least 1.");
-            std::process::exit(1);
+            bail!("--window-step must be at least 1");
         }
         let num_windows = (seq_len - win_size) / args.window_step + 1;
         let window_stats = if args.plot {

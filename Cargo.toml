@@ -14,6 +14,7 @@ indicatif = { version = "0.16", features = ["rayon"] }
 log = "0.4"
 rustc-hash = "1.1.0" 
 clap = { version = "4.5.4", features = ["derive"] }
+anyhow = "1.0.102"
 
 [profile.release]
 opt-level      = 3

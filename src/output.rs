@@ -37,7 +37,7 @@ pub fn write_pairwise(
     n_u: usize,
     compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
     cfg: &OutputConfig,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let output_prefix = cfg.prefix;
     let model = cfg.model;
     let sep = cfg.sep;
@@ -159,7 +159,7 @@ pub fn write_lineage(
     lineage_indices: &[usize],
     lineage_names: &[String],
     cfg: &OutputConfig,
-) -> Result<LineagePlotResult, Box<dyn std::error::Error>> {
+) -> anyhow::Result<LineagePlotResult> {
     let output_prefix = cfg.prefix;
     let sep = cfg.sep;
     let ext = cfg.ext;
@@ -287,7 +287,7 @@ pub fn write_group_average(
     compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
     first_letter_lineage: bool,
     cfg: &OutputConfig,
-) -> Result<Vec<GroupPlotData>, Box<dyn std::error::Error>> {
+) -> anyhow::Result<Vec<GroupPlotData>> {
     let output_prefix = cfg.prefix;
     let sep = cfg.sep;
     let ext = cfg.ext;
@@ -451,7 +451,7 @@ pub fn write_pairwise_windows(
     window_step: usize,
     window_stats: Option<&WindowStats>,
     cfg: &OutputConfig,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     let output_prefix = cfg.prefix;
     let model = cfg.model;
     let sep = cfg.sep;
