@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-03-29
+
+### Changed
+- **Architecture refactor**: Split monolithic `main.rs` (391 lines) into 5 focused modules:
+  - `cli.rs` — CLI argument definitions (clap derive), cleanly separated from logic
+  - `input.rs` — FASTA reading, validation, filtering, deduplication (`SequenceData` struct)
+  - `compute.rs` — `ComputeEngine` enum for model-agnostic dispatch (eliminates duplicated closures)
+  - `main.rs` — Thin orchestration (~100 lines): parse → load → compute → dispatch
+  - `dispatch_output()` and `dispatch_window()` replace inline match blocks
+- Total: 11 source modules (was 8), each with a single clear responsibility
+
 ## [1.1.0] - 2026-03-29
 
 ### Added

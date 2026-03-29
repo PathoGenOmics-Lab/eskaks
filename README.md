@@ -191,8 +191,11 @@ eskaks <input_file> [options]
 
 ```
 src/
-  main.rs          - CLI, FASTA→codon index reading, deduplication, parallel dispatch
+  main.rs          - Thin orchestration: parse args, load data, dispatch output
   lib.rs           - Public module exports for library usage
+  cli.rs           - CLI argument definitions (clap derive)
+  input.rs         - FASTA reading, validation, filtering, sort-based deduplication
+  compute.rs       - Unified ComputeEngine enum (Nei | Li) for model-agnostic dispatch
   codon.rs         - DNA5 encoding, codon index conversion, group key extraction
   genetic_code.rs  - 20 NCBI translation tables, Li↔Nei index conversion, syn site computation
   output.rs        - Streaming output writers with OutputConfig + generation counters
