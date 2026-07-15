@@ -290,6 +290,11 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     let total_genes = results.len();
     let genes_with_snps = results.iter().filter(|r| r.total_snps > 0.0).count();
     let genome_wide = vcf_analysis::genome_wide_pn_ps(&results);
+    let gw_ci = if args.bootstrap > 0 {
+        vcf_analysis::bootstrap_genome_wide_ci(&results, args.bootstrap, args.seed, 0.95)
+    } else {
+        None
+    };
 
     // --min-snps drops unreliable low-count genes from the per-gene table,
     // plot, and neutrality test (but not from the pooled estimate above).
@@ -345,6 +350,9 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         eprintln!("  Overall pN / pS:     {:.6} / {:.6}", gw.pn, gw.ps);
         eprintln!("  Overall {}:       {}", ratio_name, vcf_analysis::format_ratio(gw.pn_ps));
         eprintln!("  Selection:           {}", vcf_analysis::selection_label(gw.pn_ps));
+        if let Some((lo, hi)) = gw_ci {
+            eprintln!("  95% CI ({} boot):    [{:.6}, {:.6}]", args.bootstrap, lo, hi);
+        }
     }
     let n_tested = results.iter().filter(|r| r.p_value.is_finite()).count();
     if n_tested > 0 {

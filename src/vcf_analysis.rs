@@ -345,6 +345,52 @@ pub fn compute_pn_ps(
     results
 }
 
+/// Percentile bootstrap confidence interval for the genome-wide pooled pN/pS,
+/// resampling genes with replacement `n_boot` times (seeded for reproducibility).
+/// Returns `(lo, hi)` at the given two-sided confidence, or None if there is no
+/// data / no finite replicate. Pools counts and sites within each replicate,
+/// exactly like [`genome_wide_pn_ps`].
+pub fn bootstrap_genome_wide_ci(
+    results: &[GenePnPs],
+    n_boot: usize,
+    seed: u64,
+    confidence: f64,
+) -> Option<(f64, f64)> {
+    if results.is_empty() || n_boot == 0 {
+        return None;
+    }
+    let n = results.len();
+    let mut rng = crate::stats::SplitMix64::new(seed);
+    let mut ratios: Vec<f64> = Vec::with_capacity(n_boot);
+    for _ in 0..n_boot {
+        let (mut n_sites, mut s_sites, mut nonsyn, mut syn) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        for _ in 0..n {
+            let r = &results[rng.below(n)];
+            n_sites += r.n_sites;
+            s_sites += r.s_sites;
+            nonsyn += r.nonsyn_snps;
+            syn += r.syn_snps;
+        }
+        let pn = if n_sites > 0.0 { nonsyn / n_sites } else { 0.0 };
+        let ps = if s_sites > 0.0 { syn / s_sites } else { 0.0 };
+        if ps > 0.0 {
+            let ratio = pn / ps;
+            if ratio.is_finite() {
+                ratios.push(ratio);
+            }
+        }
+    }
+    if ratios.is_empty() {
+        return None;
+    }
+    ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let tail = (1.0 - confidence) / 2.0 * 100.0;
+    Some((
+        crate::stats::percentile_sorted(&ratios, tail),
+        crate::stats::percentile_sorted(&ratios, 100.0 - tail),
+    ))
+}
+
 /// Fill in Benjamini-Hochberg FDR q-values and Bonferroni-corrected p-values
 /// for the per-gene neutrality test, across every gene with a finite p-value.
 /// Genes not tested (no SNPs / --af-weighted) keep NaN.

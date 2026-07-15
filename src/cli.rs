@@ -184,6 +184,15 @@ pub struct VcfArgs {
     #[arg(long, default_value_t = 0.05)]
     pub fdr: f64,
 
+    /// Bootstrap replicates for a 95% CI on the genome-wide pooled pN/pS
+    /// (resamples genes with replacement). 0 disables it.
+    #[arg(long, default_value_t = 0)]
+    pub bootstrap: usize,
+
+    /// Seed for the bootstrap resampling (for reproducible CIs).
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+
     /// Also run a per-gene McDonald-Kreitman test (writes <prefix>_mk.<ext>):
     /// 2x2 fixed/polymorphic table, Neutrality Index, alpha, and Fisher exact p.
     #[arg(long)]

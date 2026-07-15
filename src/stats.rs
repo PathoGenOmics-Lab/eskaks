@@ -276,6 +276,49 @@ impl WindowStats {
     }
 }
 
+/// Minimal seeded PRNG (SplitMix64) for reproducible bootstrap resampling —
+/// avoids pulling in the `rand` crate. Not cryptographic.
+pub struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    pub fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    #[inline]
+    pub fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Uniform integer in `[0, bound)` (modulo bias is negligible for the
+    /// gene/site counts used in bootstrap resampling).
+    #[inline]
+    pub fn below(&mut self, bound: usize) -> usize {
+        (self.next_u64() % bound as u64) as usize
+    }
+}
+
+/// Lower/upper percentile of an already-ascending-sorted slice (linear interp).
+pub fn percentile_sorted(sorted: &[f64], pct: f64) -> f64 {
+    if sorted.is_empty() {
+        return f64::NAN;
+    }
+    if sorted.len() == 1 {
+        return sorted[0];
+    }
+    let rank = (pct / 100.0) * (sorted.len() - 1) as f64;
+    let lo = rank.floor() as usize;
+    let hi = rank.ceil() as usize;
+    let frac = rank - lo as f64;
+    sorted[lo] * (1.0 - frac) + sorted[hi] * frac
+}
+
 // ─── Hypothesis testing helpers (dependency-free) ────────────────────────────
 
 /// Natural log of the Gamma function via the Lanczos approximation (g = 7,
@@ -482,6 +525,25 @@ mod tests {
         assert!((b[0] - 0.02).abs() < 1e-12); // m=2
         assert!(b[1].is_nan());
         assert!((b[2] - 1.0).abs() < 1e-12); // 0.5*2 capped at 1
+    }
+
+    #[test]
+    fn rng_and_percentile() {
+        // Deterministic for a fixed seed
+        let mut a = SplitMix64::new(42);
+        let mut b = SplitMix64::new(42);
+        assert_eq!(a.next_u64(), b.next_u64());
+        // below() stays in range
+        let mut r = SplitMix64::new(7);
+        for _ in 0..1000 {
+            assert!(r.below(5) < 5);
+        }
+        // Percentiles
+        let s = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!((percentile_sorted(&s, 0.0) - 1.0).abs() < 1e-12);
+        assert!((percentile_sorted(&s, 100.0) - 5.0).abs() < 1e-12);
+        assert!((percentile_sorted(&s, 50.0) - 3.0).abs() < 1e-12);
+        assert!(percentile_sorted(&[], 50.0).is_nan());
     }
 
     #[test]
