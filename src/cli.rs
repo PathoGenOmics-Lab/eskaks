@@ -120,6 +120,10 @@ pub struct VcfArgs {
     #[arg(short, long, default_value = "output")]
     pub output: String,
 
+    /// Number of parallel threads for the per-gene pN/pS computation
+    #[arg(short, long, default_value_t = 4)]
+    pub workers: usize,
+
     /// Output format
     #[arg(long, value_enum, default_value_t = OutputFormat::Tsv)]
     pub format: OutputFormat,

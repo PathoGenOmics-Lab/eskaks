@@ -174,6 +174,11 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         }
     }
 
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(args.workers)
+        .stack_size(4 * 1024 * 1024)
+        .build_global()?;
+
     let ref_path = std::path::Path::new(&args.reference);
     let gff_path = std::path::Path::new(&args.gff);
 

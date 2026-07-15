@@ -8,7 +8,9 @@ use crate::gff::{Gene, Strand};
 use crate::genetic_code::GeneticCode;
 use crate::vcf::VcfSnp;
 use log::{debug, info, warn};
+use rayon::prelude::*;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Result of pN/pS analysis for a single gene.
 #[derive(Debug, Clone)]
@@ -105,149 +107,161 @@ pub fn compute_pn_ps(
         snps_list.sort_by_key(|s| s.pos);
     }
 
-    let mut results = Vec::with_capacity(genes.len());
     // Aggregate diagnostics so a wrong reference doesn't spam one line per SNP.
-    let mut ref_checked = 0usize;
-    let mut ref_mismatch = 0usize;
+    // Atomics let the per-gene work run in parallel; par_iter().collect()
+    // preserves gene order, so results are deterministic regardless of threads.
+    let ref_checked = AtomicUsize::new(0);
+    let ref_mismatch = AtomicUsize::new(0);
 
-    for gene in genes {
-        let ref_seq = match reference.get(&gene.seqid) {
-            Some(seq) => seq,
-            None => {
-                warn!("Reference sequence not found for {}, skipping gene {}", gene.seqid, gene.name);
-                continue;
+    let results: Vec<GenePnPs> = genes
+        .par_iter()
+        .filter_map(|gene| {
+            let ref_seq = match reference.get(&gene.seqid) {
+                Some(seq) => seq,
+                None => {
+                    warn!("Reference sequence not found for {}, skipping gene {}", gene.seqid, gene.name);
+                    return None;
+                }
+            };
+
+            let chrom_snps = snp_map.get(gene.seqid.as_str());
+
+            // Extract the full CDS sequence from the reference
+            let cds_seq = extract_cds_sequence(gene, ref_seq);
+            if cds_seq.len() < 3 {
+                warn!("Gene {} CDS too short ({} bp), skipping", gene.name, cds_seq.len());
+                return None;
             }
-        };
 
-        let chrom_snps = snp_map.get(gene.seqid.as_str());
+            // Count S and N sites from reference codons
+            let (n_sites, s_sites) = if spectrum_weighted {
+                count_sites_weighted(&cds_seq, gc, kappa)
+            } else {
+                count_sites(&cds_seq, gc)
+            };
 
-        // Extract the full CDS sequence from the reference
-        let cds_seq = extract_cds_sequence(gene, ref_seq);
-        if cds_seq.len() < 3 {
-            warn!("Gene {} CDS too short ({} bp), skipping", gene.name, cds_seq.len());
-            continue;
-        }
+            // Find SNPs that fall within this gene's CDS regions
+            // Counts are f64 to support AF-weighted mode (πN/πS)
+            let mut nonsyn_count = 0.0f64;
+            let mut syn_count = 0.0f64;
+            let mut local_checked = 0usize;
+            let mut local_mismatch = 0usize;
 
-        // Count S and N sites from reference codons
-        let (n_sites, s_sites) = if spectrum_weighted {
-            count_sites_weighted(&cds_seq, gc, kappa)
-        } else {
-            count_sites(&cds_seq, gc)
-        };
+            if let Some(snps_list) = chrom_snps {
+                for snp in snps_list.iter() {
+                    // Check if this SNP falls within any exon of this gene
+                    if let Some(cds_offset) = genomic_to_cds_offset(gene, snp.pos) {
+                        let codon_idx = cds_offset / 3;
+                        let pos_in_codon = cds_offset % 3;
+                        let codon_start = codon_idx * 3;
 
-        // Find SNPs that fall within this gene's CDS regions
-        // Counts are f64 to support AF-weighted mode (πN/πS)
-        let mut nonsyn_count = 0.0f64;
-        let mut syn_count = 0.0f64;
+                        if codon_start + 3 > cds_seq.len() {
+                            continue;
+                        }
 
-        if let Some(snps_list) = chrom_snps {
-            for snp in snps_list.iter() {
-                // Check if this SNP falls within any exon of this gene
-                if let Some(cds_offset) = genomic_to_cds_offset(gene, snp.pos) {
-                    let codon_idx = cds_offset / 3;
-                    let pos_in_codon = cds_offset % 3;
-                    let codon_start = codon_idx * 3;
+                        // Get reference codon from the extracted CDS
+                        let ref_codon = [
+                            cds_seq[codon_start],
+                            cds_seq[codon_start + 1],
+                            cds_seq[codon_start + 2],
+                        ];
 
-                    if codon_start + 3 > cds_seq.len() {
-                        continue;
-                    }
-
-                    // Get reference codon from the extracted CDS
-                    let ref_codon = [
-                        cds_seq[codon_start],
-                        cds_seq[codon_start + 1],
-                        cds_seq[codon_start + 2],
-                    ];
-
-                    // Verify VCF REF allele matches the reference sequence
-                    let expected_ref = if gene.strand == Strand::Minus {
-                        complement(cds_seq[codon_start + pos_in_codon])
-                    } else {
-                        cds_seq[codon_start + pos_in_codon]
-                    };
-                    ref_checked += 1;
-                    if snp.ref_allele != expected_ref {
-                        ref_mismatch += 1;
-                        debug!(
-                            "VCF REF mismatch at {}:{} — VCF says {}, reference has {}. Skipping.",
-                            snp.chrom, snp.pos,
-                            snp.ref_allele as char, expected_ref as char
-                        );
-                        continue;
-                    }
-
-                    // For each ALT allele at this position
-                    for (alt_idx, alt_base) in snp.alt_alleles.iter().enumerate() {
-                        // Weight: AF if weighted mode, 1.0 otherwise
-                        let weight = if af_weighted {
-                            snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0)
+                        // Verify VCF REF allele matches the reference sequence
+                        let expected_ref = if gene.strand == Strand::Minus {
+                            complement(cds_seq[codon_start + pos_in_codon])
                         } else {
-                            1.0
+                            cds_seq[codon_start + pos_in_codon]
                         };
+                        local_checked += 1;
+                        if snp.ref_allele != expected_ref {
+                            local_mismatch += 1;
+                            debug!(
+                                "VCF REF mismatch at {}:{} — VCF says {}, reference has {}. Skipping.",
+                                snp.chrom, snp.pos,
+                                snp.ref_allele as char, expected_ref as char
+                            );
+                            continue;
+                        }
 
-                        // Build alternate codon
-                        let mut alt_codon = ref_codon;
-                        let alt_in_cds = if gene.strand == Strand::Minus {
-                            complement(*alt_base)
-                        } else {
-                            *alt_base
-                        };
-                        alt_codon[pos_in_codon] = alt_in_cds;
+                        // For each ALT allele at this position
+                        for (alt_idx, alt_base) in snp.alt_alleles.iter().enumerate() {
+                            // Weight: AF if weighted mode, 1.0 otherwise
+                            let weight = if af_weighted {
+                                snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0)
+                            } else {
+                                1.0
+                            };
 
-                        // Look up amino acids
-                        let ref_aa = codon_to_aa(&ref_codon, gc);
-                        let alt_aa = codon_to_aa(&alt_codon, gc);
+                            // Build alternate codon
+                            let mut alt_codon = ref_codon;
+                            let alt_in_cds = if gene.strand == Strand::Minus {
+                                complement(*alt_base)
+                            } else {
+                                *alt_base
+                            };
+                            alt_codon[pos_in_codon] = alt_in_cds;
 
-                        match (ref_aa, alt_aa) {
-                            (Some(r), Some(a)) if r != b'*' && a != b'*' => {
-                                if r == a {
-                                    syn_count += weight;
-                                } else {
-                                    nonsyn_count += weight;
+                            // Look up amino acids
+                            let ref_aa = codon_to_aa(&ref_codon, gc);
+                            let alt_aa = codon_to_aa(&alt_codon, gc);
+
+                            match (ref_aa, alt_aa) {
+                                (Some(r), Some(a)) if r != b'*' && a != b'*' => {
+                                    if r == a {
+                                        syn_count += weight;
+                                    } else {
+                                        nonsyn_count += weight;
+                                    }
                                 }
+                                // Skip: ambiguous codons or mutations to/from stop
+                                _ => continue,
                             }
-                            // Skip: ambiguous codons or mutations to/from stop
-                            _ => continue,
                         }
                     }
                 }
             }
-        }
 
-        let total_snps = nonsyn_count + syn_count;
-        let pn = if n_sites > 0.0 {
-            nonsyn_count / n_sites
-        } else {
-            0.0
-        };
-        let ps = if s_sites > 0.0 {
-            syn_count / s_sites
-        } else {
-            0.0
-        };
-        let pn_ps = if ps > 0.0 {
-            pn / ps
-        } else if pn > 0.0 {
-            f64::INFINITY
-        } else {
-            f64::NAN
-        };
+            ref_checked.fetch_add(local_checked, Ordering::Relaxed);
+            ref_mismatch.fetch_add(local_mismatch, Ordering::Relaxed);
 
-        results.push(GenePnPs {
-            name: gene.name.clone(),
-            length_bp: gene.length_bp,
-            n_sites,
-            s_sites,
-            pn,
-            ps,
-            pn_ps,
-            nonsyn_snps: nonsyn_count,
-            syn_snps: syn_count,
-            total_snps,
-            genome_start: gene.start,
-            chrom: gene.seqid.clone(),
-        });
-    }
+            let total_snps = nonsyn_count + syn_count;
+            let pn = if n_sites > 0.0 {
+                nonsyn_count / n_sites
+            } else {
+                0.0
+            };
+            let ps = if s_sites > 0.0 {
+                syn_count / s_sites
+            } else {
+                0.0
+            };
+            let pn_ps = if ps > 0.0 {
+                pn / ps
+            } else if pn > 0.0 {
+                f64::INFINITY
+            } else {
+                f64::NAN
+            };
+
+            Some(GenePnPs {
+                name: gene.name.clone(),
+                length_bp: gene.length_bp,
+                n_sites,
+                s_sites,
+                pn,
+                ps,
+                pn_ps,
+                nonsyn_snps: nonsyn_count,
+                syn_snps: syn_count,
+                total_snps,
+                genome_start: gene.start,
+                chrom: gene.seqid.clone(),
+            })
+        })
+        .collect();
+
+    let ref_checked = ref_checked.load(Ordering::Relaxed);
+    let ref_mismatch = ref_mismatch.load(Ordering::Relaxed);
 
     if ref_mismatch > 0 {
         let frac = ref_mismatch as f64 / ref_checked.max(1) as f64;
