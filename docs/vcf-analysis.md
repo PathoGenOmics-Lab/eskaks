@@ -63,6 +63,7 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--min-af <FLOAT>` | Minimum allele frequency (0.0–1.0) | none |
 | `--max-af <FLOAT>` | Maximum allele frequency — use 0.99 to exclude fixed variants | none |
 | `--min-depth <INT>` | Minimum read depth (INFO/DP) | none |
+| `--kappa <FLOAT>` | Transition/transversion rate ratio for [spectrum-aware site counting](#mutation-spectrum-aware-site-counting---kappa) | `1.0` (equal rates) |
 | `--plot` | Generate Manhattan-style SVG plot | off |
 
 ## Output
@@ -117,6 +118,49 @@ the pooled figure is πN/πS.
 The `Selection:` line is a coarse convenience label (`< 0.9` purifying, `0.9–1.1`
 near-neutral, `> 1.1` diversifying), not a statistical test — formal inference
 needs an explicit null model.
+
+## Mutation-spectrum-aware site counting (`--kappa`)
+
+By default eskaks counts synonymous (S) and nonsynonymous (N) sites the classic
+Nei-Gojobori way: every possible single-nucleotide change at a codon is treated
+as equally likely. Real mutational spectra are **not** uniform — most genomes,
+and *M. tuberculosis* especially, are strongly **transition-biased** (A↔G, C↔T
+mutations are far more frequent than transversions).
+
+This matters because the synonymous change at a 2-fold degenerate third position
+is almost always a transition. Counting it with equal weights **under-counts
+synonymous sites**, which inflates N, deflates S, and biases pN/pS **downward** —
+potentially making genuinely conserved genes look neutral and masking selection.
+
+`--kappa <ratio>` corrects this by weighting each candidate change by its
+relative mutation rate — `kappa` for a transition, `1` for a transversion —
+when counting sites (the [modified Nei-Gojobori / Ina 1995 correction](models.md)):
+
+```bash
+# Transition/transversion ratio of ~2 (a typical bacterial value)
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
+  --genetic-code 11 --kappa 2 -o mtb_pnps
+```
+
+- A 2-fold synonymous site's contribution moves from `1/3` (κ=1) to `κ/(κ+2)`.
+- 4-fold degenerate sites are synonymous regardless, so they are **κ-invariant**.
+- The total number of sites per codon is unchanged; only the **S/N split** moves.
+- Weighting keeps the same codon-level normalisation as the default, so `κ` is the
+  *only* thing that changes — the correction is not confounded with a scheme switch.
+- **Across the coding genome**, transition bias (`κ>1`) generally raises total S,
+  lowers total N, and so raises pN/pS relative to the equal-rates estimate.
+  Individual codons can move either way — a codon whose transition-reachable
+  changes are mostly *nonsynonymous* (e.g. some 4-fold codons) shifts the other
+  way — so read the direction genome-wide, not gene-by-gene.
+
+Only the site **denominators** change. The observed synonymous/nonsynonymous SNP
+counts (the numerators) are read directly from the VCF and are never rate-weighted,
+so `--kappa` is orthogonal to `--af-weighted`. `--kappa 1` (the default) reproduces
+the classic equal-rates counting exactly (bit-for-bit).
+
+> A single `κ` captures the transition/transversion contrast but not base-specific
+> asymmetries (e.g. C→T ≠ A→G) or context effects. Supply a value from the
+> literature or estimate it from your own data (e.g. from 4-fold degenerate sites).
 
 ## pN/pS vs πN/πS
 

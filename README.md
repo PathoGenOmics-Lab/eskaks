@@ -94,6 +94,10 @@ Alongside the per-gene table, the run prints a **genome-wide (pooled) pN/pS** to
 stderr — counts and sites summed across all genes — as an overall signal of
 selection. See [docs/vcf-analysis.md](docs/vcf-analysis.md#genome-wide-pooled-pnps).
 
+For transition-biased genomes (e.g. *M. tuberculosis*), add `--kappa <ts/tv ratio>`
+for [mutation-spectrum-aware site counting](docs/vcf-analysis.md#mutation-spectrum-aware-site-counting---kappa),
+which corrects the equal-rates bias that otherwise understates pN/pS.
+
 > [!TIP]
 > If your sequences are not codon-aligned, use [MAFFT](https://mafft.cbrc.jp/) + [PAL2NAL](http://www.bork.embl.de/pal2nal/) or [MACSE](https://bioweb.supagro.inra.fr/macse/) first.
 
