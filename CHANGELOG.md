@@ -46,16 +46,24 @@ All notable changes to this project will be documented in this file.
   Benjamini-Hochberg line at `--fdr` and significant genes highlighted.
 - **Interactive HTML report** — a self-contained page (no CDN/network) with
   dynamic, hover-interactive visualizations:
-  - `eskaks vcf --report`: a **linked multi-panel dashboard** — Manhattan,
-    volcano (log2 pN/pS vs −log10 p), a McDonald-Kreitman α-vs-significance
-    volcano (with `--mk`), a power funnel (pN/pS vs SNP count), an observed-vs-
+  - `eskaks vcf --report`: a **linked multi-panel dashboard** — a genome-wide
+    **verdict banner**, a selection-regime **census**, a **significant-hits
+    shortlist**, Manhattan (with a `−log10(p)` / `pN/pS` / **`z(N)`** metric
+    toggle), volcano (log2 pN/pS vs −log10 p), a **p-value QQ plot with genomic
+    inflation λ**, a McDonald-Kreitman α-vs-significance volcano (with `--mk`), a
+    **top-genes lollipop**, a power funnel (pN/pS vs SNP count), an observed-vs-
     expected N-fraction diagnostic, the pN/pS distribution, and an enriched
-    per-gene table. Clicking any point or row highlights that gene across every
-    panel; a global **FDR(BH) ↔ Bonferroni** stringency toggle repaints all
-    panels; light/dark theme toggle; CSV/JSON export of the filtered view;
-    repetitive-gene (PE/PPE) badges; a Methods/parameters block. Uses the
-    PathoGenOmics-Lab **mycolorsTB** palette (pathogenomics brand + *M.
-    tuberculosis* lineage colors).
+    per-gene table (now including a power-aware **`z(N)`** standardized
+    nonsynonymous-excess column and, with `--mk`, a **`DoS`** Direction-of-
+    Selection column). Every panel and summary card carries an **“i”
+    interpretation-help popover** (what it shows, how to read the axes, what to
+    watch out for), plus a **“How to read this report”** glossary. Clicking any
+    point or row highlights that gene across every panel; **↑/↓** step through
+    genes and **Esc** clears; a global **FDR(BH) ↔ Bonferroni** stringency toggle
+    repaints all panels; light/dark theme toggle; CSV/JSON export (RFC 4180) of
+    the filtered view; a **Print / Save-PDF** button; repetitive-gene (PE/PPE)
+    badges; a Methods/parameters block. Uses the PathoGenOmics-Lab **mycolorsTB**
+    palette (pathogenomics brand + *M. tuberculosis* lineage colors).
   - `eskaks vcf --divergence <FILE>`: adds a **polymorphism-vs-divergence**
     reconciliation panel to the report — per-gene pN/pS (within-sample) vs a
     supplied per-gene dN/dS (divergence), matched by name, with the concordance

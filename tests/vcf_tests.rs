@@ -591,7 +591,12 @@ fn vcf_report_writes_self_contained_html() {
     assert!(html.contains("\"name\":\"geneA\""), "gene data present");
     // Comprehensive dashboard: multiple linked panels + controls present.
     for needle in ["Manhattan", "Volcano", "McDonald-Kreitman", "Power funnel",
-                   "Observed vs expected", "selectGene", "expCsv", "themeTog"] {
+                   "Observed vs expected", "selectGene", "expCsv", "themeTog",
+                   // v2: verdict banner, help popovers, glossary, new panels/columns.
+                   "renderVerdict", "renderGuide", "const HELP =", "helpHtml",
+                   "panelQQ", "panelLollipop", "panelHits", "invNorm",
+                   "P-value QQ", "Top genes by selection signal", "Significant hits",
+                   "printBtn", "z(N)", "DoS"] {
         assert!(html.contains(needle), "report missing '{}'", needle);
     }
     // Self-contained: no external network assets.
