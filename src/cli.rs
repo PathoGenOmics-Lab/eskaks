@@ -228,4 +228,10 @@ pub struct VcfArgs {
     /// filterable per-gene table. No internet/CDN needed.
     #[arg(long)]
     pub report: bool,
+
+    /// Per-gene divergence dN/dS table for the report's polymorphism-vs-divergence
+    /// panel (a 2-column TSV/CSV: gene<TAB>dN/dS; header optional). Genes are
+    /// matched to the pN/pS results by name.
+    #[arg(long)]
+    pub divergence: Option<String>,
 }

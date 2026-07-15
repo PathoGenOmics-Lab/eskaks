@@ -65,6 +65,7 @@ pub fn write_html_report(
     results: &[GenePnPs],
     gw: Option<&GenomeWidePnPs>,
     meta: &ReportMeta,
+    divergence: Option<&std::collections::HashMap<String, f64>>,
     prefix: &str,
 ) -> anyhow::Result<String> {
     let output_path = format!("{}_report.html", prefix);
@@ -138,6 +139,10 @@ pub fn write_html_report(
                 r.mk_dn, r.mk_ds, r.mk_pn, r.mk_ps, num(ni), num(alpha), num(fp)
             );
         }
+        if let Some(div) = divergence {
+            let dv = div.get(&r.name).copied().unwrap_or(f64::NAN);
+            let _ = write!(data, ",\"div\":{}", num(dv));
+        }
         let _ = writeln!(data, "}}{}", comma);
     }
     data.push_str("]\n}");
@@ -164,18 +169,17 @@ const HEAD: &str = r#"<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>eskaks report</title>
 <style>
-:root{color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--fg:#0b0b0b;--muted:#898781;
---card:#fcfcfb;--border:#e1e0d9;--grid:#e1e0d9;--axis:#c3c2b7;
---accent:#2a78d6;--pos:#e34948;--sig:#e34948;--ns:#9aa0a6;--line:#2a7f3f;--sel:#eda100;
---s1:#2a78d6;--s2:#1baf7a;--s3:#eda100;--s4:#008300;--s5:#4a3aa7;--s6:#e34948;--s7:#e87ba4;--s8:#eb6834;}
+/* Palette: PathoGenOmics-Lab mycolorsTB (pathogenomics brand + M. tuberculosis lineage colors). */
+:root{color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--fg:#0b0b0b;--muted:#7d746c;
+--card:#fcfcfb;--border:#e3ddd6;--grid:#e3ddd6;--axis:#c0b3a7;
+--accent:#305595;--pos:#c01718;--sig:#c01718;--ns:#c0b3a7;--line:#3c5824;--sel:#d1ae00;
+--s1:#ff3091;--s2:#001aff;--s3:#8a0bd2;--s4:#ff0000;--s5:#995200;--s6:#1eb040;--s7:#ff9d00;--s8:#73c2ff;}
 @media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){color-scheme:dark;
---bg:#0d0d0d;--surface:#1a1a19;--fg:#ffffff;--muted:#898781;--card:#1d2026;--border:#2c2c2a;--grid:#2c2c2a;--axis:#383835;
---accent:#3987e5;--pos:#e66767;--sig:#e66767;--sel:#c98500;
---s1:#3987e5;--s2:#199e70;--s3:#c98500;--s4:#008300;--s5:#9085e9;--s6:#e66767;--s7:#d55181;--s8:#d95926;}}
-:root[data-theme="dark"]{color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--fg:#ffffff;--muted:#898781;
---card:#1d2026;--border:#2c2c2a;--grid:#2c2c2a;--axis:#383835;
---accent:#3987e5;--pos:#e66767;--sig:#e66767;--sel:#c98500;
---s1:#3987e5;--s2:#199e70;--s3:#c98500;--s4:#008300;--s5:#9085e9;--s6:#e66767;--s7:#d55181;--s8:#d95926;}
+--bg:#0d0d0d;--surface:#1a1a19;--fg:#ffffff;--muted:#a89f96;--card:#1d2026;--border:#2c2c2a;--grid:#2c2c2a;--axis:#3a3a37;
+--accent:#9ec4e8;--pos:#e35b5c;--sig:#e35b5c;--ns:#7d746c;--line:#7fa860;--sel:#d1ae00;}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--fg:#ffffff;--muted:#a89f96;
+--card:#1d2026;--border:#2c2c2a;--grid:#2c2c2a;--axis:#3a3a37;
+--accent:#9ec4e8;--pos:#e35b5c;--sig:#e35b5c;--ns:#7d746c;--line:#7fa860;--sel:#d1ae00;}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
 background:var(--bg);color:var(--fg);line-height:1.5}
@@ -408,10 +412,23 @@ function panelDist(){
   return {title:"pN/pS distribution", legend:"", svg:s};
 }
 
+// ── Polymorphism vs divergence reconciliation (--divergence) ──────────
+const hasDiv = genes.some(g=>g.div!=null&&isFinite(g.div));
+function panelRecon(){
+  const rows=genes.filter(g=>g.div!=null&&isFinite(g.div)&&g.ratio!=null&&isFinite(g.ratio));
+  return {title:`Polymorphism vs divergence (${rows.length} genes matched)`,
+    legend:`<span>y&gt;1&amp;x&lt;1 → past positive (fixed) · both&gt;1 → diversifying · both&lt;1 → purifying · x&gt;1&amp;y&lt;1 → relaxed/recent</span>`,
+    svg: scatter({rows, x:g=>g.ratio, y:g=>g.div, xlabel:"pN/pS (within-sample polymorphism)", ylabel:"dN/dS (divergence)",
+      color:g=>{ const x=g.ratio,y=g.div; if(y>1&&x<1)return"var(--pos)"; if(x>1&&y>1)return"var(--s3)"; if(x>1&&y<1)return"var(--accent)"; return"var(--ns)"; },
+      size:rSize, tip:g=>`<b>${g.name}</b><br>pN/pS ${fmt(g.ratio,3)} · dN/dS ${fmt(g.div,3)}<br>${g.nonsyn}N/${g.syn}S SNPs`,
+      refs:[{diag:true,label:"concordance",c:"var(--line)"},{x:1,label:"pN/pS=1",c:"var(--pos)"},{y:1,label:"dN/dS=1",c:"var(--pos)"}]})};
+}
+
 // ── Render all panels ─────────────────────────────────────────────────
 function renderPanels(){
   const P=[panelManhattan(),panelVolcano()];
   if(M.mk) P.push(panelMK());
+  if(hasDiv) P.push(panelRecon());
   P.push(panelFunnel(),panelObsExp());
   const d=panelDist(); if(d) P.push(d);
   $("#panels").innerHTML = P.map(p=>`<section class="panel"><h2>${p.title}</h2>${p.toolbar?`<div class="toolbar">${p.toolbar}</div>`:""}<div>${p.svg}</div>${p.legend?`<div class="legend">${p.legend}</div>`:""}</section>`).join("");
@@ -629,6 +646,10 @@ const FASTA_SCRIPT: &str = r##"
 const $ = s => document.querySelector(s);
 const M = DATA.meta, tip = $("#tip");
 const fmt = (v,d=4) => v==null||!isFinite(v) ? "NA" : Number(v).toFixed(d);
+// PathoGenOmics-Lab mycolorsTB — M. tuberculosis lineage colors (keyed by name).
+const MYCOLORS = {A1:"#d1ae00",A2:"#8ef5c8",A3:"#73c2ff",A4:"#ff9cdb",L1:"#ff3091",L2:"#001aff",
+  L3:"#8a0bd2",L4:"#ff0000",L5:"#995200",L6:"#1eb040",L7:"#fbff00",L8:"#ff9d00",L9:"#37ff30",L10:"#8fbda1"};
+const SER = ["--s1","--s2","--s3","--s4","--s5","--s6","--s7","--s8"];
 
 $("#meta").textContent = `model ${M.model} · ${M.totalPairs} pairs (${M.validPairs} valid)`;
 const card = (k,v) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
@@ -680,8 +701,9 @@ if (DATA.lineage) {
   const ymax=Math.max(1.1, ...pts.map(d=>d.ratio))*1.1;
   const X=i=>ml+(i+0.5)/lins.length*pw, Y=v=>mt+ph*(1-v/ymax);
   let seed=97; const rnd=()=>{seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff;};
-  const SER=["--s1","--s2","--s3","--s4","--s5","--s6","--s7","--s8"];
-  const lc=L=>{ const k=lins.indexOf(L); return k<8?`var(${SER[k]})`:"var(--ns)"; };
+  // Prefer the mycolorsTB lineage color by name (e.g. L1..L10, A1..A4); else a series slot.
+  const lkey=L=>{ const t=String(L).toUpperCase().match(/^(A|L)\s*([0-9]{1,2})/); return t?t[1]+t[2]:null; };
+  const lc=L=>{ const k=lkey(L); if(k&&MYCOLORS[k]) return MYCOLORS[k]; const i=lins.indexOf(L); return i<8?`var(${SER[i]})`:"var(--ns)"; };
   const s={v:`<svg viewBox="0 0 ${W} ${H}">`};
   grid(s,ml,pw,mt,ph,ymax,Y,2); neutral(s,ml,pw,ymax,Y);
   lins.forEach((L,i)=>{ const cx=X(i), cw=pw/lins.length*0.62;

@@ -16,7 +16,7 @@ use anyhow::{bail, Context};
 use clap::Parser;
 use log::{info, warn, LevelFilter};
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use cli::{Args, SubCmd};
 use compute::ComputeEngine;
@@ -197,6 +197,36 @@ fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
 
     info!("All processes completed successfully.");
     Ok(())
+}
+
+/// Parse a per-gene divergence table (`gene<TAB or ,>dN/dS`, header optional)
+/// for the report's polymorphism-vs-divergence panel.
+fn parse_divergence(path: &str) -> anyhow::Result<HashMap<String, f64>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read --divergence file: {}", path))?;
+    let mut map = HashMap::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut fields = line.split(['\t', ',']);
+        let gene = match fields.next() {
+            Some(g) => g.trim(),
+            None => continue,
+        };
+        if let Some(v) = fields.next() {
+            if let Ok(x) = v.trim().parse::<f64>() {
+                map.insert(gene.to_string(), x);
+            }
+        }
+    }
+    if map.is_empty() {
+        warn!("--divergence file {} yielded no gene→dN/dS pairs (expected 'gene<TAB>dN/dS')", path);
+    } else {
+        info!("Loaded {} per-gene divergence dN/dS values", map.len());
+    }
+    Ok(map)
 }
 
 fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
@@ -388,8 +418,13 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             mk_fixed_af: args.mk_fixed_af,
             gw_ci,
         };
-        let report_path =
-            report::write_html_report(&results, genome_wide.as_ref(), &rmeta, &args.output)?;
+        let divergence = match &args.divergence {
+            Some(p) => Some(parse_divergence(p)?),
+            None => None,
+        };
+        let report_path = report::write_html_report(
+            &results, genome_wide.as_ref(), &rmeta, divergence.as_ref(), &args.output,
+        )?;
         info!("Report saved to {}", report_path);
     }
 

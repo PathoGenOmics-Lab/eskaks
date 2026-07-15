@@ -603,6 +603,27 @@ fn vcf_report_writes_self_contained_html() {
 }
 
 #[test]
+fn vcf_report_reconciliation_panel_with_divergence() {
+    let out_prefix = "/tmp/eskaks_test_vcf_div";
+    let div = "/tmp/eskaks_test_div.tsv";
+    fs::write(div, "gene\tdNdS\ngeneA\t2.5\ngeneB\t0.3\n").unwrap();
+    let status = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", out_prefix, "--report", "--divergence", div,
+        ])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let html = fs::read_to_string(format!("{}_report.html", out_prefix)).expect("report");
+    assert!(html.contains("Polymorphism vs divergence"), "reconciliation panel present");
+    assert!(html.contains("\"div\":2.5"), "divergence value matched to geneA");
+    fs::remove_file(div).ok();
+    fs::remove_file(format!("{}_report.html", out_prefix)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
 fn vcf_invalid_mk_fixed_af_rejected() {
     let output = Command::new(binary_path())
         .args([

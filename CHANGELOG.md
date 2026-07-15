@@ -53,8 +53,14 @@ All notable changes to this project will be documented in this file.
     per-gene table. Clicking any point or row highlights that gene across every
     panel; a global **FDR(BH) ↔ Bonferroni** stringency toggle repaints all
     panels; light/dark theme toggle; CSV/JSON export of the filtered view;
-    repetitive-gene (PE/PPE) badges; a Methods/parameters block. Colorblind-safe
-    palette (validated).
+    repetitive-gene (PE/PPE) badges; a Methods/parameters block. Uses the
+    PathoGenOmics-Lab **mycolorsTB** palette (pathogenomics brand + *M.
+    tuberculosis* lineage colors).
+  - `eskaks vcf --divergence <FILE>`: adds a **polymorphism-vs-divergence**
+    reconciliation panel to the report — per-gene pN/pS (within-sample) vs a
+    supplied per-gene dN/dS (divergence), matched by name, with the concordance
+    diagonal and quadrant interpretation (past-positive / diversifying /
+    purifying / relaxed).
   - `eskaks fasta --report`: a **multi-panel dashboard** — a positional
     **sliding-window dN/dS "Manhattan"** (for aligned input), a **dN-vs-dS
     scatter** (one point per pair), and the **pairwise dN/dS distribution** are

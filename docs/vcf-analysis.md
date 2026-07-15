@@ -73,6 +73,7 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--workers <INT>` | Parallel threads for the per-gene computation | `4` |
 | `--plot` | Generate Manhattan-style SVG plot (significant genes outlined) | off |
 | `--report` | Write an [interactive HTML report](#interactive-html-report) (`<prefix>_report.html`) | off |
+| `--divergence <FILE>` | Per-gene divergence dN/dS TSV (`gene<TAB>dN/dS`) → adds a polymorphism-vs-divergence panel to the report | none |
 
 ## Output
 
