@@ -516,4 +516,83 @@ mod tests {
         assert!((dn_dna - dn_rna).abs() < EPSILON, "RNA dN differs from DNA: {} vs {}", dn_dna, dn_rna);
         assert!((ds_dna - ds_rna).abs() < EPSILON, "RNA dS differs from DNA: {} vs {}", ds_dna, ds_rna);
     }
+
+// ===== from agent: v2:385cca808ee9161ccf4405845f9abcbbcce06828bbe0fc04922169dafa359350 =====
+
+    // === cov_ hardening tests (appended) ===
+
+    // Coverage of CodonPairData::default() (li.rs lines 141-143): the Default
+    // impl body sets l/ti/tv each to [0.0; 3]. A zero entry must also be a no-op
+    // when accumulated (conservation).
+    #[test]
+    fn cov_default_codon_pair_data_is_zero() {
+        let d = CodonPairData::default();
+        assert_eq!(d.l, [0.0; 3]);
+        assert_eq!(d.ti, [0.0; 3]);
+        assert_eq!(d.tv, [0.0; 3]);
+
+        let mut l_sum = [0.0f64; 3];
+        let mut ti_sum = [0.0f64; 3];
+        let mut tv_sum = [0.0f64; 3];
+        accumulate(&d, &mut l_sum, &mut ti_sum, &mut tv_sum);
+        assert_eq!(l_sum, [0.0; 3]);
+        assert_eq!(ti_sum, [0.0; 3]);
+        assert_eq!(tv_sum, [0.0; 3]);
+    }
+
+    // Invariant: an alignment whose only differences are 4-fold synonymous
+    // substitutions gives dN == 0 and dS > 0. Such substitutions land only in the
+    // 4-fold (class-2) counters, which feed Ks. LPB reduction:
+    //   Ka = A0 + (L0*B0 + L2*B2)/(L0+L2); with no 0-fold/2-fold substitutions
+    //   A0 = B0 = B2 = 0  =>  Ka = 0.
+    #[test]
+    fn cov_li_all_synonymous_fourfold_dn_is_zero() {
+        // Met Ala Gly Ala Gly Ala; codon 2 GCT->GCC and codon 5 GGT->GGC
+        // (both synonymous, 4-fold, third position). No non-synonymous difference.
+        let (dn, ds) = li(b"ATGGCTGGTGCTGGTGCT", b"ATGGCCGGTGCTGGCGCT");
+        assert!(dn.abs() < EPSILON, "dN must be 0 for purely 4-fold synonymous diffs, got {}", dn);
+        assert!(ds > 0.0, "dS must be > 0 for synonymous diffs, got {}", ds);
+    }
+
+    // Invariant: a single 0-fold non-synonymous substitution gives dS == 0 and
+    // dN > 0. No substitution in the 2-fold/4-fold classes => A1 = A2 = B2 = 0 =>
+    //   Ks = B4 + (L2*A2 + L4*A4)/(L2+L4) = 0.
+    #[test]
+    fn cov_li_zerofold_nonsynonymous_ds_is_zero() {
+        // codon 2 GCT(Ala)->GAT(Asp): single change at the middle base (C->A), 0-fold.
+        let (dn, ds) = li(b"ATGGCTGCTGCT", b"ATGGATGCTGCT");
+        assert!(ds.abs() < EPSILON, "dS must be 0 for a 0-fold non-synonymous change, got {}", ds);
+        assert!(dn > 0.0, "dN must be > 0 for a non-synonymous change, got {}", dn);
+    }
+
+    // Invariant: symmetry d(A,B) == d(B,A) and non-negativity/finiteness for a
+    // mixed (synonymous + non-synonymous) alignment. The estimator is symmetric
+    // in its two sequences and clamps negative corrected distances to 0.
+    #[test]
+    fn cov_li_symmetry_and_nonnegative_mixed() {
+        // codon 2 GCT->GCC (synonymous), codon 3 GGT(Gly)->GAT(Asp) (non-synonymous).
+        let (dn_ab, ds_ab) = li(b"ATGGCTGGTGCT", b"ATGGCCGATGCT");
+        let (dn_ba, ds_ba) = li(b"ATGGCCGATGCT", b"ATGGCTGGTGCT");
+        assert!((dn_ab - dn_ba).abs() < EPSILON, "dN not symmetric: {} vs {}", dn_ab, dn_ba);
+        assert!((ds_ab - ds_ba).abs() < EPSILON, "dS not symmetric: {} vs {}", ds_ab, ds_ba);
+        assert!(dn_ab.is_finite() && dn_ab >= 0.0, "dN must be finite & >= 0, got {}", dn_ab);
+        assert!(ds_ab.is_finite() && ds_ab >= 0.0, "dS must be finite & >= 0, got {}", ds_ab);
+        assert!(dn_ab > 0.0, "dN must be > 0 (non-synonymous change present), got {}", dn_ab);
+        assert!(ds_ab > 0.0, "dS must be > 0 (synonymous change present), got {}", ds_ab);
+    }
+
+    // Branch coverage + invariant: when transversions saturate the Kimura
+    // denominator (1 - 2Q <= LI_EPSILON), the correction is suppressed (A_k/B_k
+    // stay 0) rather than producing NaN or a negative value. Three codons all
+    // GCT(Ala)->GCA(Ala): a synonymous transversion at every 4-fold position =>
+    // Q4 = 3/3 = 1 => denom_b = 1 - 2Q = -1 <= LI_EPSILON => B4 = A4 = 0 => dS = 0.
+    // No 0-fold/2-fold substitution => dN = 0.
+    #[test]
+    fn cov_li_transversion_saturation_stays_finite_nonneg() {
+        let (dn, ds) = li(b"GCTGCTGCT", b"GCAGCAGCA");
+        assert!(dn.is_finite() && dn >= 0.0, "dN must be finite & >= 0 under saturation, got {}", dn);
+        assert!(ds.is_finite() && ds >= 0.0, "dS must be finite & >= 0 under saturation, got {}", ds);
+        assert!(dn.abs() < EPSILON, "dN must be 0 (no non-synonymous change), got {}", dn);
+        assert!(ds.abs() < EPSILON, "dS collapses to 0 when transversions saturate, got {}", ds);
+    }
 }

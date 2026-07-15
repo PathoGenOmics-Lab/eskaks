@@ -207,4 +207,102 @@ mod tests {
             "Standard and mito should give different results for AGA-containing sequences"
         );
     }
+
+// ===== from agent: v2:b64cb6513034f622171610a6179e6025aba0595d6fb08d7c1e82fe13841ee906 =====
+    // cov_: NaN-tolerant float comparison (bootstrap CIs can be NaN by design).
+    fn cov_eq_or_nan(a: f64, b: f64) -> bool {
+        (a.is_nan() && b.is_nan()) || a == b
+    }
+
+    #[test]
+    fn cov_bootstrap_ci_empty_or_zero_boot_is_all_nan() {
+        // bootstrap_ci returns six NaNs when there is nothing to resample:
+        // l == 0 (empty overlap) or n_boot == 0 (early `return nan6`).
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let s = fasta_to_codon_indices(b"ATGGCTGCT", Model::Nei);
+        // First slice empty => l = 0.min(3) = 0 => early return.
+        let re = engine.bootstrap_ci(&s[..0], &s, 100, 1);
+        assert!(re.0.is_nan() && re.1.is_nan() && re.2.is_nan()
+            && re.3.is_nan() && re.4.is_nan() && re.5.is_nan());
+        // n_boot == 0 => same early return.
+        let rz = engine.bootstrap_ci(&s, &s, 0, 1);
+        assert!(rz.0.is_nan() && rz.1.is_nan() && rz.2.is_nan()
+            && rz.3.is_nan() && rz.4.is_nan() && rz.5.is_nan());
+    }
+
+    #[test]
+    fn cov_bootstrap_ci_identical_zero_and_undefined_ratio() {
+        // Identical sequences => every resample yields (dN, dS) = (0, 0):
+        //  * dN and dS are finite each iteration => their 2.5/97.5 percentiles are 0.
+        //  * dS is never > 0 => the ratio vector stays empty => its CI is (NaN, NaN),
+        //    exercising the empty-vector branch of the inner `ci` closure.
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let s = fasta_to_codon_indices(b"ATGGCTGCT", Model::Nei);
+        let (dn_lo, dn_hi, ds_lo, ds_hi, r_lo, r_hi) = engine.bootstrap_ci(&s, &s, 64, 12345);
+        assert_eq!(dn_lo, 0.0);
+        assert_eq!(dn_hi, 0.0);
+        assert_eq!(ds_lo, 0.0);
+        assert_eq!(ds_hi, 0.0);
+        assert!(r_lo.is_nan());
+        assert!(r_hi.is_nan());
+    }
+
+    #[test]
+    fn cov_bootstrap_ci_deterministic_and_ordered() {
+        // Same seed => identical output (SplitMix64 is deterministic); and each
+        // finite interval is ordered lo <= hi (2.5th percentile <= 97.5th).
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        // ATG (Met, unchanged) . GCT->GCC (Ala, synonymous => dS) . AAA->AAT (Lys->Asn => dN)
+        let s1 = fasta_to_codon_indices(b"ATGGCTAAA", Model::Nei);
+        let s2 = fasta_to_codon_indices(b"ATGGCCAAT", Model::Nei);
+        let a = engine.bootstrap_ci(&s1, &s2, 200, 999);
+        let b = engine.bootstrap_ci(&s1, &s2, 200, 999);
+        assert!(cov_eq_or_nan(a.0, b.0) && cov_eq_or_nan(a.1, b.1) && cov_eq_or_nan(a.2, b.2)
+            && cov_eq_or_nan(a.3, b.3) && cov_eq_or_nan(a.4, b.4) && cov_eq_or_nan(a.5, b.5));
+        if a.0.is_finite() && a.1.is_finite() { assert!(a.0 <= a.1); }
+        if a.2.is_finite() && a.3.is_finite() { assert!(a.2 <= a.3); }
+        if a.4.is_finite() && a.5.is_finite() { assert!(a.4 <= a.5); }
+    }
+
+    #[test]
+    fn cov_compute_pair_stats_identity_is_zero() {
+        // u_i == u_j short-circuits to (dN, dS, var_dN, var_dS) = (0, 0, 0, 0).
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let data = make_data(&[b"ATGGCTGCT"], Model::Nei);
+        assert_eq!(engine.compute_pair_stats(&data, 0, 0), (0.0, 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn cov_compute_pair_stats_li_variances_are_nan() {
+        // Li has no analytic variance => compute_pair_stats returns (dN, dS, NaN, NaN),
+        // with dN/dS matching compute_pair (the Li match arm).
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Li, gc);
+        let data = make_data(&[b"ATGGCTGCTGCT", b"ATGGCCGCTGCT"], Model::Li);
+        let (dn, ds, var_dn, var_ds) = engine.compute_pair_stats(&data, 0, 1);
+        assert!(var_dn.is_nan(), "Li var_dN must be NaN");
+        assert!(var_ds.is_nan(), "Li var_dS must be NaN");
+        let pair = engine.compute_pair(&data, 0, 1);
+        assert!(cov_eq_or_nan(dn, pair.dn));
+        assert!(cov_eq_or_nan(ds, pair.ds));
+    }
+
+    #[test]
+    fn cov_compute_pair_stats_nei_matches_pair() {
+        // Nei arm: dN/dS equal compute_pair; analytic variances, when finite, are
+        // non-negative (they are variances).
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let data = make_data(&[b"ATGGCTAAA", b"ATGGCCAAT"], Model::Nei);
+        let (dn, ds, var_dn, var_ds) = engine.compute_pair_stats(&data, 0, 1);
+        let pair = engine.compute_pair(&data, 0, 1);
+        assert!(cov_eq_or_nan(dn, pair.dn));
+        assert!(cov_eq_or_nan(ds, pair.ds));
+        if var_dn.is_finite() { assert!(var_dn >= 0.0); }
+        if var_ds.is_finite() { assert!(var_ds >= 0.0); }
+    }
 }

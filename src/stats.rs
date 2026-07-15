@@ -787,4 +787,105 @@ mod tests {
         // n == 0 → NaN.
         assert!(wilson_interval(0, 0, 0.95).0.is_nan());
     }
+
+// ===== from agent: v2:b64cb6513034f622171610a6179e6025aba0595d6fb08d7c1e82fe13841ee906 =====
+    #[test]
+    fn cov_floataccum_default_matches_new() {
+        // FloatAccum::default() delegates to new(): zeroed sums/counts, +-inf extremes.
+        let d = FloatAccum::default();
+        assert_eq!(d.valid_count, 0);
+        assert_eq!(d.finite_ratio_count, 0);
+        assert_eq!(d.sum_dn, 0.0);
+        assert_eq!(d.sum_ds, 0.0);
+        assert_eq!(d.sum_ratio, 0.0);
+        assert_eq!(d.min_dn, f64::INFINITY);
+        assert_eq!(d.max_dn, f64::NEG_INFINITY);
+        assert_eq!(d.min_ratio, f64::INFINITY);
+        assert_eq!(d.max_ratio, f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn cov_summarystats_default_is_empty() {
+        // SummaryStats::default() delegates to new(): all counters at zero.
+        let s = SummaryStats::default();
+        assert_eq!(s.total_count.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(s.nan_count.load(std::sync::atomic::Ordering::Relaxed), 0);
+        let f = s.floats.lock().unwrap();
+        assert_eq!(f.valid_count, 0);
+        assert_eq!(f.finite_ratio_count, 0);
+    }
+
+    #[test]
+    fn cov_print_summary_full_path_no_excluded() {
+        // Drive print_summary through total>0, valid>0, finite ratios present, and
+        // excluded == 0 (every valid pair also has a finite ratio) so the
+        // `String::new()` else-branch runs, plus the full histogram loop.
+        let stats = SummaryStats::new();
+        stats.record_pair_atomic(0.10, 0.20, 0.5); // ratio 0.5 -> histogram bin 2
+        stats.record_pair_atomic(0.30, 0.30, 1.0); // ratio 1.0 -> overflow bin 5
+        let mut local = FloatAccum::new();
+        local.record(0.10, 0.20, 0.5);
+        local.record(0.30, 0.30, 1.0);
+        stats.flush_local(&local);
+        stats.print_summary(); // must not panic
+        assert_eq!(stats.total_count.load(std::sync::atomic::Ordering::Relaxed), 2);
+        assert_eq!(stats.nan_count.load(std::sync::atomic::Ordering::Relaxed), 0);
+        let f = stats.floats.lock().unwrap();
+        assert_eq!(f.valid_count, 2);
+        assert_eq!(f.finite_ratio_count, 2); // => excluded == 0
+    }
+
+    #[test]
+    fn cov_percentile_single_element_returns_it() {
+        // A one-element slice returns that element for any percentile.
+        assert_eq!(percentile_sorted(&[42.0], 0.0), 42.0);
+        assert_eq!(percentile_sorted(&[42.0], 50.0), 42.0);
+        assert_eq!(percentile_sorted(&[42.0], 100.0), 42.0);
+        assert_eq!(percentile_sorted(&[-3.5], 2.5), -3.5);
+    }
+
+    #[test]
+    fn cov_ln_gamma_reflection_branch_small_x() {
+        // x < 0.5 uses the reflection G(x)*G(1-x) = pi / sin(pi x).
+        // At x = 0.25: G(0.25)*G(0.75) = pi / sin(pi/4) = pi / (sqrt(2)/2) = pi*sqrt(2),
+        //   so lnG(0.25) + lnG(0.75) = ln(pi*sqrt(2)).
+        let lhs = ln_gamma(0.25) + ln_gamma(0.75);
+        let rhs = (std::f64::consts::PI * std::f64::consts::SQRT_2).ln();
+        assert!((lhs - rhs).abs() < 1e-9, "lhs={lhs} rhs={rhs}");
+        // Known constant G(1/4) = 3.6256099082219083 => lnG(1/4) = 1.2880225246980774.
+        assert!((ln_gamma(0.25) - 1.288_022_524_698_077_4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cov_inv_normal_cdf_tail_branches() {
+        // Lower tail (p < 0.02425): Phi^-1(0.01) = -2.3263478740408408 (1st percentile).
+        assert!((inv_normal_cdf(0.01) + 2.326_347_874_040_840_8).abs() < 1e-6);
+        // Upper tail (p > 0.97575): Phi^-1(0.99) = +2.3263478740408408 (99th percentile).
+        assert!((inv_normal_cdf(0.99) - 2.326_347_874_040_840_8).abs() < 1e-6);
+        // Antisymmetry across the two tail branches.
+        assert!((inv_normal_cdf(0.01) + inv_normal_cdf(0.99)).abs() < 1e-6);
+        // Deeper into the lower tail is more negative (monotone).
+        assert!(inv_normal_cdf(0.001) < inv_normal_cdf(0.01));
+    }
+
+    #[test]
+    fn cov_erf_odd_negative_branch() {
+        // erf is odd: for x < 0 the code returns -y (y = erf(|x|)); construction
+        // makes erf(-a) == -erf(a) bit-for-bit for a > 0.
+        assert_eq!(erf(-1.0), -erf(1.0));
+        assert_eq!(erf(-2.5), -erf(2.5));
+        assert!(erf(-1.0) < 0.0);
+        // Sanity vs tabulated erf(1) = 0.8427007929 (A&S 7.1.26, |err| ~1.5e-7).
+        assert!((erf(1.0) - 0.842_700_792_9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cov_chi2_extreme_input_hits_nonfinite_break() {
+        // A gigantic -log10(p) overflows ln(p) to -inf, so p underflows to 0 and the
+        // far-tail fixed-point update is non-finite on the first step; the
+        // `!next.is_finite()` guard breaks and the pre-loop c (= -2*ln_p = +inf)
+        // is returned -- a large value, never NaN.
+        let c = chi2_from_two_sided_neglog10p(1e308);
+        assert!(c.is_infinite() && c > 0.0, "got {c}");
+    }
 }

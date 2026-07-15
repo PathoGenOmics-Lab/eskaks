@@ -345,4 +345,44 @@ mod tests {
             assert_eq!(t.aa_table[11], b'S', "code {id}: AGT must be Ser");
         }
     }
+
+// ===== from agent: v2:b64cb6513034f622171610a6179e6025aba0595d6fb08d7c1e82fe13841ee906 =====
+    #[test]
+    fn cov_get_table_unknown_id_is_none() {
+        // This crate defines no NCBI tables 0, 7, 8, or 99 => lookup returns None.
+        assert!(get_table(0).is_none());
+        assert!(get_table(7).is_none());
+        assert!(get_table(8).is_none());
+        assert!(get_table(99).is_none());
+    }
+
+    #[test]
+    fn cov_stop_codon_indices_standard_li_and_nei() {
+        // Standard code (table 1) stops are TAA, TAG, TGA.
+        // Li indexing 16*b1+4*b2+b3 (A=0,C=1,G=2,T=3):
+        //   TAA = 16*3+4*0+0 = 48, TAG = 16*3+4*0+2 = 50, TGA = 16*3+4*2+0 = 56.
+        // stop_codon_indices iterates 0..64 ascending, so the order is fixed.
+        let gc = get_table(1).unwrap();
+        assert_eq!(stop_codon_indices(gc, crate::models::Model::Li), vec![48u8, 50, 56]);
+        // Nei indexing 16*remap(b2)+4*remap(b1)+remap(b3), remap A->2 C->1 G->3 T->0:
+        //   TAA -> 16*2+4*0+2 = 34, TAG -> 16*2+4*0+3 = 35, TGA -> 16*3+4*0+2 = 50.
+        assert_eq!(stop_codon_indices(gc, crate::models::Model::Nei), vec![34u8, 35, 50]);
+    }
+
+    #[test]
+    fn cov_stop_codon_indices_count_matches_star_entries() {
+        // Both model indexings must return exactly one index per '*' entry of the
+        // Li-indexed aa_table, and every Li stop index must map back to b'*'.
+        for &id in &[1u8, 2, 6, 11] {
+            let gc = get_table(id).unwrap();
+            let star = gc.aa_table.iter().filter(|&&a| a == b'*').count();
+            let li = stop_codon_indices(gc, crate::models::Model::Li);
+            let nei = stop_codon_indices(gc, crate::models::Model::Nei);
+            assert_eq!(li.len(), star, "code {id}: Li stop count");
+            assert_eq!(nei.len(), star, "code {id}: Nei stop count");
+            for i in &li {
+                assert_eq!(gc.aa_table[*i as usize], b'*', "code {id}: Li idx {i}");
+            }
+        }
+    }
 }

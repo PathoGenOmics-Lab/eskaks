@@ -137,4 +137,35 @@ mod tests {
         let indices = fasta_to_codon_indices(b"ATGTTTG", Model::Nei);
         assert_eq!(indices.len(), 2);
     }
+
+// ===== from agent: v2:b64cb6513034f622171610a6179e6025aba0595d6fb08d7c1e82fe13841ee906 =====
+    #[test]
+    fn cov_extract_group_key_first_letter_ascii() {
+        // by_first_letter = true returns the first UTF-8 character (ASCII: 1 byte).
+        assert_eq!(extract_group_key("A_foo_bar", true), "A");
+        assert_eq!(extract_group_key("XYZ", true), "X");
+    }
+
+    #[test]
+    fn cov_extract_group_key_first_letter_multibyte() {
+        // Multi-byte first char: len_utf8() drives the slice end so it lands on a
+        // char boundary. U+00E9 (e-acute) = 2 bytes, U+4E2D (CJK) = 3 bytes.
+        assert_eq!(extract_group_key("\u{e9}mile", true), "\u{e9}");
+        assert_eq!(extract_group_key("\u{4e2d}x", true), "\u{4e2d}");
+    }
+
+    #[test]
+    fn cov_extract_group_key_first_letter_empty() {
+        // Empty id: chars().next() is None => len_utf8 defaults to 0 => &id[..0] == "".
+        assert_eq!(extract_group_key("", true), "");
+    }
+
+    #[test]
+    fn cov_extract_group_key_by_underscore() {
+        // by_first_letter = false returns the prefix before the first '_'.
+        assert_eq!(extract_group_key("grp_sample1", false), "grp");
+        // No '_' present => split yields the whole string as its single element.
+        assert_eq!(extract_group_key("wholeid", false), "wholeid");
+        assert_eq!(extract_group_key("", false), "");
+    }
 }

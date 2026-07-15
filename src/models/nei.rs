@@ -468,4 +468,71 @@ mod tests {
         assert!(dn > 0.0, "dN should be > 0, got {}", dn);
         assert!(ds > 0.0, "dS should be > 0, got {}", ds);
     }
+
+// ===== from agent: v2:385cca808ee9161ccf4405845f9abcbbcce06828bbe0fc04922169dafa359350 =====
+
+    // === cov_ hardening tests (appended) ===
+
+    // Degenerate pathway: a 2-difference codon pair whose BOTH single-step
+    // intermediates are stop codons uses the documented (0.5, 1.5) fallback
+    // (pathway_2diff, nei.rs lines 133-135). TGG(Trp) vs TAA(stop) route only
+    // through TAG and TGA, both stop codons => valid_paths == 0 => (0.5, 1.5).
+    #[test]
+    fn cov_nei_two_diff_all_stop_pathway_fallback() {
+        let tables = NeiTables::new();
+        let idx_tgg = fasta_to_codon_indices(b"TGG", Model::Nei)[0] as usize;
+        let idx_taa = fasta_to_codon_indices(b"TAA", Model::Nei)[0] as usize;
+        let e = tables.diff_table[idx_tgg * 64 + idx_taa];
+        assert!((e.0 - 0.5).abs() < 1e-6, "sd fallback should be 0.5, got {}", e.0);
+        assert!((e.1 - 1.5).abs() < 1e-6, "nd fallback should be 1.5, got {}", e.1);
+    }
+
+    // 3-difference pathway analysis (pathway_3diff), value derived from first
+    // principles. CCC(Pro) vs GGG(Gly): all 6 stop-free pathways yield
+    // (sd, nd) = (1, 2) -- each path has exactly one synonymous step (Pro->Pro or
+    // Gly->Gly) and two non-synonymous steps -- so the averaged entry is (1, 2).
+    #[test]
+    fn cov_nei_three_diff_pathway_value() {
+        let tables = NeiTables::new();
+        let idx_ccc = fasta_to_codon_indices(b"CCC", Model::Nei)[0] as usize;
+        let idx_ggg = fasta_to_codon_indices(b"GGG", Model::Nei)[0] as usize;
+        let e = tables.diff_table[idx_ccc * 64 + idx_ggg];
+        assert!((e.0 - 1.0).abs() < 1e-6, "sd should be 1.0, got {}", e.0);
+        assert!((e.1 - 2.0).abs() < 1e-6, "nd should be 2.0, got {}", e.1);
+    }
+
+    // Saturation of BOTH pN and pS => both dN and dS are NaN. CCC..CCC vs
+    // GGG..GGG: per-codon (sd, nd) = (1, 2) and S = 1 (one 4-fold third position).
+    // For k codons pS = k/k = 1 and pN = 2k/2k = 1, both >= JC_SATURATION_THRESHOLD
+    // (0.749) => NaN.
+    #[test]
+    fn cov_nei_saturated_pn_and_ps_give_nan() {
+        let (dn, ds) = nei(b"CCCCCC", b"GGGGGG");
+        assert!(dn.is_nan(), "saturated pN should give NaN dN, got {}", dn);
+        assert!(ds.is_nan(), "saturated pS should give NaN dS, got {}", ds);
+    }
+
+    // Jukes-Cantor delta-method variance invariants (compute_pair_stats +
+    // jc_variance). V(d) = p(1-p) / [L*(1 - 4/3 p)^2] is finite and >= 0 for
+    // 0 <= p < 0.749, and NaN at/above saturation.
+    #[test]
+    fn cov_nei_variance_nonneg_and_nan_at_saturation() {
+        let tables = NeiTables::new();
+        // Moderate: one synonymous change -> pS = 0.5 (var_ds > 0), pN = 0 (var_dn = 0).
+        let a1 = fasta_to_codon_indices(b"ATGGCTGCT", Model::Nei);
+        let a2 = fasta_to_codon_indices(b"ATGGCCGCT", Model::Nei);
+        let (dn, ds, var_dn, var_ds) = tables.compute_pair_stats(&a1, &a2);
+        assert!(dn.abs() < EPSILON, "dN should be 0, got {}", dn);
+        assert!(ds > 0.0, "dS should be > 0, got {}", ds);
+        assert!(var_ds.is_finite() && var_ds > 0.0, "var_ds must be finite & > 0, got {}", var_ds);
+        assert!(var_dn.is_finite() && var_dn >= 0.0, "var_dn must be finite & >= 0, got {}", var_dn);
+
+        // Saturated: pS = pN = 1 -> distances and variances all NaN.
+        let s1 = fasta_to_codon_indices(b"CCCCCC", Model::Nei);
+        let s2 = fasta_to_codon_indices(b"GGGGGG", Model::Nei);
+        let (dn2, ds2, var_dn2, var_ds2) = tables.compute_pair_stats(&s1, &s2);
+        assert!(dn2.is_nan() && ds2.is_nan(), "saturated distances must be NaN");
+        assert!(var_dn2.is_nan(), "var_dn must be NaN at saturation, got {}", var_dn2);
+        assert!(var_ds2.is_nan(), "var_ds must be NaN at saturation, got {}", var_ds2);
+    }
 }
