@@ -275,3 +275,144 @@ impl WindowStats {
         }).collect()
     }
 }
+
+// ─── Hypothesis testing helpers (dependency-free) ────────────────────────────
+
+/// Natural log of the Gamma function via the Lanczos approximation (g = 7,
+/// n = 9 coefficients). Accurate to ~1e-13 for x > 0. Used for log binomial
+/// coefficients so the exact binomial test stays stable for large gene counts.
+pub fn ln_gamma(x: f64) -> f64 {
+    const G: f64 = 7.0;
+    const C: [f64; 9] = [
+        0.999_999_999_999_809_9,
+        676.520_368_121_885_1,
+        -1_259.139_216_722_402_8,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_12,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_311_6e-7,
+    ];
+    if x < 0.5 {
+        // Reflection: Γ(x)·Γ(1-x) = π / sin(πx)
+        let pi = std::f64::consts::PI;
+        (pi / (pi * x).sin()).ln() - ln_gamma(1.0 - x)
+    } else {
+        let x = x - 1.0;
+        let t = x + G + 0.5;
+        let mut a = C[0];
+        for (i, &c) in C.iter().enumerate().skip(1) {
+            a += c / (x + i as f64);
+        }
+        0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + a.ln()
+    }
+}
+
+/// Log of the binomial coefficient C(n, k).
+fn ln_binom_coeff(n: u64, k: u64) -> f64 {
+    ln_gamma(n as f64 + 1.0) - ln_gamma(k as f64 + 1.0) - ln_gamma((n - k) as f64 + 1.0)
+}
+
+/// Two-sided exact binomial-test p-value for `k` successes in `n` trials under
+/// null success probability `p0`, using the "twice the smaller tail"
+/// convention: p = min(1, 2·min(P(X≤k), P(X≥k))).
+///
+/// Returns NaN when the test is undefined (n == 0, k > n, or p0 not in (0,1)).
+pub fn binomial_two_sided_p(k: u64, n: u64, p0: f64) -> f64 {
+    if n == 0 || k > n || !p0.is_finite() || p0 <= 0.0 || p0 >= 1.0 {
+        return f64::NAN;
+    }
+    let ln_p = p0.ln();
+    let ln_q = (1.0 - p0).ln();
+    let pmf = |i: u64| (ln_binom_coeff(n, i) + i as f64 * ln_p + (n - i) as f64 * ln_q).exp();
+
+    let lower: f64 = (0..=k).map(pmf).sum();
+    let upper: f64 = (k..=n).map(pmf).sum();
+    (2.0 * lower.min(upper)).min(1.0)
+}
+
+/// Benjamini-Hochberg FDR q-values, aligned with the input. NaN inputs
+/// (untested items) map to NaN and are excluded from the m used to correct.
+pub fn benjamini_hochberg(pvals: &[f64]) -> Vec<f64> {
+    let mut idx: Vec<usize> = (0..pvals.len()).filter(|&i| pvals[i].is_finite()).collect();
+    let m = idx.len();
+    let mut q = vec![f64::NAN; pvals.len()];
+    if m == 0 {
+        return q;
+    }
+    idx.sort_by(|&a, &b| pvals[a].partial_cmp(&pvals[b]).unwrap());
+    // Step-up: q_(i) = min over ranks j >= i of ( p_(j) · m / j ), capped at 1.
+    let mut running_min = f64::INFINITY;
+    for rank in (1..=m).rev() {
+        let i = idx[rank - 1];
+        running_min = running_min.min(pvals[i] * m as f64 / rank as f64);
+        q[i] = running_min.min(1.0);
+    }
+    q
+}
+
+/// Bonferroni-corrected p-values: p·m capped at 1, where m is the number of
+/// tested (finite) p-values. NaN inputs stay NaN.
+pub fn bonferroni(pvals: &[f64]) -> Vec<f64> {
+    let m = pvals.iter().filter(|p| p.is_finite()).count();
+    pvals
+        .iter()
+        .map(|&p| if p.is_finite() { (p * m as f64).min(1.0) } else { f64::NAN })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ln_gamma_known_values() {
+        assert!((ln_gamma(1.0)).abs() < 1e-9); // Γ(1)=1
+        assert!((ln_gamma(2.0)).abs() < 1e-9); // Γ(2)=1
+        assert!((ln_gamma(5.0) - 24.0_f64.ln()).abs() < 1e-9); // Γ(5)=4!=24
+        assert!((ln_gamma(0.5) - std::f64::consts::PI.sqrt().ln()).abs() < 1e-9); // Γ(1/2)=√π
+    }
+
+    #[test]
+    fn binomial_two_sided_known() {
+        // n=10, k=8, p0=0.5: P(X>=8)=56/1024, doubled = 0.109375
+        assert!((binomial_two_sided_p(8, 10, 0.5) - 0.109_375).abs() < 1e-9);
+        // Symmetric centre → capped at 1
+        assert!((binomial_two_sided_p(5, 10, 0.5) - 1.0).abs() < 1e-12);
+        // n=20, k=1, p0=0.5: 2*(21/2^20)
+        let expected = 2.0 * 21.0 / (1u64 << 20) as f64;
+        assert!((binomial_two_sided_p(1, 20, 0.5) - expected).abs() < 1e-12);
+        // Degenerate inputs → NaN
+        assert!(binomial_two_sided_p(3, 0, 0.5).is_nan());
+        assert!(binomial_two_sided_p(2, 5, 0.0).is_nan());
+        assert!(binomial_two_sided_p(6, 5, 0.5).is_nan());
+    }
+
+    #[test]
+    fn bh_uniform_and_monotone() {
+        // Equal-spaced p give equal q here
+        let q = benjamini_hochberg(&[0.01, 0.02, 0.03, 0.04, 0.05]);
+        for v in &q {
+            assert!((v - 0.05).abs() < 1e-12, "got {}", v);
+        }
+        // Ordering / monotonicity
+        let q2 = benjamini_hochberg(&[0.001, 0.5]);
+        assert!((q2[0] - 0.002).abs() < 1e-12);
+        assert!((q2[1] - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn bh_and_bonferroni_skip_nan() {
+        let q = benjamini_hochberg(&[0.01, f64::NAN, 0.02]);
+        assert!(q[1].is_nan());
+        // m = 2 tested → 0.01*2/1=0.02 and 0.02*2/2=0.02
+        assert!((q[0] - 0.02).abs() < 1e-12);
+        assert!((q[2] - 0.02).abs() < 1e-12);
+
+        let b = bonferroni(&[0.01, f64::NAN, 0.5]);
+        assert!((b[0] - 0.02).abs() < 1e-12); // m=2
+        assert!(b[1].is_nan());
+        assert!((b[2] - 1.0).abs() < 1e-12); // 0.5*2 capped at 1
+    }
+}

@@ -167,6 +167,11 @@ pub struct VcfArgs {
     #[arg(long, default_value_t = 1.0)]
     pub kappa: f64,
 
+    /// False-discovery-rate threshold for calling genes significant in the
+    /// per-gene neutrality test (used for the summary count and plot highlight).
+    #[arg(long, default_value_t = 0.05)]
+    pub fdr: f64,
+
     /// Generate SVG Manhattan-style plot of pN/pS per gene
     #[arg(long)]
     pub plot: bool,

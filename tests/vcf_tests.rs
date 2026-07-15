@@ -67,7 +67,9 @@ fn vcf_produces_correct_header() {
     assert_eq!(
         rows[0],
         vec!["Gene", "Length_bp", "N_sites", "S_sites", "pN", "pS", "pN/pS",
-             "Nonsyn_SNPs", "Syn_SNPs", "Total_SNPs"],
+             "Nonsyn_SNPs", "Syn_SNPs", "Total_SNPs",
+             "Chrom", "Start", "End", "Strand", "Exp_N_frac",
+             "P_value", "Q_value_BH", "P_Bonferroni"],
         "header mismatch: {:?}", rows[0]
     );
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();

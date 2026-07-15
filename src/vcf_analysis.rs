@@ -36,10 +36,21 @@ pub struct GenePnPs {
     pub syn_snps: f64,
     /// Total SNPs in this gene (AF-weighted if --af-weighted)
     pub total_snps: f64,
-    /// Genomic start position (for plotting)
+    /// Genomic start position (1-based, for plotting/output)
     pub genome_start: usize,
+    /// Genomic end position (1-based, max exon end)
+    pub genome_end: usize,
+    /// Strand ('+' or '-')
+    pub strand: char,
     /// Chromosome
     pub chrom: String,
+    /// Two-sided exact-binomial p-value for H0: pN/pS = 1 (NaN if untested:
+    /// no SNPs, --af-weighted, or a degenerate expected fraction)
+    pub p_value: f64,
+    /// Benjamini-Hochberg FDR q-value across all tested genes (NaN if untested)
+    pub q_value: f64,
+    /// Bonferroni-corrected p-value across all tested genes (NaN if untested)
+    pub p_bonferroni: f64,
 }
 
 /// Genome-wide (pooled) pN/pS aggregated across all analyzed genes.
@@ -243,6 +254,23 @@ pub fn compute_pn_ps(
                 f64::NAN
             };
 
+            // Per-gene neutrality test: under H0 (pN/pS = 1) the nonsynonymous
+            // fraction of SNPs equals the mutational opportunity N/(N+S). Only
+            // valid with integer counts, so skip it under --af-weighted.
+            let sites = n_sites + s_sites;
+            let p_value = if !af_weighted && total_snps > 0.0 && sites > 0.0 {
+                crate::stats::binomial_two_sided_p(
+                    nonsyn_count.round() as u64,
+                    total_snps.round() as u64,
+                    n_sites / sites,
+                )
+            } else {
+                f64::NAN
+            };
+
+            let genome_end = gene.exons.iter().map(|e| e.end).max().unwrap_or(gene.start);
+            let strand = if gene.strand == Strand::Minus { '-' } else { '+' };
+
             Some(GenePnPs {
                 name: gene.name.clone(),
                 length_bp: gene.length_bp,
@@ -255,7 +283,12 @@ pub fn compute_pn_ps(
                 syn_snps: syn_count,
                 total_snps,
                 genome_start: gene.start,
+                genome_end,
+                strand,
                 chrom: gene.seqid.clone(),
+                p_value,
+                q_value: f64::NAN,
+                p_bonferroni: f64::NAN,
             })
         })
         .collect();
@@ -281,6 +314,19 @@ pub fn compute_pn_ps(
 
     info!("Computed pN/pS for {} genes", results.len());
     results
+}
+
+/// Fill in Benjamini-Hochberg FDR q-values and Bonferroni-corrected p-values
+/// for the per-gene neutrality test, across every gene with a finite p-value.
+/// Genes not tested (no SNPs / --af-weighted) keep NaN.
+pub fn apply_multiple_testing(results: &mut [GenePnPs]) {
+    let pvals: Vec<f64> = results.iter().map(|r| r.p_value).collect();
+    let qvals = crate::stats::benjamini_hochberg(&pvals);
+    let bonf = crate::stats::bonferroni(&pvals);
+    for (r, (q, b)) in results.iter_mut().zip(qvals.into_iter().zip(bonf)) {
+        r.q_value = q;
+        r.p_bonferroni = b;
+    }
 }
 
 /// Aggregate per-gene results into a single genome-wide (pooled) pN/pS estimate.
@@ -667,10 +713,13 @@ pub fn write_results(
                 let comma = if i + 1 < results.len() { "," } else { "" };
                 writeln!(
                     file,
-                    "  {{\"gene\":\"{}\",\"length_bp\":{},\"N_sites\":{:.4},\"S_sites\":{:.4},\"pN\":{},\"pS\":{},\"pN_pS\":{},\"nonsyn_snps\":{:.4},\"syn_snps\":{:.4},\"total_snps\":{:.4}}}{}",
-                    r.name, r.length_bp, r.n_sites, r.s_sites,
+                    "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"length_bp\":{},\"N_sites\":{:.4},\"S_sites\":{:.4},\"exp_N_frac\":{},\"pN\":{},\"pS\":{},\"pN_pS\":{},\"nonsyn_snps\":{:.4},\"syn_snps\":{:.4},\"total_snps\":{:.4},\"p_value\":{},\"q_value_bh\":{},\"p_bonferroni\":{}}}{}",
+                    r.name, r.chrom, r.genome_start, r.genome_end, r.strand, r.length_bp,
+                    r.n_sites, r.s_sites, format_json_num(exp_n_frac(r)),
                     format_json_f64(r.pn), format_json_f64(r.ps), format_json_f64(r.pn_ps),
-                    r.nonsyn_snps, r.syn_snps, r.total_snps, comma
+                    r.nonsyn_snps, r.syn_snps, r.total_snps,
+                    format_json_num(r.p_value), format_json_num(r.q_value), format_json_num(r.p_bonferroni),
+                    comma
                 )?;
             }
             writeln!(file, "]")?;
@@ -680,16 +729,19 @@ pub fn write_results(
             let mut file = BufWriter::new(File::create(&output_path)?);
             writeln!(
                 file,
-                "Gene{s}Length_bp{s}N_sites{s}S_sites{s}pN{s}pS{s}pN/pS{s}Nonsyn_SNPs{s}Syn_SNPs{s}Total_SNPs",
+                "Gene{s}Length_bp{s}N_sites{s}S_sites{s}pN{s}pS{s}pN/pS{s}Nonsyn_SNPs{s}Syn_SNPs{s}Total_SNPs{s}Chrom{s}Start{s}End{s}Strand{s}Exp_N_frac{s}P_value{s}Q_value_BH{s}P_Bonferroni",
                 s = sep
             )?;
             for r in results {
                 writeln!(
                     file,
-                    "{}{s}{}{s}{:.4}{s}{:.4}{s}{:.6}{s}{:.6}{s}{}{s}{:.4}{s}{:.4}{s}{:.4}",
+                    "{}{s}{}{s}{:.4}{s}{:.4}{s}{:.6}{s}{:.6}{s}{}{s}{:.4}{s}{:.4}{s}{:.4}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
                     r.name, r.length_bp, r.n_sites, r.s_sites,
                     r.pn, r.ps, format_ratio(r.pn_ps),
                     r.nonsyn_snps, r.syn_snps, r.total_snps,
+                    r.chrom, r.genome_start, r.genome_end, r.strand,
+                    format_pval(exp_n_frac(r)), format_pval(r.p_value),
+                    format_pval(r.q_value), format_pval(r.p_bonferroni),
                     s = sep
                 )?;
             }
@@ -697,6 +749,38 @@ pub fn write_results(
     }
 
     Ok(output_path)
+}
+
+/// Expected nonsynonymous fraction of mutations under neutrality: N/(N+S).
+fn exp_n_frac(r: &GenePnPs) -> f64 {
+    let sites = r.n_sites + r.s_sites;
+    if sites > 0.0 {
+        r.n_sites / sites
+    } else {
+        f64::NAN
+    }
+}
+
+/// Format a p-value / probability for a text column: "NA" for NaN, scientific
+/// for very small values (so significance is not rounded to 0), else 6 dp.
+fn format_pval(v: f64) -> String {
+    if v.is_nan() {
+        "NA".to_string()
+    } else if v != 0.0 && v.abs() < 1e-3 {
+        format!("{:.3e}", v)
+    } else {
+        format!("{:.6}", v)
+    }
+}
+
+/// Format a number for JSON: `null` for non-finite, else a round-tripping
+/// literal (preserves small p-values that {:.6} would flatten to 0).
+fn format_json_num(v: f64) -> String {
+    if v.is_finite() {
+        format!("{}", v)
+    } else {
+        "null".to_string()
+    }
 }
 
 /// Format a pN/pS ratio for human-readable output, mapping NaN/Infinity to
@@ -722,7 +806,7 @@ fn format_json_f64(v: f64) -> String {
 }
 
 /// Generate an SVG Manhattan-style plot of pN/pS per gene along the genome.
-pub fn write_pnps_plot(results: &[GenePnPs], prefix: &str) -> anyhow::Result<String> {
+pub fn write_pnps_plot(results: &[GenePnPs], prefix: &str, fdr: f64) -> anyhow::Result<String> {
     use std::fmt::Write as FmtWrite;
     use std::fs::File;
     use std::io::{BufWriter, Write};
@@ -846,15 +930,23 @@ pub fn write_pnps_plot(results: &[GenePnPs], prefix: &str) -> anyhow::Result<Str
         let y = to_y(r.pn_ps);
         let color = if r.pn_ps < 1.0 { C_PURIFYING } else { C_POSITIVE };
         let radius = r.total_snps.sqrt().clamp(2.0, 8.0);
+        // Outline genes significant in the per-gene neutrality test (BH-FDR).
+        let sig = r.q_value.is_finite() && r.q_value < fdr;
+        let stroke = if sig {
+            " stroke=\"#000000\" stroke-width=\"1.5\""
+        } else {
+            ""
+        };
         let _ = writeln!(
             svg,
-            "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"{r:.1}\" fill=\"{c}\" opacity=\"0.7\">",
-            x = x, y = y, r = radius, c = color
+            "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"{r:.1}\" fill=\"{c}\" opacity=\"0.7\"{stroke}>",
+            x = x, y = y, r = radius, c = color, stroke = stroke
         );
         let _ = writeln!(
             svg,
-            "  <title>{name}: pN/pS={ratio:.4} ({s}S/{n}N SNPs)</title>",
-            name = r.name, ratio = r.pn_ps, s = r.syn_snps, n = r.nonsyn_snps
+            "  <title>{name}: pN/pS={ratio:.4} ({s}S/{n}N SNPs), q={q}</title>",
+            name = r.name, ratio = r.pn_ps, s = r.syn_snps, n = r.nonsyn_snps,
+            q = format_pval(r.q_value)
         );
         svg.push_str("</circle>\n");
     }
@@ -1082,7 +1174,12 @@ mod tests {
             syn_snps: syn,
             total_snps: nonsyn + syn,
             genome_start: 0,
+            genome_end: 0,
+            strand: '+',
             chrom: "chr1".to_string(),
+            p_value: f64::NAN,
+            q_value: f64::NAN,
+            p_bonferroni: f64::NAN,
         }
     }
 

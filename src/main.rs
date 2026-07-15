@@ -173,6 +173,9 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             bail!("--min-af ({}) must not exceed --max-af ({})", min, max);
         }
     }
+    if !args.fdr.is_finite() || args.fdr <= 0.0 || args.fdr > 1.0 {
+        bail!("--fdr must be in (0, 1] (got {})", args.fdr);
+    }
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.workers)
@@ -263,8 +266,11 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     }
 
     // Compute pN/pS
-    let results =
+    let mut results =
         vcf_analysis::compute_pn_ps(&reference, &genes, &snps, gc, args.af_weighted, args.kappa);
+
+    // Per-gene neutrality test correction (BH-FDR q-values + Bonferroni).
+    vcf_analysis::apply_multiple_testing(&mut results);
 
     // Write results
     let output_path = vcf_analysis::write_results(&results, &args.output, &args.format)?;
@@ -272,7 +278,7 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
 
     // Generate plot if requested
     if args.plot {
-        let plot_path = vcf_analysis::write_pnps_plot(&results, &args.output)?;
+        let plot_path = vcf_analysis::write_pnps_plot(&results, &args.output, args.fdr)?;
         info!("Plot saved to {}", plot_path);
     }
 
@@ -300,6 +306,18 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         eprintln!("  Overall pN / pS:     {:.6} / {:.6}", gw.pn, gw.ps);
         eprintln!("  Overall {}:       {}", ratio_name, vcf_analysis::format_ratio(gw.pn_ps));
         eprintln!("  Selection:           {}", vcf_analysis::selection_label(gw.pn_ps));
+    }
+    let n_tested = results.iter().filter(|r| r.p_value.is_finite()).count();
+    if n_tested > 0 {
+        let n_sig = results
+            .iter()
+            .filter(|r| r.q_value.is_finite() && r.q_value < args.fdr)
+            .count();
+        eprintln!("  ── Neutrality test (pN/pS = 1) ───────────");
+        eprintln!("  Genes tested:        {}", n_tested);
+        eprintln!("  Significant genes:   {}  (BH-FDR < {})", n_sig, args.fdr);
+    } else if args.af_weighted {
+        eprintln!("  (per-gene neutrality test skipped under --af-weighted)");
     }
     eprintln!("───────────────────────────────────────────");
 
