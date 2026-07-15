@@ -46,9 +46,15 @@ All notable changes to this project will be documented in this file.
   Benjamini-Hochberg line at `--fdr` and significant genes highlighted.
 - **Interactive HTML report** — a self-contained page (no CDN/network) with
   dynamic, hover-interactive visualizations:
-  - `eskaks vcf --report`: summary cards, an interactive Manhattan plot (toggle
-    −log10(p) ↔ pN/pS), and a sortable/filterable per-gene table (with the
-    McDonald-Kreitman columns under `--mk`).
+  - `eskaks vcf --report`: a **linked multi-panel dashboard** — Manhattan,
+    volcano (log2 pN/pS vs −log10 p), a McDonald-Kreitman α-vs-significance
+    volcano (with `--mk`), a power funnel (pN/pS vs SNP count), an observed-vs-
+    expected N-fraction diagnostic, the pN/pS distribution, and an enriched
+    per-gene table. Clicking any point or row highlights that gene across every
+    panel; a global **FDR(BH) ↔ Bonferroni** stringency toggle repaints all
+    panels; light/dark theme toggle; CSV/JSON export of the filtered view;
+    repetitive-gene (PE/PPE) badges; a Methods/parameters block. Colorblind-safe
+    palette (validated).
   - `eskaks fasta --report`: a **multi-panel dashboard** — a positional
     **sliding-window dN/dS "Manhattan"** (for aligned input), a **dN-vs-dS
     scatter** (one point per pair), and the **pairwise dN/dS distribution** are
