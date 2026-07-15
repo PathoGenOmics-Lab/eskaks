@@ -317,4 +317,104 @@ chr1\t.\tCDS\t100\t200\t.\t-\t0\tParent=gene1;gene=geneA\n";
         assert_eq!(url_decode("plain"), "plain");
         assert_eq!(url_decode("bad%ZZ"), "bad%ZZ"); // invalid escape kept literally
     }
+
+    // ---- gene-id / gene-name attribute fallbacks -------------------------
+
+    #[test]
+    fn gene_id_falls_back_to_gene_id_then_id() {
+        // No Parent=: extract_gene_id tries gene_id=, then ID=. gene_id wins here.
+        let gff = "\
+##gff-version 3
+chr1\t.\tCDS\t100\t150\t.\t+\t0\tgene_id=myGene;Name=NN
+chr1\t.\tCDS\t400\t450\t.\t+\t0\tID=cdsOnly;locus_tag=LT1\n";
+        let f = write_temp_gff(gff);
+        let genes = parse_gff3(f.path()).unwrap();
+        assert_eq!(genes.len(), 2);
+        // Sorted by start: myGene (100) then the ID-keyed gene (400).
+        assert_eq!(genes[0].name, "NN", "Name= should supply the display name");
+        // Second gene has no Parent/gene_id: ID= supplies the group id, locus_tag= the name.
+        assert_eq!(genes[1].name, "LT1", "locus_tag= should be used when gene=/Name= absent");
+    }
+
+    #[test]
+    fn gene_name_falls_back_to_id_when_no_name_attrs() {
+        // Only Parent= present: no gene=/Name=/locus_tag= => name defaults to the id.
+        let gff = "\
+##gff-version 3
+chr1\t.\tCDS\t100\t150\t.\t+\t0\tParent=g9\n";
+        let f = write_temp_gff(gff);
+        let genes = parse_gff3(f.path()).unwrap();
+        assert_eq!(genes[0].name, "g9");
+    }
+
+    // ---- malformed / non-CDS line handling -------------------------------
+
+    #[test]
+    fn unknown_strand_line_is_skipped() {
+        let gff = "\
+##gff-version 3
+chr1\t.\tCDS\t100\t150\t.\t?\t0\tParent=bad
+chr1\t.\tCDS\t400\t450\t.\t-\t0\tParent=ok\n";
+        let f = write_temp_gff(gff);
+        let genes = parse_gff3(f.path()).unwrap();
+        assert_eq!(genes.len(), 1);
+        assert_eq!(genes[0].name, "ok");
+        assert_eq!(genes[0].strand, Strand::Minus);
+    }
+
+    #[test]
+    fn invalid_or_dot_phase_defaults_to_zero() {
+        let gff = "\
+##gff-version 3
+chr1\t.\tCDS\t100\t150\t.\t+\t9\tParent=g1;gene=badPhase
+chr1\t.\tCDS\t400\t450\t.\t+\t.\tParent=g2;gene=dotPhase
+chr1\t.\tCDS\t700\t750\t.\t+\t2\tParent=g3;gene=twoPhase\n";
+        let f = write_temp_gff(gff);
+        let genes = parse_gff3(f.path()).unwrap();
+        assert_eq!(genes.len(), 3);
+        assert_eq!(genes[0].exons[0].phase, 0, "invalid phase '9' => 0");
+        assert_eq!(genes[1].exons[0].phase, 0, "phase '.' => 0");
+        assert_eq!(genes[2].exons[0].phase, 2, "phase '2' preserved");
+    }
+
+    #[test]
+    fn line_with_fewer_than_nine_fields_is_skipped() {
+        let gff = "\
+##gff-version 3
+chr1\t.\tCDS\t100\t150\t.\t+
+chr1\t.\tCDS\t400\t450\t.\t+\t0\tParent=ok\n";
+        let f = write_temp_gff(gff);
+        let genes = parse_gff3(f.path()).unwrap();
+        assert_eq!(genes.len(), 1);
+        assert_eq!(genes[0].name, "ok");
+    }
+
+    #[test]
+    fn no_cds_features_is_error() {
+        // Only gene/mRNA rows, no CDS => nothing to analyse => error.
+        let gff = "\
+##gff-version 3
+chr1\t.\tgene\t100\t200\t.\t+\t.\tID=gene1
+chr1\t.\tmRNA\t100\t200\t.\t+\t.\tID=mrna1;Parent=gene1\n";
+        let f = write_temp_gff(gff);
+        assert!(parse_gff3(f.path()).is_err(), "a GFF3 with no CDS must error");
+    }
+
+    #[test]
+    fn minus_strand_orders_exons_descending() {
+        // For a minus-strand gene exons are stored 3'->5' (descending genomic start),
+        // but Gene.start (for plotting) is the minimum genomic coordinate.
+        let gff = "\
+##gff-version 3
+chr1\t.\tCDS\t100\t150\t.\t-\t0\tParent=g1;gene=m
+chr1\t.\tCDS\t200\t250\t.\t-\t0\tParent=g1;gene=m\n";
+        let f = write_temp_gff(gff);
+        let genes = parse_gff3(f.path()).unwrap();
+        assert_eq!(genes.len(), 1);
+        assert_eq!(genes[0].exons.len(), 2);
+        assert_eq!(genes[0].exons[0].start, 200, "first stored exon is the highest-coordinate one");
+        assert_eq!(genes[0].exons[1].start, 100);
+        assert_eq!(genes[0].start, 100, "Gene.start is the minimum genomic coordinate");
+        assert_eq!(genes[0].length_bp, 102);
+    }
 }

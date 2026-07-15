@@ -340,6 +340,54 @@ mod tests {
     }
 
     #[test]
+    fn internal_stop_codon_is_warned_but_still_loads() {
+        // Derive the TAA stop-codon index from the active scheme so the test does
+        // not hard-code the base-4 encoding. s1 carries TAA at internal codon 1.
+        let taa = codon::fasta_to_codon_indices(b"TAA", Model::Nei)[0];
+        assert_ne!(taa, codon::INVALID_CODON);
+        let path = write_temp_fasta("stopcodon", ">s1\nATGTAAGCTGCT\n>s2\nATGGCTGCTGCT\n");
+        let data = load_sequences(&path, Model::Nei, 0, Some(&[taa])).unwrap();
+        // The internal stop only warns; both sequences still load.
+        assert_eq!(data.ids.len(), 2);
+        assert_eq!(data.n_unique, 2);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn length_not_multiple_of_three_still_loads() {
+        // s1 is 10 bp (not divisible by 3): the trailing base is ignored, leaving 3
+        // codons — the same as s2, so they deduplicate. Also exercises the
+        // codon-length-mismatch diagnostic is not triggered (both frame to 3 codons).
+        let path = write_temp_fasta("notmult3", ">s1\nATGGCTGCTA\n>s2\nATGGCTGCT\n");
+        let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
+        assert_eq!(data.ids.len(), 2);
+        assert_eq!(data.n_unique, 1, "trailing base ignored => s1 frames like s2");
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn all_invalid_codons_sequence_warns_but_loads() {
+        // s2 is all-N (no valid codons): with min_codons=0 it is kept and triggers
+        // the "no valid codons" diagnostic without aborting the run.
+        let path = write_temp_fasta("allN", ">s1\nATGGCTGCT\n>s2\nNNNNNNNNN\n");
+        let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
+        assert_eq!(data.ids.len(), 2);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn min_codons_dropping_below_two_errors() {
+        // Two sequences pass the initial count check, but --min-codons removes the
+        // all-N one, leaving a single sequence — too few for a pairwise comparison.
+        let path = write_temp_fasta("mincodrop", ">s1\nATGGCTGCT\n>s2\nNNNNNNNNN\n");
+        let result = load_sequences(&path, Model::Nei, 2, None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("at least 2"), "error was: {}", err);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
     fn dedup_preserves_order() {
         // 4 seqs: A, B, A, C → uidx: [0, 1, 0, 2], n_unique=3
         let ids = vec!["s1".into(), "s2".into(), "s3".into(), "s4".into()];

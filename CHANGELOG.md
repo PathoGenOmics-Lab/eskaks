@@ -110,6 +110,13 @@ All notable changes to this project will be documented in this file.
   `merge_vcfs` parses per-sample VCFs in parallel — both byte-identical output.
 
 ### Fixed
+- **Non-deterministic multi-VCF merge (found while hardening test coverage):**
+  when merging single-sample VCFs, a position carrying more than one ALT allele
+  (multi-allelic sites, or samples disagreeing on the variant base) emitted its
+  ALT alleles — and their aligned frequencies — in `HashMap` iteration order,
+  which Rust randomizes per run. The merged output therefore varied run-to-run at
+  such positions. ALTs are now sorted by base within each position, restoring
+  reproducible output.
 - **Consistency & robustness (third audit):**
   - A stray internal space/tab in a FASTA sequence line used to occupy a codon slot
     and frameshift every codon after it; internal whitespace is now stripped (gaps
