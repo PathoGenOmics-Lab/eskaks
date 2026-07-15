@@ -48,6 +48,7 @@ eskaks fasta <INPUT_FILE> [OPTIONS]
 | `--bootstrap <N>` | Per-pair 95% bootstrap CIs on dN, dS, dN/dS (`<output>_pairwise_bootstrap`); resamples codons, works for both models | `0` |
 | `--seed <N>` | Seed for reproducible bootstrap resampling | `42` |
 | `--plot` | Generate SVG plot(s) | off |
+| `--report` | Write an interactive HTML report (`<output>_report.html`): lineage/group scatter with per-group means, or the pairwise dN/dS distribution | off |
 
 ### Examples
 

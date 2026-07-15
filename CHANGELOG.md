@@ -44,10 +44,15 @@ All notable changes to this project will be documented in this file.
 - **−log10(p) Manhattan plot** (`eskaks vcf --plot` also writes
   `<prefix>_pvalue_manhattan.svg`): genome-position significance scan with a
   Benjamini-Hochberg line at `--fdr` and significant genes highlighted.
-- **Interactive HTML report** (`eskaks vcf --report` → `<prefix>_report.html`):
-  a self-contained page (no CDN/network) with summary cards, an interactive
-  Manhattan plot (toggle −log10(p) ↔ pN/pS, hover tooltips), and a sortable,
-  filterable per-gene table (with the McDonald-Kreitman columns under `--mk`).
+- **Interactive HTML report** — a self-contained page (no CDN/network) with
+  dynamic, hover-interactive visualizations:
+  - `eskaks vcf --report`: summary cards, an interactive Manhattan plot (toggle
+    −log10(p) ↔ pN/pS), and a sortable/filterable per-gene table (with the
+    McDonald-Kreitman columns under `--mk`).
+  - `eskaks fasta --report`: a **lineage strip-scatter** (one point per genome,
+    the per-lineage mean drawn as a bar) under `--lineage`, a **group mean ±
+    95% CI scatter** under `--group-average`, and the pairwise dN/dS
+    distribution otherwise.
 
 ### Performance
 - `eskaks vcf` scales to large genomes and cohorts: the per-gene SNP scan is
