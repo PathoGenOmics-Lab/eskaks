@@ -7,7 +7,7 @@
 use crate::gff::{Gene, Strand};
 use crate::genetic_code::GeneticCode;
 use crate::vcf::VcfSnp;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 
 /// Result of pN/pS analysis for a single gene.
@@ -106,6 +106,9 @@ pub fn compute_pn_ps(
     }
 
     let mut results = Vec::with_capacity(genes.len());
+    // Aggregate diagnostics so a wrong reference doesn't spam one line per SNP.
+    let mut ref_checked = 0usize;
+    let mut ref_mismatch = 0usize;
 
     for gene in genes {
         let ref_seq = match reference.get(&gene.seqid) {
@@ -162,8 +165,10 @@ pub fn compute_pn_ps(
                     } else {
                         cds_seq[codon_start + pos_in_codon]
                     };
+                    ref_checked += 1;
                     if snp.ref_allele != expected_ref {
-                        warn!(
+                        ref_mismatch += 1;
+                        debug!(
                             "VCF REF mismatch at {}:{} — VCF says {}, reference has {}. Skipping.",
                             snp.chrom, snp.pos,
                             snp.ref_allele as char, expected_ref as char
@@ -242,6 +247,22 @@ pub fn compute_pn_ps(
             genome_start: gene.start,
             chrom: gene.seqid.clone(),
         });
+    }
+
+    if ref_mismatch > 0 {
+        let frac = ref_mismatch as f64 / ref_checked.max(1) as f64;
+        if frac > 0.10 {
+            warn!(
+                "{}/{} in-CDS SNPs ({:.1}%) had a REF allele disagreeing with the reference and were skipped — \
+                 this usually means a wrong reference build, an off-by-one, or a strand mix-up. Run with -vv for positions.",
+                ref_mismatch, ref_checked, 100.0 * frac
+            );
+        } else {
+            info!(
+                "{}/{} in-CDS SNPs had a REF-allele mismatch and were skipped (run with -vv for positions).",
+                ref_mismatch, ref_checked
+            );
+        }
     }
 
     info!("Computed pN/pS for {} genes", results.len());
@@ -334,6 +355,17 @@ fn extract_cds_sequence(gene: &Gene, ref_seq: &[u8]) -> Vec<u8> {
     // Uppercase
     for b in cds.iter_mut() {
         *b = b.to_ascii_uppercase();
+    }
+
+    // A CDS whose length is not a multiple of 3 signals a frame/annotation
+    // problem (bad phase, wrong exon bounds, or an origin-spanning gene on a
+    // circular genome). The trailing 1-2 bases are dropped by the len/3 loops;
+    // flag it rather than silently skewing the site counts.
+    if !cds.is_empty() && cds.len() % 3 != 0 {
+        warn!(
+            "Gene {} CDS length {} bp is not a multiple of 3 (phase/annotation issue?); trailing {} base(s) ignored",
+            gene.name, cds.len(), cds.len() % 3
+        );
     }
 
     cds
@@ -695,6 +727,21 @@ pub fn write_pnps_plot(results: &[GenePnPs], prefix: &str) -> anyhow::Result<Str
         .iter()
         .filter(|r| r.total_snps > 0.0 && r.pn_ps.is_finite())
         .collect();
+
+    // Genes with variation but an undefined ratio (pS = 0, i.e. only
+    // nonsynonymous SNPs — often the strongest positive-selection candidates)
+    // can't be placed on the ratio axis. They stay in the TSV, but say so
+    // rather than dropping them from the plot without notice.
+    let undefined = results
+        .iter()
+        .filter(|r| r.total_snps > 0.0 && !r.pn_ps.is_finite())
+        .count();
+    if undefined > 0 {
+        warn!(
+            "{} gene(s) with only nonsynonymous variation (pN/pS = ∞) are not shown on the Manhattan plot; they are in the {}_pnps table.",
+            undefined, prefix
+        );
+    }
 
     if plot_data.is_empty() {
         info!("No valid data points for pN/pS plot");
