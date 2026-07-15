@@ -29,6 +29,20 @@ All notable changes to this project will be documented in this file.
   (the genome-wide pooled estimate still uses all genes).
 - **Parallel `eskaks vcf`**: the per-gene computation now runs on `--workers`
   threads (default 4); output is deterministic regardless of thread count.
+- **McDonald-Kreitman test** (`--mk`, `--mk-fixed-af`): per-gene 2×2
+  fixed/polymorphic table (Dn, Ds, Pn, Ps), Neutrality Index, alpha, and a
+  two-sided Fisher exact p-value with BH-FDR q-value (`<prefix>_mk.<ext>`).
+  Reference-polarized (fixed = high AF within the sample).
+- **Nei-Gojobori analytic variance + Z-test** (`eskaks fasta --neutrality`):
+  writes `<output>_pairwise_tests` with dN, dS, their standard errors, the NG
+  neutrality Z statistic, and a two-sided p-value (Nei model; NaN for Li).
+- **Bootstrap 95% CI** for the genome-wide pooled pN/pS (`--bootstrap`,
+  `--seed`), by resampling genes with replacement.
+
+### Performance
+- `eskaks vcf` scales to large genomes and cohorts: the per-gene SNP scan is
+  now a binary-searched genomic window (O(S + G·log S) instead of O(G·S)), and
+  `merge_vcfs` parses per-sample VCFs in parallel — both byte-identical output.
 
 ### Fixed
 - Data-quality warnings (REF mismatches, skipped genes, saturation) are shown by

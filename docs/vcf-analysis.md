@@ -66,6 +66,10 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--kappa <FLOAT>` | Transition/transversion rate ratio for [spectrum-aware site counting](#mutation-spectrum-aware-site-counting---kappa) | `1.0` (equal rates) |
 | `--min-snps <INT>` | Drop genes with fewer SNPs from the per-gene table, plot, and [test](#per-gene-neutrality-test) (the pooled estimate still uses all genes) | `0` |
 | `--fdr <FLOAT>` | FDR threshold for calling genes significant in the [neutrality test](#per-gene-neutrality-test) | `0.05` |
+| `--mk` | Also run a per-gene [McDonald-Kreitman test](#mcdonald-kreitman-test) (writes `<prefix>_mk.<ext>`) | off |
+| `--mk-fixed-af <FLOAT>` | AF at/above which a variant is "fixed" (divergence) vs polymorphic in the MK test | `0.99` |
+| `--bootstrap <INT>` | Bootstrap replicates for a 95% CI on the genome-wide pooled pN/pS (0 = off) | `0` |
+| `--seed <INT>` | Seed for reproducible bootstrap resampling | `42` |
 | `--workers <INT>` | Parallel threads for the per-gene computation | `4` |
 | `--plot` | Generate Manhattan-style SVG plot (significant genes outlined) | off |
 
@@ -119,6 +123,29 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 > p-values are anti-conservative — treat them as a ranking aid, and lean on the FDR
 > column rather than raw p-values.
 
+## McDonald-Kreitman test
+
+`--mk` writes `<prefix>_mk.<ext>` with a per-gene McDonald-Kreitman test. eskaks
+already classifies every SNP as synonymous/nonsynonymous and knows each variant's
+allele frequency, so the fixed-vs-polymorphic split is computed with no extra
+input: ALTs with `AF >= --mk-fixed-af` (default 0.99) are treated as **fixed**
+(divergence), the rest as **polymorphic**. Each gene gets the 2×2 table
+`[Dn, Ds; Pn, Ps]` plus:
+
+- **NI** (Neutrality Index) = `(Pn/Ps)/(Dn/Ds)` — > 1 suggests purifying selection, < 1 adaptive.
+- **alpha** = `1 − (Ds·Pn)/(Dn·Ps)` — the estimated proportion of adaptive substitutions.
+- **Fisher_p** — a two-sided Fisher exact test on the table, with a **Fisher_q_BH** FDR q-value across genes.
+
+```bash
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
+  --genetic-code 11 --mk --mk-fixed-af 0.95 -o mtb_mk
+```
+
+> **Caveat:** this is a **reference-polarized** MK test — "fixed" means high AF
+> *within your sample*, which conflates high-frequency derived alleles with true
+> between-species divergence. It is a fast screen for adaptation, not a substitute
+> for an outgroup-based MK test.
+
 ## Genome-wide (pooled) pN/pS
 
 After writing the per-gene table, eskaks prints a summary to stderr that ends
@@ -154,6 +181,10 @@ the pooled figure is πN/πS.
 The `Selection:` line is a coarse convenience label (`< 0.9` purifying, `0.9–1.1`
 near-neutral, `> 1.1` diversifying), not a statistical test — formal inference
 needs an explicit null model.
+
+Add `--bootstrap N` (with `--seed`) for a reproducible **95% confidence interval**
+on the pooled ratio, obtained by resampling genes with replacement. A wide interval
+warns that a few gene-rich loci dominate the pooled estimate.
 
 ## Mutation-spectrum-aware site counting (`--kappa`)
 
