@@ -362,6 +362,7 @@ pub fn bootstrap_genome_wide_ci(
     let n = results.len();
     let mut rng = crate::stats::SplitMix64::new(seed);
     let mut ratios: Vec<f64> = Vec::with_capacity(n_boot);
+    let mut undefined = 0usize;
     for _ in 0..n_boot {
         let (mut n_sites, mut s_sites, mut nonsyn, mut syn) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
         for _ in 0..n {
@@ -373,15 +374,25 @@ pub fn bootstrap_genome_wide_ci(
         }
         let pn = if n_sites > 0.0 { nonsyn / n_sites } else { 0.0 };
         let ps = if s_sites > 0.0 { syn / s_sites } else { 0.0 };
-        if ps > 0.0 {
-            let ratio = pn / ps;
-            if ratio.is_finite() {
-                ratios.push(ratio);
-            }
+        let ratio = if ps > 0.0 { pn / ps } else { f64::NAN };
+        if ratio.is_finite() {
+            ratios.push(ratio);
+        } else {
+            undefined += 1;
         }
     }
     if ratios.is_empty() {
         return None;
+    }
+    // Replicates with no synonymous variation give an undefined ratio and are
+    // excluded from the percentiles, which truncates the upper tail. Warn so a
+    // biased-low CI on sparse-synonymous data isn't read as precise.
+    if undefined > 0 {
+        warn!(
+            "{}/{} bootstrap replicates had no synonymous variation (undefined pN/pS) and were \
+             excluded; the CI may be biased low when synonymous SNPs are sparse.",
+            undefined, n_boot
+        );
     }
     ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let tail = (1.0 - confidence) / 2.0 * 100.0;
