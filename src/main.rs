@@ -15,11 +15,25 @@ use anyhow::{bail, Context};
 use clap::Parser;
 use log::{info, LevelFilter};
 
+use std::collections::HashSet;
+
 use cli::{Args, SubCmd};
 use compute::ComputeEngine;
 use models::DsDn;
 use output::OutputConfig;
 use stats::SummaryStats;
+
+/// Format up to three names from a set for a diagnostic message.
+fn sample_names(set: &HashSet<&str>) -> String {
+    let mut names: Vec<&str> = set.iter().copied().collect();
+    names.sort_unstable();
+    let shown = names.len().min(3);
+    let mut out = names[..shown].join(", ");
+    if names.len() > shown {
+        out.push_str(&format!(", … (+{} more)", names.len() - shown));
+    }
+    out
+}
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -145,6 +159,21 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         info!("Using mutation-spectrum-weighted site counting (kappa = {})", args.kappa);
     }
 
+    // Validate allele-frequency filter ranges up front (a fat-fingered
+    // --min-af 30 instead of 0.30 otherwise silently filters out every SNP).
+    for (name, v) in [("--min-af", args.min_af), ("--max-af", args.max_af)] {
+        if let Some(af) = v {
+            if !(0.0..=1.0).contains(&af) {
+                bail!("{} must be between 0.0 and 1.0 (got {})", name, af);
+            }
+        }
+    }
+    if let (Some(min), Some(max)) = (args.min_af, args.max_af) {
+        if min > max {
+            bail!("--min-af ({}) must not exceed --max-af ({})", min, max);
+        }
+    }
+
     let ref_path = std::path::Path::new(&args.reference);
     let gff_path = std::path::Path::new(&args.gff);
 
@@ -154,6 +183,21 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     info!("Parsing GFF3 annotations: {}", args.gff);
     let genes = gff::parse_gff3(gff_path)?;
     info!("Found {} genes with CDS features", genes.len());
+
+    // Fail early on a total contig-name mismatch between GFF and reference —
+    // otherwise every gene is silently skipped and the run "succeeds" with an
+    // all-NaN output file (the classic 'Chromosome' vs 'NC_000962.3' footgun).
+    {
+        let ref_ids: HashSet<&str> = reference.keys().map(String::as_str).collect();
+        let gene_ids: HashSet<&str> = genes.iter().map(|g| g.seqid.as_str()).collect();
+        if !gene_ids.is_empty() && gene_ids.is_disjoint(&ref_ids) {
+            bail!(
+                "No GFF sequence name matches the reference FASTA.\n  GFF uses e.g.:       {}\n  reference has:       {}\nContig names must match across reference, GFF, and VCF.",
+                sample_names(&gene_ids),
+                sample_names(&ref_ids)
+            );
+        }
+    }
 
     // Collect all VCF paths
     let mut vcf_paths: Vec<String> = args.vcf.clone();
@@ -188,6 +232,20 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         vcf::filter_snps(merged, false, args.min_af, args.max_af, None)
     };
     info!("{} SNPs after filtering", snps.len());
+
+    // Fail early if no VCF contig matches any annotated gene — otherwise every
+    // SNP lands outside every gene and pN/pS is NaN everywhere with no signal.
+    {
+        let gene_ids: HashSet<&str> = genes.iter().map(|g| g.seqid.as_str()).collect();
+        let snp_chroms: HashSet<&str> = snps.iter().map(|s| s.chrom.as_str()).collect();
+        if !snp_chroms.is_empty() && snp_chroms.is_disjoint(&gene_ids) {
+            bail!(
+                "No VCF CHROM matches any annotated gene sequence.\n  VCF uses e.g.:       {}\n  GFF uses:            {}\nContig names must match across reference, GFF, and VCF.",
+                sample_names(&snp_chroms),
+                sample_names(&gene_ids)
+            );
+        }
+    }
 
     // Compute pN/pS
     let results =
