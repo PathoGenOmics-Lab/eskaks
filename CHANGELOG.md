@@ -49,11 +49,12 @@ All notable changes to this project will be documented in this file.
   - `eskaks vcf --report`: summary cards, an interactive Manhattan plot (toggle
     −log10(p) ↔ pN/pS), and a sortable/filterable per-gene table (with the
     McDonald-Kreitman columns under `--mk`).
-  - `eskaks fasta --report`: a **multi-panel dashboard** — a **dN-vs-dS scatter**
-    (one point per pair) and the **pairwise dN/dS distribution** are always shown,
-    plus a **lineage strip-scatter** (one point per genome, per-lineage mean as a
-    bar) under `--lineage` and a **group mean ± 95% CI scatter** under
-    `--group-average`.
+  - `eskaks fasta --report`: a **multi-panel dashboard** — a positional
+    **sliding-window dN/dS "Manhattan"** (for aligned input), a **dN-vs-dS
+    scatter** (one point per pair), and the **pairwise dN/dS distribution** are
+    always shown, plus a **lineage strip-scatter** (one point per genome,
+    per-lineage mean as a bar) under `--lineage` and a **group mean ± 95% CI
+    scatter** under `--group-average`.
 
 ### Performance
 - `eskaks vcf` scales to large genomes and cohorts: the per-gene SNP scan is

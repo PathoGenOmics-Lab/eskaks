@@ -140,6 +140,7 @@ fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
             models::Model::Li => "Li / LPB93",
         };
         let (rep_summary, dn_ds) = collect_report_pairwise(&data, &engine, 8000);
+        let window = collect_window_profile(&data, &engine);
         let path = report::write_fasta_report(
             &args.output,
             model_name,
@@ -147,6 +148,7 @@ fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
             report_data.lineage.as_deref(),
             report_data.group.as_deref(),
             Some(&dn_ds),
+            Some(&window),
         )?;
         info!("Report saved to {}", path);
     }
@@ -488,6 +490,61 @@ fn collect_report_pairwise(
     }
     summary.flush_local(&local);
     (summary, scatter)
+}
+
+/// Sliding-window dN/dS profile along the alignment — a positional "Manhattan"
+/// for the report. Returns `(codon_center, mean_dN/dS)` per window, or empty if
+/// the sequences are not equal-length (unaligned) or too short. Uses a sampled
+/// subset of pairs so it stays cheap.
+fn collect_window_profile(data: &input::SequenceData, engine: &ComputeEngine) -> Vec<(usize, f64)> {
+    let n = data.n_unique;
+    if n < 2 {
+        return Vec::new();
+    }
+    let seq_len = data.unique_codon_indices[0].len();
+    if seq_len < 15 || data.unique_codon_indices.iter().any(|v| v.len() != seq_len) {
+        return Vec::new();
+    }
+    let window = (seq_len / 15).clamp(10, seq_len);
+    let step = (window / 2).max(1);
+
+    // Sample up to ~300 pairs evenly across the pair space.
+    let total = n.saturating_sub(1) * n / 2;
+    let stride = (total / 300).max(1);
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    let mut k = 0usize;
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if k.is_multiple_of(stride) {
+                pairs.push((i, j));
+            }
+            k += 1;
+        }
+    }
+
+    let mut profile = Vec::new();
+    let mut start = 0;
+    while start + window <= seq_len {
+        let (mut sum, mut cnt) = (0.0f64, 0usize);
+        for &(i, j) in &pairs {
+            let (dn, ds) = engine.compute_slices(
+                &data.unique_codon_indices[i][start..start + window],
+                &data.unique_codon_indices[j][start..start + window],
+            );
+            if ds > 0.0 && dn.is_finite() {
+                let r = dn / ds;
+                if r.is_finite() {
+                    sum += r;
+                    cnt += 1;
+                }
+            }
+        }
+        if cnt > 0 {
+            profile.push((start + window / 2, sum / cnt as f64));
+        }
+        start += step;
+    }
+    profile
 }
 
 /// Dispatch to the correct output mode based on CLI flags.

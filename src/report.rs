@@ -368,6 +368,7 @@ pub fn write_fasta_report(
     lineage: Option<&[(String, String, f64)]>,
     group: Option<&[crate::plot::GroupPlotData]>,
     dn_ds: Option<&[(f64, f64)]>,
+    window: Option<&[(usize, f64)]>,
 ) -> anyhow::Result<String> {
     use std::sync::atomic::Ordering;
     let output_path = format!("{}_report.html", prefix);
@@ -452,6 +453,20 @@ pub fn write_fasta_report(
                 let c = if i + 1 < pairs.len() { "," } else { "" };
                 let _ = write!(data, "[{},{}]{}", num(*dn), num(*ds), c);
             }
+            data.push_str("],\n");
+        }
+        _ => data.push_str("null,\n"),
+    }
+
+    // Sliding-window dN/dS along the alignment — a positional "Manhattan".
+    data.push_str("\"window\":");
+    match window {
+        Some(w) if !w.is_empty() => {
+            data.push('[');
+            for (i, (pos, r)) in w.iter().enumerate() {
+                let c = if i + 1 < w.len() { "," } else { "" };
+                let _ = write!(data, "[{},{}]{}", pos, num(*r), c);
+            }
             data.push_str("]\n");
         }
         _ => data.push_str("null\n"),
@@ -504,6 +519,27 @@ function grid(s,ml,pw,mt,ph,ymax,Y,dec){ for(let i=0;i<=5;i++){ const val=ymax*i
   s.v+=`<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="var(--border)" stroke-width="0.5"/><text x="${ml-8}" y="${y}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${val.toFixed(dec)}</text>`; } }
 function neutral(s,ml,pw,ymax,Y){ if(1<=ymax){ const y=Y(1);
   s.v+=`<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="var(--pos)" stroke-width="1" stroke-dasharray="6,3"/><text x="${ml+pw}" y="${y-4}" font-size="10" fill="var(--pos)" text-anchor="end">dN/dS = 1</text>`; } }
+
+// ── Sliding-window dN/dS along the alignment — positional "Manhattan" ──
+if (DATA.window) {
+  const box = addSection("dN/dS along the alignment (sliding window)", "winplot");
+  const w = DATA.window.filter(p=>p[1]!=null && isFinite(p[1]));
+  const W=900,H=360,ml=60,mr=30,mt=20,mb=54,pw=W-ml-mr,ph=H-mt-mb;
+  const xmax=Math.max(1,...w.map(p=>p[0])), ymax=Math.max(1.1,...w.map(p=>p[1]))*1.1;
+  const X=p=>ml+p/xmax*pw, Y=v=>mt+ph*(1-v/ymax);
+  let s=`<svg viewBox="0 0 ${W} ${H}">`;
+  for(let i=0;i<=5;i++){ const val=ymax*i/5,y=Y(val);
+    s+=`<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="var(--border)" stroke-width="0.5"/><text x="${ml-8}" y="${y}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${val.toFixed(2)}</text>`; }
+  if(1<=ymax){ const y=Y(1); s+=`<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="var(--pos)" stroke-width="1" stroke-dasharray="6,3"/><text x="${ml+pw}" y="${y-4}" font-size="10" fill="var(--pos)" text-anchor="end">dN/dS = 1</text>`; }
+  // connecting line + points
+  s+=`<polyline fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0.6" points="${w.map(p=>X(p[0]).toFixed(1)+','+Y(p[1]).toFixed(1)).join(' ')}"/>`;
+  w.forEach(p=>{ const col=p[1]>1?"var(--pos)":"var(--accent)";
+    s+=`<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="3.4" fill="${col}" data-tip="codon ~${p[0]} · dN/dS ${fmt(p[1],3)}"/>`; });
+  s+=`<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt+ph}" stroke="var(--fg)"/><line x1="${ml}" y1="${mt+ph}" x2="${ml+pw}" y2="${mt+ph}" stroke="var(--fg)"/>`;
+  s+=`<text x="${ml+pw/2}" y="${H-6}" font-size="12" fill="var(--muted)" text-anchor="middle">codon position</text>`;
+  s+=`<text x="16" y="${mt+ph/2}" font-size="12" fill="var(--muted)" text-anchor="middle" transform="rotate(-90,16,${mt+ph/2})">mean dN/dS</text></svg>`;
+  box.innerHTML=s; wireTip(box);
+}
 
 // ── Lineage strip-scatter (points per genome + per-lineage mean) ──
 if (DATA.lineage) {
@@ -585,5 +621,5 @@ if (DATA.hist) {
   box.innerHTML=s; wireTip(box);
 }
 
-if(!DATA.lineage && !DATA.group && !DATA.hist && !DATA.dnds){ sec.innerHTML='<p style="color:var(--muted)">No visualizations available for this run.</p>'; }
+if(!DATA.lineage && !DATA.group && !DATA.hist && !DATA.dnds && !DATA.window){ sec.innerHTML='<p style="color:var(--muted)">No visualizations available for this run.</p>'; }
 "##;
