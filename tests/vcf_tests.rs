@@ -381,6 +381,64 @@ fn vcf_summary_reports_genome_wide_pnps() {
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
 }
 
+// ─── Mutation-spectrum-weighted site counting (--kappa) ──────────────────────
+
+/// Run the vcf subcommand with an optional --kappa and return (sum N_sites,
+/// sum S_sites) from the per-gene TSV.
+fn run_and_sum_sites(out_prefix: &str, kappa: Option<&str>) -> (f64, f64) {
+    let mut args = vec![
+        "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF, "-o", out_prefix,
+    ];
+    if let Some(k) = kappa {
+        args.push("--kappa");
+        args.push(k);
+    }
+    let status = Command::new(binary_path()).args(&args).status().expect("spawn");
+    assert!(status.success());
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
+    let (mut n, mut s) = (0.0, 0.0);
+    for row in &rows[1..] {
+        n += row[2].parse::<f64>().unwrap();
+        s += row[3].parse::<f64>().unwrap();
+    }
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+    (n, s)
+}
+
+#[test]
+fn vcf_kappa_1_matches_default() {
+    // --kappa 1 must reproduce the equal-rates default exactly.
+    let (n_def, s_def) = run_and_sum_sites("/tmp/eskaks_kappa_def", None);
+    let (n_k1, s_k1) = run_and_sum_sites("/tmp/eskaks_kappa_one", Some("1"));
+    assert!((n_def - n_k1).abs() < EPSILON, "N: default {} vs kappa=1 {}", n_def, n_k1);
+    assert!((s_def - s_k1).abs() < EPSILON, "S: default {} vs kappa=1 {}", s_def, s_k1);
+}
+
+#[test]
+fn vcf_kappa_raises_s_lowers_n_conserves_total() {
+    // Transition bias (kappa>1) must raise synonymous sites, lower
+    // nonsynonymous sites, and conserve the total (each position is 1 site).
+    let (n1, s1) = run_and_sum_sites("/tmp/eskaks_kappa_1", Some("1"));
+    let (n5, s5) = run_and_sum_sites("/tmp/eskaks_kappa_5", Some("5"));
+    assert!(s5 > s1, "S should rise with kappa: {} -> {}", s1, s5);
+    assert!(n5 < n1, "N should fall with kappa: {} -> {}", n1, n5);
+    assert!(((n1 + s1) - (n5 + s5)).abs() < EPSILON, "total sites must be conserved");
+}
+
+#[test]
+fn vcf_invalid_kappa_fails() {
+    for bad in ["0", "-2"] {
+        let output = Command::new(binary_path())
+            .args([
+                "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+                "-o", "/tmp/eskaks_kappa_bad", "--kappa", bad,
+            ])
+            .output()
+            .expect("spawn");
+        assert!(!output.status.success(), "--kappa {} should be rejected", bad);
+    }
+}
+
 // ─── FASTA subcommand still works ───────────────────────────────────────────
 
 #[test]
