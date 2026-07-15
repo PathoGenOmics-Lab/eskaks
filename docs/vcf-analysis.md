@@ -132,8 +132,9 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 `--report` writes `<prefix>_report.html`: a single **self-contained** file (all
 CSS/JS inlined, no CDN or internet needed — it works on air-gapped HPC nodes and
 opens straight in a browser). It turns the per-gene table into a linked dashboard
-where clicking any point or row highlights that gene across **every** panel. Every
-panel and summary card carries an **"i"** button explaining how to read it.
+with a **sticky table of contents** down the left (with scroll-spy), where clicking
+any point or row highlights that gene across **every** panel. Every panel and
+summary card carries an **"i"** button explaining how to read it.
 
 **Always present:**
 

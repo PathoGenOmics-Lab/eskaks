@@ -205,8 +205,9 @@ With `--mk`, extra columns report `Dn`, `Ds`, `Pn`, `Ps`, the Neutrality Index,
 ## Interactive HTML report
 
 `--report` writes a single, self-contained `.html` file — no network, no CDN — that
-turns the per-gene table into a linked, explorable dashboard. Every panel and
-summary card carries a small **“i”** button that explains how to read it.
+turns the per-gene table into a linked, explorable dashboard with a **sticky table
+of contents** down the left side. Every panel and summary card carries a small
+**“i”** button that explains how to read it.
 
 - **Genome-wide verdict** banner, summary cards (pooled pN/pS + bootstrap CI,
   significant-gene count, inflation λ), and a **“How to read this report”** glossary

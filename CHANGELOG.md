@@ -88,9 +88,10 @@ All notable changes to this project will be documented in this file.
     point or row highlights that gene across every panel; **↑/↓** step through
     genes and **Esc** clears; a global **FDR(BH) ↔ Bonferroni** stringency toggle
     repaints all panels; light/dark theme toggle; CSV/JSON export (RFC 4180) of
-    the filtered view; a **Print / Save-PDF** button; repetitive-gene (PE/PPE)
-    badges; a Methods/parameters block. Uses the PathoGenOmics-Lab **mycolorsTB**
-    palette (pathogenomics brand + *M. tuberculosis* lineage colors).
+    the filtered view; a **Print / Save-PDF** button; a **sticky table of contents**
+    down the left side with scroll-spy; repetitive-gene (PE/PPE) badges; a
+    Methods/parameters block. Uses the PathoGenOmics-Lab **mycolorsTB** palette
+    (pathogenomics brand + *M. tuberculosis* lineage colors).
   - `eskaks vcf --divergence <FILE>`: adds a **polymorphism-vs-divergence**
     reconciliation panel to the report — per-gene pN/pS (within-sample) vs a
     supplied per-gene dN/dS (divergence), matched by name, with the concordance

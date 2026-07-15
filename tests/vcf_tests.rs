@@ -600,7 +600,8 @@ fn vcf_report_writes_self_contained_html() {
                    // v2.1: SFS, core/repetitive, CVD mode, canvas, CIs, λ, provenance.
                    "panelSFS", "panelCoreRep", "drawCanvases", "cvdTog",
                    "pN/pS by allele frequency", "Core vs repetitive", "95% CI",
-                   "Inflation", "\"lambda\":", "Command:", "\"sfsNonsyn\":"] {
+                   "Inflation", "\"lambda\":", "Command:", "\"sfsNonsyn\":",
+                   "buildToc", "class=\"toc\"", "updateTocActive"] {
         assert!(html.contains(needle), "report missing '{}'", needle);
     }
     // Self-contained: no external network assets.
