@@ -70,6 +70,8 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--mk-fixed-af <FLOAT>` | AF at/above which a variant is "fixed" (divergence) vs polymorphic in the MK test | `0.99` |
 | `--bootstrap <INT>` | Bootstrap replicates for a 95% CI on the genome-wide pooled pN/pS (0 = off) | `0` |
 | `--seed <INT>` | Seed for reproducible bootstrap resampling | `42` |
+| `--genomic-control` | Apply a [genomic-control correction](#genomic-control-clonality) to the neutrality test (divide each χ² by the inflation factor λ) | off |
+| `--exclude-repetitive` | [Core-genome mode](#core-genome-mode): drop PE/PPE/PGRS/IS genes from the pooled estimate and the test family | off |
 | `--workers <INT>` | Parallel threads for the per-gene computation | `4` |
 | `--plot` | Generate Manhattan-style SVG plot (significant genes outlined) | off |
 | `--report` | Write an [interactive HTML report](#interactive-html-report) (`<prefix>_report.html`) | off |
@@ -129,20 +131,82 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 
 `--report` writes `<prefix>_report.html`: a single **self-contained** file (all
 CSS/JS inlined, no CDN or internet needed — it works on air-gapped HPC nodes and
-opens straight in a browser). It contains:
+opens straight in a browser). It turns the per-gene table into a linked dashboard
+where clicking any point or row highlights that gene across **every** panel. Every
+panel and summary card carries an **"i"** button explaining how to read it.
 
-- **summary cards** — genes analyzed, genome-wide pooled pN/pS with its bootstrap
-  CI (if `--bootstrap` was used), the selection call, and the significant-gene count;
-- an **interactive Manhattan plot** that toggles between −log10(p) and pN/pS, draws
-  the Benjamini-Hochberg / neutral (`pN/pS = 1`) line, and shows per-gene tooltips on hover;
-- a **sortable, filterable per-gene table** (click a header to sort, type to filter),
-  including the McDonald-Kreitman columns when `--mk` is also set.
+**Always present:**
+
+- a genome-wide **verdict** banner and **summary cards** — pooled pN/pS with its
+  bootstrap CI (if `--bootstrap` was used), the significant-gene count, and the
+  genomic-inflation factor **λ**;
+- a **"How to read this report"** glossary of every metric;
+- a **selection-regime census** and a **significant-hits shortlist** (click to filter);
+- an **interactive Manhattan** with a `−log10(p)` / `pN/pS` / `z(N)` metric toggle
+  and the FDR/Bonferroni line; a **volcano** (effect vs significance); and a **p-value
+  QQ** plot with λ;
+- a **power funnel** with per-gene CI whiskers, an **observed-vs-expected** diagnostic,
+  a **top-genes lollipop**, an **allele-frequency spectrum** (SFS), and the **pN/pS
+  distribution**;
+- a **sortable, filterable, virtualized per-gene table** with CSV/JSON export.
+
+**Conditional panels:** a **McDonald-Kreitman** panel with `--mk`, and a
+**polymorphism-vs-divergence** reconciliation with `--divergence`.
+
+**Controls:** a global **FDR ↔ Bonferroni** stringency toggle, **↑/↓** to step
+through genes, light/dark theme, a **Print / Save-PDF** button, and a **colour-blind
+(CVD) mode** that swaps to a validated Okabe-Ito palette and adds direction shapes
+(▲ diversifying / ▼ purifying / ● not significant) so meaning never depends on
+colour alone. For whole-genome runs (≳1200 genes) the scatter panels switch to
+canvas rendering and the table is virtualized, so the report stays responsive.
 
 ```bash
 eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
   --genetic-code 11 --kappa 2 --bootstrap 1000 --mk --report -o mtb_scan
 # → open mtb_scan_report.html in any browser
 ```
+
+`eskaks fasta --report` writes a matching dashboard for the dN/dS workflow
+(sliding-window scan, dN-vs-dS scatter, per-lineage and per-group summaries).
+
+## Genomic control (clonality)
+
+The per-gene binomial test assumes SNPs are independent. In **clonal** organisms
+like *M. tuberculosis*, genome-wide linkage breaks that assumption and the
+p-values become **anti-conservative**. eskaks always reports the **genomic-inflation
+factor λ** — the median test χ² divided by its neutral expectation — as a diagnostic
+(λ ≈ 1 is well-calibrated; λ ≫ 1 means far more low p-values than chance).
+
+With `--genomic-control`, each gene's χ² is divided by λ (floored at 1) and
+re-tested, adding genomic-control-corrected columns to the report. The χ² is derived
+from a log-space `−log10(p)`, so genes whose exact p underflows stay finite.
+
+> **Caveat:** a high λ can reflect **genuine, pervasive** purifying selection, not
+> only artefactual inflation. Apply `--genomic-control` only when you suspect
+> systematic bias (mapping, reference, filtering, structure) — not reflexively.
+
+## Core-genome mode
+
+`--exclude-repetitive` drops repetitive / hard-to-map genes — PE/PPE/PGRS, IS
+elements, maturases — from the **genome-wide pooled estimate** and the
+**neutrality-test family**, since their SNP calls are frequently mapping artefacts.
+Those genes still appear in the per-gene table, flagged. The report always shows a
+**core-vs-repetitive** pooled comparison so the gap is visible either way.
+
+## Per-gene confidence intervals
+
+Each tested gene gets a **95% Wilson confidence interval** on its pN/pS (a Wilson
+score interval on the nonsynonymous SNP fraction, mapped to the pN/pS scale). The
+report draws these as CI whiskers on the power funnel; if the interval excludes 1,
+the gene departs from neutrality.
+
+## Allele-frequency spectrum (SFS)
+
+The report bins SNPs by allele frequency and plots pN/pS per bin. Purifying
+selection keeps deleterious nonsynonymous variants rare, so a profile that **falls**
+as allele frequency rises is a signature of constraint. This panel is informative
+for **multi-sample cohorts**; with a single sample (all variants at one frequency)
+it shows an explicit empty-state note.
 
 ## McDonald-Kreitman test
 

@@ -79,21 +79,50 @@ Compute pN/pS per gene from a VCF file, reference FASTA, and GFF3 annotation.
 eskaks vcf --ref <FASTA> --gff <GFF3> --vcf <VCF> [OPTIONS]
 ```
 
+**Inputs & output**
+
 | Flag | Description | Default |
 |---|---|---|
 | `--ref <FASTA>` | Reference genome in FASTA format | required |
 | `--gff <GFF3>` | Gene annotation in GFF3 format | required |
 | `--vcf <VCF>` | VCF file(s) — use multiple times for per-sample VCFs | required |
 | `--vcf-list <FILE>` | File with one VCF path per line | none |
-| `--af-weighted` | Weight counts by AF (πN/πS instead of pN/pS) | off |
 | `-o, --output <PREFIX>` | Base name for output files | `output` |
 | `--format <tsv\|csv\|json>` | Output format | `tsv` |
 | `--genetic-code <N>` | NCBI translation table number | `1` |
+| `--workers <N>` | Parallel threads (output is deterministic) | `4` |
+
+**Variant filters**
+
+| Flag | Description | Default |
+|---|---|---|
 | `--pass-only` | Only include FILTER=PASS variants | off |
 | `--min-af <FLOAT>` | Minimum allele frequency (0.0–1.0) | none |
 | `--max-af <FLOAT>` | Maximum allele frequency (exclude fixed variants) | none |
 | `--min-depth <INT>` | Minimum read depth (INFO/DP) | none |
-| `--plot` | Generate Manhattan-style SVG plot | off |
+| `--af-weighted` | Weight counts by AF (πN/πS instead of pN/pS) | off |
+
+**Model, test & correction**
+
+| Flag | Description | Default |
+|---|---|---|
+| `--kappa <FLOAT>` | ts/tv rate ratio for spectrum-aware site counting | `1.0` |
+| `--min-snps <N>` | Drop genes with fewer SNPs from the table, plot, and test | `0` |
+| `--fdr <FLOAT>` | Benjamini-Hochberg threshold for significant genes | `0.05` |
+| `--mk` | Run the McDonald-Kreitman test (`<prefix>_mk.<ext>`) | off |
+| `--mk-fixed-af <FLOAT>` | AF at/above which a variant is "fixed" in the MK test | `0.99` |
+| `--bootstrap <N>` | Replicates for a 95% CI on the genome-wide pooled pN/pS | `0` |
+| `--seed <N>` | Seed for reproducible bootstrap resampling | `42` |
+| `--genomic-control` | Divide each χ² by the inflation factor λ and re-test | off |
+| `--exclude-repetitive` | Drop PE/PPE/PGRS/IS genes from the pooled estimate and test | off |
+
+**Reporting**
+
+| Flag | Description | Default |
+|---|---|---|
+| `--plot` | Generate Manhattan / p-value SVG plots | off |
+| `--report` | Write a self-contained interactive HTML report | off |
+| `--divergence <FILE>` | Per-gene dN/dS TSV for the report's polymorphism-vs-divergence panel | none |
 
 ### Examples
 
@@ -103,10 +132,10 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
   --vcf sample1.vcf --vcf sample2.vcf --vcf sample3.vcf \
   --af-weighted --genetic-code 11 -o mtb_pnps
 
-# Or via a list file
-eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
-  --vcf-list samples.txt --af-weighted \
-  --min-af 0.01 --max-af 0.99 --plot -o mtb_pnps
+# Full selection scan with the interactive report
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
+  --genetic-code 11 --kappa 2 --min-snps 5 \
+  --mk --bootstrap 1000 --seed 42 --report --plot -o mtb_scan
 
 # Single multi-sample VCF with filters
 eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
