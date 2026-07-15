@@ -98,6 +98,10 @@ For transition-biased genomes (e.g. *M. tuberculosis*), add `--kappa <ts/tv rati
 for [mutation-spectrum-aware site counting](docs/vcf-analysis.md#mutation-spectrum-aware-site-counting---kappa),
 which corrects the equal-rates bias that otherwise understates pN/pS.
 
+Each gene also gets a [neutrality-test](docs/vcf-analysis.md#per-gene-neutrality-test)
+p-value (exact binomial vs `pN/pS = 1`) with Benjamini-Hochberg FDR and Bonferroni
+correction, turning the per-gene table into a genome-wide scan for selection.
+
 > [!TIP]
 > If your sequences are not codon-aligned, use [MAFFT](https://mafft.cbrc.jp/) + [PAL2NAL](http://www.bork.embl.de/pal2nal/) or [MACSE](https://bioweb.supagro.inra.fr/macse/) first.
 

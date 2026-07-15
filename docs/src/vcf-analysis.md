@@ -64,7 +64,10 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--max-af <FLOAT>` | Maximum allele frequency — use 0.99 to exclude fixed variants | none |
 | `--min-depth <INT>` | Minimum read depth (INFO/DP) | none |
 | `--kappa <FLOAT>` | Transition/transversion rate ratio for [spectrum-aware site counting](#mutation-spectrum-aware-site-counting---kappa) | `1.0` (equal rates) |
-| `--plot` | Generate Manhattan-style SVG plot | off |
+| `--min-snps <INT>` | Drop genes with fewer SNPs from the per-gene table, plot, and [test](#per-gene-neutrality-test) (the pooled estimate still uses all genes) | `0` |
+| `--fdr <FLOAT>` | FDR threshold for calling genes significant in the [neutrality test](#per-gene-neutrality-test) | `0.05` |
+| `--workers <INT>` | Parallel threads for the per-gene computation | `4` |
+| `--plot` | Generate Manhattan-style SVG plot (significant genes outlined) | off |
 
 ## Output
 
@@ -82,6 +85,39 @@ File: `<prefix>_pnps.tsv` (or `.csv` / `.json`)
 | Nonsyn_SNPs | Count of nonsynonymous SNPs in this gene |
 | Syn_SNPs | Count of synonymous SNPs in this gene |
 | Total_SNPs | Total SNPs falling in this gene |
+| Chrom / Start / End / Strand | Gene location (1-based), so the table is self-contained and joinable |
+| Exp_N_frac | Expected nonsynonymous fraction under neutrality, `N/(N+S)` (the test's null) |
+| P_value | Two-sided exact-binomial p-value for H0: pN/pS = 1 (`NA` if untested) |
+| Q_value_BH | Benjamini-Hochberg FDR q-value across all tested genes |
+| P_Bonferroni | Bonferroni-corrected p-value across all tested genes |
+
+## Per-gene neutrality test
+
+Under strict neutrality the nonsynonymous fraction of a gene's SNPs equals its
+**mutational opportunity** `N/(N+S)` (the `Exp_N_frac` column). eskaks tests each
+gene against this null with a **two-sided exact binomial test** (observed
+nonsynonymous SNPs vs `N/(N+S)`), giving a `P_value` per gene. Because a bacterial
+genome has thousands of genes, the p-values are corrected for multiple testing two
+ways: **Benjamini-Hochberg** FDR q-values (`Q_value_BH`) and the more conservative
+**Bonferroni** (`P_Bonferroni`). The summary reports how many genes are significant
+at `--fdr` (default 0.05), and `--plot` outlines those genes on the Manhattan plot.
+
+```bash
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
+  --genetic-code 11 --kappa 2 --min-snps 5 --fdr 0.05 --plot -o mtb_scan
+```
+
+- Use `--min-snps` to drop low-count genes whose p-values are unreliable; the
+  correction is then applied only over the genes actually tested.
+- With `--kappa`, the null `N/(N+S)` is computed under the same ts/tv model as the
+  observed counts, so the test and the site model stay consistent.
+- The test is **skipped under `--af-weighted`** (πN/πS uses fractional counts, which
+  a binomial test can't take).
+
+> **Caveat:** the binomial null assumes SNPs are independent draws over sites. In
+> highly clonal or strongly linked bacterial populations this is violated and the
+> p-values are anti-conservative — treat them as a ranking aid, and lean on the FDR
+> column rather than raw p-values.
 
 ## Genome-wide (pooled) pN/pS
 

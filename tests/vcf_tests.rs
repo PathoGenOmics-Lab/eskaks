@@ -441,6 +441,91 @@ fn vcf_invalid_kappa_fails() {
     }
 }
 
+// ─── Neutrality test, multiple-testing, coordinates, --min-snps, --workers ───
+
+#[test]
+fn vcf_emits_coordinates_and_stats_columns() {
+    let out_prefix = "/tmp/eskaks_test_vcf_stats";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF, "-o", out_prefix,
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Neutrality test"), "missing neutrality block:\n{}", stderr);
+    assert!(stderr.contains("Genes tested"));
+
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
+    let gene_a = rows.iter().find(|r| r[0] == "geneA").expect("geneA");
+    // Columns 10-17: Chrom, Start, End, Strand, Exp_N_frac, P_value, Q_value_BH, P_Bonferroni
+    assert_eq!(gene_a[10], "chr1", "Chrom");
+    assert_eq!(gene_a[13], "+", "Strand");
+    let start: usize = gene_a[11].parse().unwrap();
+    let end: usize = gene_a[12].parse().unwrap();
+    assert!(start >= 1 && end > start, "coordinates {}..{}", start, end);
+    let p: f64 = gene_a[15].parse().expect("P_value numeric");
+    let q: f64 = gene_a[16].parse().expect("Q_value numeric");
+    let bonf: f64 = gene_a[17].parse().expect("P_Bonferroni numeric");
+    assert!((0.0..=1.0).contains(&p), "p in [0,1]: {}", p);
+    assert!((0.0..=1.0).contains(&q), "q in [0,1]: {}", q);
+    assert!(bonf >= p - EPSILON, "Bonferroni p*m >= p: {} vs {}", bonf, p);
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn vcf_min_snps_drops_low_count_genes() {
+    let out_prefix = "/tmp/eskaks_test_vcf_minsnps";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", out_prefix, "--min-snps", "2",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
+    // geneB has 1 SNP → dropped; geneA has 2 → kept. 1 header + 1 gene.
+    assert_eq!(rows.len(), 2, "expected only geneA to survive --min-snps 2");
+    assert_eq!(rows[1][0], "geneA");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("dropped"));
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn vcf_workers_are_deterministic() {
+    let run = |prefix: &str, w: &str| {
+        Command::new(binary_path())
+            .args([
+                "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+                "-o", prefix, "--workers", w,
+            ])
+            .status()
+            .expect("spawn");
+        fs::read_to_string(format!("{}_pnps.tsv", prefix)).unwrap()
+    };
+    let a = run("/tmp/eskaks_test_vcf_w1", "1");
+    let b = run("/tmp/eskaks_test_vcf_w4", "4");
+    assert_eq!(a, b, "per-gene output must not depend on thread count");
+    fs::remove_file("/tmp/eskaks_test_vcf_w1_pnps.tsv").ok();
+    fs::remove_file("/tmp/eskaks_test_vcf_w4_pnps.tsv").ok();
+}
+
+#[test]
+fn vcf_invalid_fdr_rejected() {
+    for bad in ["0", "1.5", "-0.1"] {
+        let output = Command::new(binary_path())
+            .args([
+                "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+                "-o", "/tmp/eskaks_fdr_bad", "--fdr", bad,
+            ])
+            .output()
+            .expect("spawn");
+        assert!(!output.status.success(), "--fdr {} should be rejected", bad);
+    }
+}
+
 // ─── FASTA subcommand still works ───────────────────────────────────────────
 
 #[test]

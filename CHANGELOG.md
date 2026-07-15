@@ -17,6 +17,27 @@ All notable changes to this project will be documented in this file.
   `kappa > 1` raises S and lowers N, moving a 2-fold synonymous site from `1/3`
   to `kappa/(kappa+2)` while leaving 4-fold sites and the observed-SNP numerators
   unchanged. `--kappa 1` (default) reproduces the classic equal-rates counting.
+- **Per-gene neutrality test** for `eskaks vcf`: a two-sided exact binomial test
+  of H0 pN/pS = 1 (observed nonsynonymous SNPs vs the mutational opportunity
+  `N/(N+S)`), with **Benjamini-Hochberg FDR** q-values and **Bonferroni**-corrected
+  p-values across genes. New `--fdr` threshold; the summary reports significant
+  genes and the Manhattan plot outlines them. Skipped under `--af-weighted`.
+- **Enriched per-gene output**: added `Chrom`, `Start`, `End`, `Strand`,
+  `Exp_N_frac`, `P_value`, `Q_value_BH`, and `P_Bonferroni` columns (appended, so
+  existing column positions are unchanged).
+- **`--min-snps`** drops low-count genes from the per-gene table, plot, and test
+  (the genome-wide pooled estimate still uses all genes).
+- **Parallel `eskaks vcf`**: the per-gene computation now runs on `--workers`
+  threads (default 4); output is deterministic regardless of thread count.
+
+### Fixed
+- Data-quality warnings (REF mismatches, skipped genes, saturation) are shown by
+  default; added `-v`/`-vv`/`-q`. Validate AF-filter ranges and reconcile
+  contig names up front (both previously produced a silent all-NaN output).
+  Empty VCFs in a merge no longer abort the run. Aggregate REF-mismatch
+  diagnostics instead of one line per SNP; warn on non-multiple-of-3 CDS and on
+  genes dropped from the plot. Report the pooled `mean(dN)/mean(dS)` in the
+  dN/dS summary instead of only the biased mean of per-pair ratios.
 
 ## [1.4.0] - 2026-03-29
 
