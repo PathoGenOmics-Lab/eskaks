@@ -51,6 +51,14 @@ pub struct GenePnPs {
     pub q_value: f64,
     /// Bonferroni-corrected p-value across all tested genes (NaN if untested)
     pub p_bonferroni: f64,
+    /// McDonald-Kreitman fixed nonsynonymous count (Dn): ALTs with AF >= threshold
+    pub mk_dn: u32,
+    /// McDonald-Kreitman fixed synonymous count (Ds)
+    pub mk_ds: u32,
+    /// McDonald-Kreitman polymorphic nonsynonymous count (Pn): ALTs with AF < threshold
+    pub mk_pn: u32,
+    /// McDonald-Kreitman polymorphic synonymous count (Ps)
+    pub mk_ps: u32,
 }
 
 /// Genome-wide (pooled) pN/pS aggregated across all analyzed genes.
@@ -103,6 +111,7 @@ pub fn compute_pn_ps(
     gc: &GeneticCode,
     af_weighted: bool,
     kappa: f64,
+    mk_fixed_af: f64,
 ) -> Vec<GenePnPs> {
     // kappa == 1 reproduces the original counting byte-for-byte; only a
     // non-neutral kappa switches to the rate-weighted path. (count_sites_weighted
@@ -157,6 +166,8 @@ pub fn compute_pn_ps(
             let mut syn_count = 0.0f64;
             let mut local_checked = 0usize;
             let mut local_mismatch = 0usize;
+            // McDonald-Kreitman: fixed (AF >= threshold) vs polymorphic counts.
+            let (mut mk_dn, mut mk_ds, mut mk_pn, mut mk_ps) = (0u32, 0u32, 0u32, 0u32);
 
             if let Some(snps_list) = chrom_snps {
                 // SNPs are position-sorted, so binary-search the gene's genomic
@@ -226,10 +237,16 @@ pub fn compute_pn_ps(
 
                             match (ref_aa, alt_aa) {
                                 (Some(r), Some(a)) if r != b'*' && a != b'*' => {
+                                    // MK split uses this ALT's allele frequency,
+                                    // as raw counts (not AF-weighted).
+                                    let af = snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0);
+                                    let fixed = af >= mk_fixed_af;
                                     if r == a {
                                         syn_count += weight;
+                                        if fixed { mk_ds += 1 } else { mk_ps += 1 }
                                     } else {
                                         nonsyn_count += weight;
+                                        if fixed { mk_dn += 1 } else { mk_pn += 1 }
                                     }
                                 }
                                 // Skip: ambiguous codons or mutations to/from stop
@@ -297,6 +314,10 @@ pub fn compute_pn_ps(
                 p_value,
                 q_value: f64::NAN,
                 p_bonferroni: f64::NAN,
+                mk_dn,
+                mk_ds,
+                mk_pn,
+                mk_ps,
             })
         })
         .collect();
@@ -759,6 +780,100 @@ pub fn write_results(
     Ok(output_path)
 }
 
+/// Write per-gene McDonald-Kreitman results: the 2×2 fixed/polymorphic table
+/// (Dn, Ds, Pn, Ps), Neutrality Index, alpha (proportion of adaptive
+/// substitutions), a two-sided Fisher exact p-value, and its BH-FDR q-value.
+///
+/// "Fixed" means AF >= the chosen threshold *within the sample* (reference-
+/// polarized MK); this conflates high-frequency derived alleles with true
+/// between-species divergence, so it is a screen, not a substitute for an
+/// outgroup-based MK test.
+pub fn write_mk_results(
+    results: &[GenePnPs],
+    prefix: &str,
+    format: &crate::models::OutputFormat,
+) -> anyhow::Result<String> {
+    use std::fs::File;
+    use std::io::{BufWriter, Write};
+
+    // Only genes with at least one classified difference are informative.
+    let genes: Vec<&GenePnPs> = results
+        .iter()
+        .filter(|r| r.mk_dn + r.mk_ds + r.mk_pn + r.mk_ps > 0)
+        .collect();
+
+    // Two-sided Fisher p per gene, then Benjamini-Hochberg across tested genes.
+    let pvals: Vec<f64> = genes
+        .iter()
+        .map(|r| {
+            crate::stats::fisher_exact_two_sided(
+                r.mk_dn as u64,
+                r.mk_ds as u64,
+                r.mk_pn as u64,
+                r.mk_ps as u64,
+            )
+        })
+        .collect();
+    let qvals = crate::stats::benjamini_hochberg(&pvals);
+
+    let ext = format.extension();
+    let output_path = format!("{}_mk.{}", prefix, ext);
+    let mut file = BufWriter::new(File::create(&output_path)?);
+
+    let ni = |r: &GenePnPs| {
+        let (dn, ds, pn, ps) = (r.mk_dn as f64, r.mk_ds as f64, r.mk_pn as f64, r.mk_ps as f64);
+        if ps > 0.0 && dn > 0.0 {
+            (pn * ds) / (ps * dn)
+        } else {
+            f64::NAN
+        }
+    };
+    let alpha = |r: &GenePnPs| {
+        let (dn, ds, pn, ps) = (r.mk_dn as f64, r.mk_ds as f64, r.mk_pn as f64, r.mk_ps as f64);
+        if dn > 0.0 && ps > 0.0 {
+            1.0 - (ds * pn) / (dn * ps)
+        } else {
+            f64::NAN
+        }
+    };
+
+    if let crate::models::OutputFormat::Json = format {
+        writeln!(file, "[")?;
+        for (i, r) in genes.iter().enumerate() {
+            let comma = if i + 1 < genes.len() { "," } else { "" };
+            writeln!(
+                file,
+                "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"Dn\":{},\"Ds\":{},\"Pn\":{},\"Ps\":{},\"NI\":{},\"alpha\":{},\"fisher_p\":{},\"fisher_q_bh\":{}}}{}",
+                r.name, r.chrom, r.genome_start, r.genome_end, r.strand,
+                r.mk_dn, r.mk_ds, r.mk_pn, r.mk_ps,
+                format_json_num(ni(r)), format_json_num(alpha(r)),
+                format_json_num(pvals[i]), format_json_num(qvals[i]), comma
+            )?;
+        }
+        writeln!(file, "]")?;
+    } else {
+        let sep = format.separator();
+        writeln!(
+            file,
+            "Gene{s}Chrom{s}Start{s}End{s}Strand{s}Dn{s}Ds{s}Pn{s}Ps{s}NI{s}alpha{s}Fisher_p{s}Fisher_q_BH",
+            s = sep
+        )?;
+        for (i, r) in genes.iter().enumerate() {
+            writeln!(
+                file,
+                "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
+                r.name, r.chrom, r.genome_start, r.genome_end, r.strand,
+                r.mk_dn, r.mk_ds, r.mk_pn, r.mk_ps,
+                format_pval(ni(r)), format_pval(alpha(r)),
+                format_pval(pvals[i]), format_pval(qvals[i]),
+                s = sep
+            )?;
+        }
+    }
+
+    Ok(output_path)
+}
+
 /// Expected nonsynonymous fraction of mutations under neutrality: N/(N+S).
 fn exp_n_frac(r: &GenePnPs) -> f64 {
     let sites = r.n_sites + r.s_sites;
@@ -1188,6 +1303,10 @@ mod tests {
             p_value: f64::NAN,
             q_value: f64::NAN,
             p_bonferroni: f64::NAN,
+            mk_dn: 0,
+            mk_ds: 0,
+            mk_pn: 0,
+            mk_ps: 0,
         }
     }
 

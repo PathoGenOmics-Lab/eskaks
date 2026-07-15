@@ -176,6 +176,9 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     if !args.fdr.is_finite() || args.fdr <= 0.0 || args.fdr > 1.0 {
         bail!("--fdr must be in (0, 1] (got {})", args.fdr);
     }
+    if !(0.0..=1.0).contains(&args.mk_fixed_af) {
+        bail!("--mk-fixed-af must be between 0.0 and 1.0 (got {})", args.mk_fixed_af);
+    }
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.workers)
@@ -266,8 +269,9 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     }
 
     // Compute pN/pS
-    let mut results =
-        vcf_analysis::compute_pn_ps(&reference, &genes, &snps, gc, args.af_weighted, args.kappa);
+    let mut results = vcf_analysis::compute_pn_ps(
+        &reference, &genes, &snps, gc, args.af_weighted, args.kappa, args.mk_fixed_af,
+    );
 
     // Genome-wide pooled estimate and gene counts use ALL genes (pooling is
     // robust to low-count genes), captured before any --min-snps filtering.
@@ -292,6 +296,12 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     // Write results
     let output_path = vcf_analysis::write_results(&results, &args.output, &args.format)?;
     info!("Results saved to {}", output_path);
+
+    // McDonald-Kreitman test (optional).
+    if args.mk {
+        let mk_path = vcf_analysis::write_mk_results(&results, &args.output, &args.format)?;
+        info!("McDonald-Kreitman results saved to {}", mk_path);
+    }
 
     // Generate plot if requested
     if args.plot {
@@ -335,6 +345,19 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         eprintln!("  Significant genes:   {}  (BH-FDR < {})", n_sig, args.fdr);
     } else if args.af_weighted {
         eprintln!("  (per-gene neutrality test skipped under --af-weighted)");
+    }
+    if args.mk {
+        let with_data = results
+            .iter()
+            .filter(|r| r.mk_dn + r.mk_ds + r.mk_pn + r.mk_ps > 0)
+            .count();
+        let total_dn: u32 = results.iter().map(|r| r.mk_dn).sum();
+        let total_ds: u32 = results.iter().map(|r| r.mk_ds).sum();
+        let total_pn: u32 = results.iter().map(|r| r.mk_pn).sum();
+        let total_ps: u32 = results.iter().map(|r| r.mk_ps).sum();
+        eprintln!("  ── McDonald-Kreitman (fixed AF >= {}) ──", args.mk_fixed_af);
+        eprintln!("  Genes with MK data:  {}", with_data);
+        eprintln!("  Totals Dn/Ds/Pn/Ps:  {}/{}/{}/{}", total_dn, total_ds, total_pn, total_ps);
     }
     eprintln!("───────────────────────────────────────────");
 

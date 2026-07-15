@@ -178,6 +178,16 @@ pub struct VcfArgs {
     #[arg(long, default_value_t = 0.05)]
     pub fdr: f64,
 
+    /// Also run a per-gene McDonald-Kreitman test (writes <prefix>_mk.<ext>):
+    /// 2x2 fixed/polymorphic table, Neutrality Index, alpha, and Fisher exact p.
+    #[arg(long)]
+    pub mk: bool,
+
+    /// Allele frequency at/above which a variant is treated as "fixed"
+    /// (divergence) rather than polymorphic in the McDonald-Kreitman test.
+    #[arg(long, default_value_t = 0.99)]
+    pub mk_fixed_af: f64,
+
     /// Generate SVG Manhattan-style plot of pN/pS per gene
     #[arg(long)]
     pub plot: bool,

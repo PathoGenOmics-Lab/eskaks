@@ -526,6 +526,47 @@ fn vcf_invalid_fdr_rejected() {
     }
 }
 
+#[test]
+fn vcf_mk_writes_table_and_stats() {
+    let out_prefix = "/tmp/eskaks_test_vcf_mk";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", out_prefix, "--mk", "--mk-fixed-af", "0.5",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("McDonald-Kreitman"));
+    let rows = parse_tsv(&format!("{}_mk.tsv", out_prefix));
+    assert_eq!(
+        rows[0],
+        vec!["Gene", "Chrom", "Start", "End", "Strand", "Dn", "Ds", "Pn", "Ps",
+             "NI", "alpha", "Fisher_p", "Fisher_q_BH"],
+        "MK header mismatch: {:?}", rows[0]
+    );
+    // geneA has variation → present; Dn+Ds+Pn+Ps must be > 0 for listed genes.
+    let gene_a = rows.iter().find(|r| r[0] == "geneA").expect("geneA in MK table");
+    let sum: u32 = (5..9).map(|i| gene_a[i].parse::<u32>().unwrap()).sum();
+    assert!(sum > 0, "geneA MK counts should be non-zero");
+    let fp: f64 = gene_a[11].parse().expect("Fisher_p numeric");
+    assert!((0.0..=1.0).contains(&fp), "Fisher p in [0,1]: {}", fp);
+    fs::remove_file(format!("{}_mk.tsv", out_prefix)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn vcf_invalid_mk_fixed_af_rejected() {
+    let output = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", "/tmp/eskaks_mk_bad", "--mk", "--mk-fixed-af", "1.5",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(!output.status.success());
+}
+
 // ─── FASTA subcommand still works ───────────────────────────────────────────
 
 #[test]

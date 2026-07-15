@@ -362,6 +362,50 @@ pub fn bonferroni(pvals: &[f64]) -> Vec<f64> {
         .collect()
 }
 
+/// Two-sided Fisher's exact test p-value for the 2×2 table
+/// `[[a, b], [c, d]]`, by summing the hypergeometric probabilities of all
+/// tables (with the same margins) no more likely than the observed one.
+/// Returns NaN for an empty table.
+pub fn fisher_exact_two_sided(a: u64, b: u64, c: u64, d: u64) -> f64 {
+    let r1 = a + b; // row 1 total
+    let r2 = c + d; // row 2 total
+    let c1 = a + c; // col 1 total
+    let c2 = b + d; // col 2 total
+    let n = r1 + r2;
+    if n == 0 {
+        return f64::NAN;
+    }
+    // Constant part of the log hypergeometric probability (depends on margins).
+    let ln_const = ln_gamma(r1 as f64 + 1.0)
+        + ln_gamma(r2 as f64 + 1.0)
+        + ln_gamma(c1 as f64 + 1.0)
+        + ln_gamma(c2 as f64 + 1.0)
+        - ln_gamma(n as f64 + 1.0);
+    // log P of the table whose top-left cell is x (margins fixed).
+    let ln_p = |x: u64| -> f64 {
+        let b_ = r1 - x;
+        let c_ = c1 - x;
+        let d_ = r2 - c_;
+        ln_const
+            - ln_gamma(x as f64 + 1.0)
+            - ln_gamma(b_ as f64 + 1.0)
+            - ln_gamma(c_ as f64 + 1.0)
+            - ln_gamma(d_ as f64 + 1.0)
+    };
+    let p_obs = ln_p(a).exp();
+    let lo = c1.saturating_sub(r2); // max(0, c1 - r2)
+    let hi = c1.min(r1); // min(c1, r1)
+    let mut p_sum = 0.0;
+    for x in lo..=hi {
+        let p = ln_p(x).exp();
+        // 1e-7 tolerance so the observed table isn't excluded by rounding.
+        if p <= p_obs * (1.0 + 1e-7) {
+            p_sum += p;
+        }
+    }
+    p_sum.min(1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,5 +458,20 @@ mod tests {
         assert!((b[0] - 0.02).abs() < 1e-12); // m=2
         assert!(b[1].is_nan());
         assert!((b[2] - 1.0).abs() < 1e-12); // 0.5*2 capped at 1
+    }
+
+    #[test]
+    fn fisher_known_values() {
+        // Classic tea-tasting 2x2 [[3,1],[1,3]] → two-sided p = 0.4857...
+        assert!((fisher_exact_two_sided(3, 1, 1, 3) - 0.485_714_285_7).abs() < 1e-6);
+        // Independent table → p near 1
+        assert!((fisher_exact_two_sided(5, 5, 5, 5) - 1.0).abs() < 1e-9);
+        // Strong association → small p
+        assert!(fisher_exact_two_sided(10, 0, 0, 10) < 1e-3);
+        // Empty table → NaN
+        assert!(fisher_exact_two_sided(0, 0, 0, 0).is_nan());
+        // A zero row/col is still well-defined (p ≤ 1)
+        let p = fisher_exact_two_sided(4, 0, 2, 3);
+        assert!((0.0..=1.0).contains(&p));
     }
 }
