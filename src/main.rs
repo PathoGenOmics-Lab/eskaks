@@ -131,18 +131,22 @@ fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
     // Dispatch to the appropriate output mode
     let report_data = dispatch_output(&args, &data, &out_cfg, compute_pair, compute_pair_slices)?;
 
-    // Interactive HTML report with the dynamic visualizations for this run.
+    // Interactive HTML report: a multi-panel dashboard. Always includes the
+    // dN-vs-dS scatter and the dN/dS distribution (from a dedicated pairwise
+    // pass), plus the lineage/group scatter when those modes were run.
     if args.report {
         let model_name = match args.model {
             models::Model::Nei => "Nei-Gojobori",
             models::Model::Li => "Li / LPB93",
         };
+        let (rep_summary, dn_ds) = collect_report_pairwise(&data, &engine, 8000);
         let path = report::write_fasta_report(
             &args.output,
             model_name,
-            summary_stats.as_ref(),
+            Some(&rep_summary),
             report_data.lineage.as_deref(),
             report_data.group.as_deref(),
+            Some(&dn_ds),
         )?;
         info!("Report saved to {}", path);
     }
@@ -444,6 +448,46 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
 
     info!("VCF analysis completed successfully.");
     Ok(())
+}
+
+/// Collect a fresh dN/dS distribution plus a capped `(dN, dS)` sample over
+/// unique sequence pairs, for the report's always-present dN-vs-dS scatter and
+/// histogram — independent of the primary output mode.
+fn collect_report_pairwise(
+    data: &input::SequenceData,
+    engine: &ComputeEngine,
+    scatter_cap: usize,
+) -> (SummaryStats, Vec<(f64, f64)>) {
+    let summary = SummaryStats::new();
+    let n = data.n_unique;
+    let total_pairs = n.saturating_sub(1) * n / 2;
+    let stride = (total_pairs / scatter_cap.max(1)).max(1);
+    let mut scatter = Vec::new();
+    let mut local = stats::FloatAccum::new();
+    let mut k = 0usize;
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let (dn, ds) = engine.compute_slices(
+                &data.unique_codon_indices[i],
+                &data.unique_codon_indices[j],
+            );
+            let ratio = if ds > 0.0 {
+                dn / ds
+            } else if dn > 0.0 {
+                f64::INFINITY
+            } else {
+                f64::NAN
+            };
+            summary.record_pair_atomic(dn, ds, ratio);
+            local.record(dn, ds, ratio);
+            if k.is_multiple_of(stride) && scatter.len() < scatter_cap {
+                scatter.push((dn, ds));
+            }
+            k += 1;
+        }
+    }
+    summary.flush_local(&local);
+    (summary, scatter)
 }
 
 /// Dispatch to the correct output mode based on CLI flags.

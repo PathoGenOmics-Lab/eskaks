@@ -367,6 +367,7 @@ pub fn write_fasta_report(
     summary: Option<&crate::stats::SummaryStats>,
     lineage: Option<&[(String, String, f64)]>,
     group: Option<&[crate::plot::GroupPlotData]>,
+    dn_ds: Option<&[(f64, f64)]>,
 ) -> anyhow::Result<String> {
     use std::sync::atomic::Ordering;
     let output_path = format!("{}_report.html", prefix);
@@ -436,6 +437,20 @@ pub fn write_fasta_report(
             for (i, (label, count)) in h.iter().enumerate() {
                 let c = if i + 1 < h.len() { "," } else { "" };
                 let _ = write!(data, "{{\"label\":\"{}\",\"count\":{}}}{}", esc(label), count, c);
+            }
+            data.push_str("],\n");
+        }
+        _ => data.push_str("null,\n"),
+    }
+
+    // dN vs dS scatter (one point per pair) — a compact [dn, ds] array.
+    data.push_str("\"dnds\":");
+    match dn_ds {
+        Some(pairs) if !pairs.is_empty() => {
+            data.push('[');
+            for (i, (dn, ds)) in pairs.iter().enumerate() {
+                let c = if i + 1 < pairs.len() { "," } else { "" };
+                let _ = write!(data, "[{},{}]{}", num(*dn), num(*ds), c);
             }
             data.push_str("]\n");
         }
@@ -533,6 +548,27 @@ if (DATA.group) {
   box.innerHTML=s.v; wireTip(box);
 }
 
+// ── dN vs dS scatter (one point per pair) ──
+if (DATA.dnds) {
+  const box = addSection("dN vs dS — one point per pair (above the line = dN>dS)", "dndsplot");
+  const pts = DATA.dnds.filter(p=>p[0]!=null && p[1]!=null && isFinite(p[0]) && isFinite(p[1]));
+  const W=560,H=460,ml=64,mr=24,mt=20,mb=54,pw=W-ml-mr,ph=H-mt-mb;
+  const amax=Math.max(0.1, ...pts.map(p=>Math.max(p[0],p[1])))*1.08;
+  const X=v=>ml+v/amax*pw, Y=v=>mt+ph*(1-v/amax);
+  let s=`<svg viewBox="0 0 ${W} ${H}">`;
+  for(let i=0;i<=5;i++){ const val=amax*i/5;
+    s+=`<line x1="${ml}" y1="${Y(val)}" x2="${ml+pw}" y2="${Y(val)}" stroke="var(--border)" stroke-width="0.5"/><text x="${ml-8}" y="${Y(val)}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${val.toFixed(2)}</text>`;
+    s+=`<text x="${X(val)}" y="${mt+ph+16}" font-size="10" fill="var(--muted)" text-anchor="middle">${val.toFixed(2)}</text>`; }
+  // neutral diagonal dN = dS
+  s+=`<line x1="${X(0)}" y1="${Y(0)}" x2="${X(amax)}" y2="${Y(amax)}" stroke="var(--pos)" stroke-width="1" stroke-dasharray="6,3"/><text x="${X(amax)-4}" y="${Y(amax)+14}" font-size="10" fill="var(--pos)" text-anchor="end">dN = dS</text>`;
+  pts.forEach(p=>{ const col=p[0]>p[1]?"var(--pos)":"var(--accent)";
+    s+=`<circle cx="${X(p[1]).toFixed(1)}" cy="${Y(p[0]).toFixed(1)}" r="2.6" fill="${col}" opacity="0.45" data-tip="dN ${fmt(p[0],3)} · dS ${fmt(p[1],3)} · dN/dS ${p[1]>0?fmt(p[0]/p[1],3):'∞'}"/>`; });
+  s+=`<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt+ph}" stroke="var(--fg)"/><line x1="${ml}" y1="${mt+ph}" x2="${ml+pw}" y2="${mt+ph}" stroke="var(--fg)"/>`;
+  s+=`<text x="${ml+pw/2}" y="${H-6}" font-size="12" fill="var(--muted)" text-anchor="middle">dS</text>`;
+  s+=`<text x="16" y="${mt+ph/2}" font-size="12" fill="var(--muted)" text-anchor="middle" transform="rotate(-90,16,${mt+ph/2})">dN</text></svg>`;
+  box.innerHTML=s; wireTip(box);
+}
+
 // ── Pairwise dN/dS distribution ──
 if (DATA.hist) {
   const box = addSection("Pairwise dN/dS distribution", "histplot");
@@ -549,5 +585,5 @@ if (DATA.hist) {
   box.innerHTML=s; wireTip(box);
 }
 
-if(!DATA.lineage && !DATA.group && !DATA.hist){ sec.innerHTML='<p style="color:var(--muted)">Run with --lineage, --group-average, or the default pairwise mode to populate visualizations.</p>'; }
+if(!DATA.lineage && !DATA.group && !DATA.hist && !DATA.dnds){ sec.innerHTML='<p style="color:var(--muted)">No visualizations available for this run.</p>'; }
 "##;

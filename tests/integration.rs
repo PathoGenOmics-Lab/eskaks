@@ -513,6 +513,10 @@ fn fasta_report_writes_lineage_scatter() {
     assert!(html.contains("const DATA ="));
     assert!(html.contains("\"lineage\":["), "lineage data embedded");
     assert!(html.contains("by lineage"), "lineage scatter section");
+    // Multi-panel: the dN-vs-dS scatter and distribution are always present too.
+    assert!(html.contains("\"dnds\":["), "dN-vs-dS scatter data embedded");
+    assert!(html.contains("dN vs dS"), "dN-vs-dS scatter section");
+    assert!(html.contains("distribution"), "distribution section");
     // Self-contained: no external assets.
     assert!(!html.contains("http://") && !html.contains("https://") && !html.contains("cdn"));
     fs::remove_file(format!("{}_report.html", out_prefix)).ok();
