@@ -122,6 +122,13 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         info!("Using genetic code table {}: {}", gc.id, gc.name);
     }
 
+    if !args.kappa.is_finite() || args.kappa <= 0.0 {
+        bail!("--kappa must be a positive, finite number (got {})", args.kappa);
+    }
+    if args.kappa != 1.0 {
+        info!("Using mutation-spectrum-weighted site counting (kappa = {})", args.kappa);
+    }
+
     let ref_path = std::path::Path::new(&args.reference);
     let gff_path = std::path::Path::new(&args.gff);
 
@@ -167,7 +174,8 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     info!("{} SNPs after filtering", snps.len());
 
     // Compute pN/pS
-    let results = vcf_analysis::compute_pn_ps(&reference, &genes, &snps, gc, args.af_weighted);
+    let results =
+        vcf_analysis::compute_pn_ps(&reference, &genes, &snps, gc, args.af_weighted, args.kappa);
 
     // Write results
     let output_path = vcf_analysis::write_results(&results, &args.output, &args.format)?;
@@ -190,6 +198,9 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     let mode = if args.af_weighted { "πN/πS (AF-weighted)" } else { "pN/pS" };
     let ratio_name = if args.af_weighted { "πN/πS" } else { "pN/pS" };
     eprintln!("\n── {} Summary ──────────────────────────", mode);
+    if args.kappa != 1.0 {
+        eprintln!("  Site model:          ts/tv-weighted (kappa = {})", args.kappa);
+    }
     eprintln!("  Genes analyzed:      {}", total_genes);
     eprintln!("  Genes with SNPs:     {}", genes_with_snps);
     eprintln!("  Total synonymous:    {:.2}", total_syn);

@@ -76,13 +76,25 @@ pub struct GenomeWidePnPs {
 ///
 /// If `af_weighted` is true, each SNP contributes its allele frequency to the
 /// syn/nonsyn count instead of 1.0 (πN/πS instead of pN/pS).
+///
+/// `kappa` is the transition/transversion rate ratio used when counting N and S
+/// SITES. At `kappa == 1.0` the classic equal-rates Nei-Gojobori counting is
+/// used unchanged; any other value activates mutation-spectrum-weighted counting
+/// (see [`count_sites_weighted`]). Only the site denominators are affected —
+/// the observed-SNP syn/nonsyn classification (the numerators) is empirical and
+/// never rate-weighted.
 pub fn compute_pn_ps(
     reference: &HashMap<String, Vec<u8>>,
     genes: &[Gene],
     snps: &[VcfSnp],
     gc: &GeneticCode,
     af_weighted: bool,
+    kappa: f64,
 ) -> Vec<GenePnPs> {
+    // kappa == 1 reproduces the original counting byte-for-byte; only a
+    // non-neutral kappa switches to the rate-weighted path. (count_sites_weighted
+    // is provably identical at kappa == 1, so this gate is purely defensive.)
+    let spectrum_weighted = kappa != 1.0;
     // Index SNPs by chromosome and position for fast lookup
     let mut snp_map: HashMap<&str, Vec<&VcfSnp>> = HashMap::new();
     for snp in snps {
@@ -114,7 +126,11 @@ pub fn compute_pn_ps(
         }
 
         // Count S and N sites from reference codons
-        let (n_sites, s_sites) = count_sites(&cds_seq, gc);
+        let (n_sites, s_sites) = if spectrum_weighted {
+            count_sites_weighted(&cds_seq, gc, kappa)
+        } else {
+            count_sites(&cds_seq, gc)
+        };
 
         // Find SNPs that fall within this gene's CDS regions
         // Counts are f64 to support AF-weighted mode (πN/πS)
@@ -419,6 +435,85 @@ fn count_sites(cds: &[u8], gc: &GeneticCode) -> (f64, f64) {
         if valid_changes > 0.0 {
             s_sites += 3.0 * syn as f64 / valid_changes;
             n_sites += 3.0 * nonsyn as f64 / valid_changes;
+        }
+    }
+
+    (n_sites, s_sites)
+}
+
+/// Is the change `from`→`to` a transition (A↔G or C↔T)? Purine↔purine or
+/// pyrimidine↔pyrimidine. Strand-symmetric, so it holds on either strand.
+#[inline]
+fn is_transition(from: u8, to: u8) -> bool {
+    matches!(
+        (from, to),
+        (b'A', b'G') | (b'G', b'A') | (b'C', b'T') | (b'T', b'C')
+    )
+}
+
+/// Count N and S sites with mutation-spectrum weighting by a transition/
+/// transversion rate ratio `kappa`.
+///
+/// This is the mutation-spectrum-aware generalisation of [`count_sites`]: each
+/// candidate single-nucleotide change is weighted by its relative mutation rate
+/// (`kappa` for a transition, `1.0` for a transversion) instead of counting 1.
+/// It uses the *same* codon-level normalisation as [`count_sites`] — each codon
+/// contributes exactly 3 sites, split between S and N by the rate-weighted
+/// synonymous fraction — so at `kappa == 1.0` it reduces to [`count_sites`]
+/// bit-for-bit (the weights become all-1 and the sums equal the plain counts).
+/// Keeping the normalisation identical means `kappa` is the *only* thing that
+/// changes, so the correction is not confounded with a normalisation switch.
+///
+/// Under a transition-biased spectrum (`kappa > 1`), synonymous changes at
+/// 2-fold degenerate sites — reached almost exclusively by transitions — get
+/// up-weighted, so a 2-fold synonymous-transition site moves from `1/3` toward
+/// `kappa/(kappa+2)`. Fully (4-fold) degenerate positions are synonymous for
+/// every change, so they stay `kappa`-invariant. Across the coding genome this
+/// generally raises total S and lowers total N (individual codons can move
+/// either way depending on whether their transition-reachable changes are
+/// mostly synonymous or nonsynonymous).
+fn count_sites_weighted(cds: &[u8], gc: &GeneticCode, kappa: f64) -> (f64, f64) {
+    let mut n_sites = 0.0f64;
+    let mut s_sites = 0.0f64;
+
+    let codons = cds.len() / 3;
+    for i in 0..codons {
+        let codon = [cds[i * 3], cds[i * 3 + 1], cds[i * 3 + 2]];
+        let ref_aa = match codon_to_aa(&codon, gc) {
+            Some(aa) if aa != b'*' => aa,
+            _ => continue, // Skip ambiguous and stop codons
+        };
+
+        // Pool rate-weighted synonymous / total over all three positions of the
+        // codon, exactly as count_sites pools raw counts.
+        let mut syn_rate = 0.0f64;
+        let mut tot_rate = 0.0f64;
+        for pos in 0..3 {
+            for &alt_base in b"ACGT" {
+                if alt_base == codon[pos] {
+                    continue;
+                }
+                let mut alt_codon = codon;
+                alt_codon[pos] = alt_base;
+                if let Some(alt_aa) = codon_to_aa(&alt_codon, gc) {
+                    if alt_aa == b'*' {
+                        continue; // Exclude changes to stop codons
+                    }
+                    let w = if is_transition(codon[pos], alt_base) { kappa } else { 1.0 };
+                    tot_rate += w;
+                    if alt_aa == ref_aa {
+                        syn_rate += w;
+                    }
+                }
+                // Ambiguous alternates are skipped (contribute to neither)
+            }
+        }
+
+        // Each codon contributes exactly 3 sites, split by the rate-weighted
+        // synonymous fraction (reduces to count_sites at kappa == 1.0).
+        if tot_rate > 0.0 {
+            s_sites += 3.0 * syn_rate / tot_rate;
+            n_sites += 3.0 * (tot_rate - syn_rate) / tot_rate;
         }
     }
 
@@ -803,6 +898,79 @@ mod tests {
         // GCT (Ala): 3 syn (GCA,GCC,GCG), 6 nonsyn, 0 stops → N=3*6/9=2, S=3*3/9=1
         assert!(n > 4.5 && n < 5.5, "N_sites: expected ~5.0, got {}", n);
         assert!(s > 0.5 && s < 1.5, "S_sites: expected ~1.0, got {}", s);
+    }
+
+    #[test]
+    fn test_is_transition() {
+        assert!(is_transition(b'A', b'G'));
+        assert!(is_transition(b'G', b'A'));
+        assert!(is_transition(b'C', b'T'));
+        assert!(is_transition(b'T', b'C'));
+        assert!(!is_transition(b'A', b'C')); // transversion
+        assert!(!is_transition(b'A', b'T')); // transversion
+        assert!(!is_transition(b'G', b'T')); // transversion
+    }
+
+    #[test]
+    fn test_weighted_reduces_to_unweighted_at_kappa_1() {
+        let gc = make_gc();
+        // At kappa == 1 the weighted count must equal the unweighted count for
+        // EVERY codon — including stop-adjacent ones (TAC, TCA), where changes
+        // to stop codons are excluded — since both use codon-level pooling.
+        for cds in [
+            &b"ATGGCT"[..],       // Met Ala — no stop-adjacent changes
+            &b"TACTGCTCACAA"[..], // Tyr Cys Ser Gln — TAC/TCA are stop-adjacent
+            &b"TTTTATCATAAT"[..], // Phe Tyr His Asn — 2-fold codons
+        ] {
+            let (n0, s0) = count_sites(cds, gc);
+            let (n1, s1) = count_sites_weighted(cds, gc, 1.0);
+            assert!((n0 - n1).abs() < 1e-9, "N: unweighted {} vs weighted@1 {} for {:?}", n0, n1, cds);
+            assert!((s0 - s1).abs() < 1e-9, "S: unweighted {} vs weighted@1 {} for {:?}", s0, s1, cds);
+        }
+    }
+
+    #[test]
+    fn test_weighted_two_fold_site_follows_kappa_formula() {
+        let gc = make_gc();
+        // TTT = Phe. Only the 3rd position is (partly) synonymous: TTC (Phe) is a
+        // transition (T->C); TTA/TTG (Leu) are transversions. Positions 1 and 2
+        // are fully nonsynonymous with no stop changes.
+        // So S = kappa/(kappa+2), N = 3 - S, for any kappa.
+        for &k in &[0.5f64, 1.0, 2.0, 5.0] {
+            let (n, s) = count_sites_weighted(b"TTT", gc, k);
+            let expected_s = k / (k + 2.0);
+            assert!((s - expected_s).abs() < 1e-9, "kappa={}: S expected {}, got {}", k, expected_s, s);
+            assert!((n - (3.0 - expected_s)).abs() < 1e-9, "kappa={}: N expected {}, got {}", k, 3.0 - expected_s, n);
+        }
+    }
+
+    #[test]
+    fn test_weighted_four_fold_site_is_kappa_invariant() {
+        let gc = make_gc();
+        // GCT = Ala, GCN all Ala: the 3rd position is 4-fold degenerate, so it is
+        // fully synonymous regardless of ts/tv weighting. Its synonymous-site
+        // contribution must be exactly 1.0 for every kappa.
+        let s_at = |k: f64| count_sites_weighted(b"GCT", gc, k).1;
+        let base = s_at(1.0);
+        for &k in &[0.5f64, 2.0, 10.0] {
+            assert!((s_at(k) - base).abs() < 1e-9, "4-fold S must be kappa-invariant (k={})", k);
+        }
+        // GCT: pos1 & pos2 fully nonsyn, pos3 fully syn → S == 1.0 exactly.
+        assert!((base - 1.0).abs() < 1e-9, "GCT S should be 1.0, got {}", base);
+    }
+
+    #[test]
+    fn test_weighted_transition_bias_raises_s_lowers_n() {
+        let gc = make_gc();
+        // Across a mixed CDS, kappa>1 must raise total S and lower total N
+        // relative to the equal-rates count (the whole point of the correction).
+        let cds = b"TTTGCTAAACGT"; // Phe Ala Lys Arg
+        let (n1, s1) = count_sites_weighted(cds, gc, 1.0);
+        let (n5, s5) = count_sites_weighted(cds, gc, 5.0);
+        assert!(s5 > s1, "S should rise with kappa: {} -> {}", s1, s5);
+        assert!(n5 < n1, "N should fall with kappa: {} -> {}", n1, n5);
+        // Sites are conserved: each position is exactly one site.
+        assert!((n1 + s1 - (n5 + s5)).abs() < 1e-9, "total sites must be kappa-invariant");
     }
 
     #[test]

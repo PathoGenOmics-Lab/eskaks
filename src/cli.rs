@@ -146,6 +146,14 @@ pub struct VcfArgs {
     #[arg(long)]
     pub af_weighted: bool,
 
+    /// Transition/transversion rate ratio (kappa) for mutation-spectrum-aware
+    /// counting of synonymous vs nonsynonymous SITES. kappa > 1 up-weights
+    /// transitions (A<->G, C<->T), correcting the equal-rates (Nei-Gojobori)
+    /// bias that understates pN/pS under a transition-skewed spectrum such as
+    /// M. tuberculosis. The default 1.0 is the classic equal-rates counting.
+    #[arg(long, default_value_t = 1.0)]
+    pub kappa: f64,
+
     /// Generate SVG Manhattan-style plot of pN/pS per gene
     #[arg(long)]
     pub plot: bool,
