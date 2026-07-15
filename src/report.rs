@@ -195,6 +195,7 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:20px;margin-bottom:24px}
 section{margin-bottom:8px}
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+.panel.wide{grid-column:1 / -1}
 h2{font-size:1rem;margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
 .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
 button.tog,button.btn{background:var(--card);border:1px solid var(--border);color:var(--fg);
@@ -228,6 +229,15 @@ details.methods{margin:8px 0 20px;border:1px solid var(--border);border-radius:1
 details.methods summary{cursor:pointer;padding:10px 14px;font-weight:600}
 details.methods .body{padding:0 14px 12px;font-size:.82rem;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap}
 .chip{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:3px 10px}
+.census{display:flex;gap:8px;flex-wrap:wrap}
+.chip.regime{cursor:pointer;color:var(--fg);display:inline-flex;align-items:center;gap:6px;font-size:.82rem}
+.chip.regime i{width:11px;height:11px;border-radius:50%;display:inline-block}
+.chip.regime.on{border-color:var(--accent);background:var(--card)}
+.chip.regime b{font-variant-numeric:tabular-nums}
+.candlist{margin-top:8px;font-size:.82rem;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.cand{cursor:pointer;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:2px 7px}
+.cand:hover{border-color:var(--sel)}
+.cand small{color:var(--muted)}
 footer{color:var(--muted);font-size:.75rem;margin-top:24px;text-align:center}
 .muted{color:var(--muted);font-size:.85rem}
 circle.mark{cursor:pointer}
@@ -280,6 +290,10 @@ const RE_QUAR = /(PE_PGRS|PPE|^PE|PE\d|PPE\d|PGRS|maturase|transpos|IS6110)/i;
 const sigVal = g => stringency==="q" ? g.q : g.bonf;
 const isSig  = g => { const v=sigVal(g); return v!=null && isFinite(v) && v < M.fdr; };
 const quar   = g => RE_QUAR.test(g.name||"");
+// Selection regime from polymorphism + significance.
+function regime(g){ if(!isSig(g)) return "neutral"; if(g.ratio!=null&&isFinite(g.ratio)&&g.ratio>1) return "positive"; return "purifying"; }
+const REGIMES = {positive:"var(--pos)", purifying:"var(--accent)", neutral:"var(--ns)"};
+let regimeFilter = null;   // regime name to filter the table by, or null
 
 // ── Meta + cards + methods ────────────────────────────────────────────
 $("#meta").textContent =
@@ -347,7 +361,7 @@ const log2c = (v,lo,hi) => v==null||!isFinite(v)?null : Math.max(lo,Math.min(hi,
 function panelManhattan(){
   const thr = pThreshold();
   const yv = g => metric==="ratio" ? g.ratio : -Math.log10(Math.max(g.p,1e-300));
-  return {title:"Manhattan",
+  return {title:"Manhattan", span:true,
     toolbar:`<button class="tog ${metric==='neglogp'?'on':''}" data-act="metric" data-v="neglogp">−log10(p)</button><button class="tog ${metric==='ratio'?'on':''}" data-act="metric" data-v="ratio">pN/pS</button>`,
     legend:`<span><i style="background:var(--sig)"></i>significant</span><span><i style="background:var(--ns)"></i>not sig.</span>`,
     svg: scatter({rows:genes.filter(g=> metric==="ratio"?(g.ratio!=null&&isFinite(g.ratio)&&g.total>0):(g.p!=null&&isFinite(g.p))),
@@ -416,31 +430,51 @@ function panelDist(){
 const hasDiv = genes.some(g=>g.div!=null&&isFinite(g.div));
 function panelRecon(){
   const rows=genes.filter(g=>g.div!=null&&isFinite(g.div)&&g.ratio!=null&&isFinite(g.ratio));
-  return {title:`Polymorphism vs divergence (${rows.length} genes matched)`,
-    legend:`<span>y&gt;1&amp;x&lt;1 → past positive (fixed) · both&gt;1 → diversifying · both&lt;1 → purifying · x&gt;1&amp;y&lt;1 → relaxed/recent</span>`,
+  const pastPos=rows.filter(g=>g.div>1&&g.ratio<1).sort((a,b)=>b.div-a.div);
+  const cand = pastPos.length
+    ? `<div class="candlist"><b>Past-positive candidates</b> (dN/dS&gt;1, pN/pS&lt;1) — `+
+      pastPos.slice(0,15).map(g=>`<span class="cand" data-i="${g._i}">${g.name} <small>${fmt(g.div,2)}/${fmt(g.ratio,2)}</small></span>`).join("")+
+      (pastPos.length>15?`<span class="muted">+${pastPos.length-15} more</span>`:"")+`</div>`
+    : `<div class="candlist muted">No past-positive candidates in this set.</div>`;
+  return {title:`Polymorphism vs divergence (${rows.length} genes matched)`, span:true,
+    legend:`<span><i style="background:var(--pos)"></i>past positive (fixed)</span><span><i style="background:var(--s3)"></i>diversifying</span><span><i style="background:var(--ns)"></i>purifying</span><span><i style="background:var(--accent)"></i>relaxed/recent</span>`,
+    extra: cand,
     svg: scatter({rows, x:g=>g.ratio, y:g=>g.div, xlabel:"pN/pS (within-sample polymorphism)", ylabel:"dN/dS (divergence)",
       color:g=>{ const x=g.ratio,y=g.div; if(y>1&&x<1)return"var(--pos)"; if(x>1&&y>1)return"var(--s3)"; if(x>1&&y<1)return"var(--accent)"; return"var(--ns)"; },
-      size:rSize, tip:g=>`<b>${g.name}</b><br>pN/pS ${fmt(g.ratio,3)} · dN/dS ${fmt(g.div,3)}<br>${g.nonsyn}N/${g.syn}S SNPs`,
+      size:g=>{ const base=rSize(g); return (g.div>1&&g.ratio<1)?base+1.5:base; },
+      tip:g=>`<b>${g.name}</b><br>pN/pS ${fmt(g.ratio,3)} · dN/dS ${fmt(g.div,3)}<br>${g.nonsyn}N/${g.syn}S SNPs`,
       refs:[{diag:true,label:"concordance",c:"var(--line)"},{x:1,label:"pN/pS=1",c:"var(--pos)"},{y:1,label:"dN/dS=1",c:"var(--pos)"}]})};
+}
+// ── Selection-regime census (click a regime to filter the table) ──────
+function panelCensus(){
+  const counts={positive:0,purifying:0,neutral:0}; genes.forEach(g=>counts[regime(g)]++);
+  const chip=(k,n)=>`<button class="chip regime ${regimeFilter===k?'on':''}" data-regime="${k}"><i style="background:${REGIMES[k]}"></i>${k} <b>${n}</b></button>`;
+  const all=`<button class="chip regime ${regimeFilter==null?'on':''}" data-regime="">all <b>${genes.length}</b></button>`;
+  return {title:"Selection regimes", span:true,
+    legend:`<span>click a regime to filter the table below</span>`,
+    extra:`<div class="census">${all}${chip("positive",counts.positive)}${chip("purifying",counts.purifying)}${chip("neutral",counts.neutral)}</div>`,
+    svg:""};
 }
 
 // ── Render all panels ─────────────────────────────────────────────────
 function renderPanels(){
-  const P=[panelManhattan(),panelVolcano()];
+  const P=[panelCensus(),panelManhattan(),panelVolcano()];
   if(M.mk) P.push(panelMK());
   if(hasDiv) P.push(panelRecon());
   P.push(panelFunnel(),panelObsExp());
   const d=panelDist(); if(d) P.push(d);
-  $("#panels").innerHTML = P.map(p=>`<section class="panel"><h2>${p.title}</h2>${p.toolbar?`<div class="toolbar">${p.toolbar}</div>`:""}<div>${p.svg}</div>${p.legend?`<div class="legend">${p.legend}</div>`:""}</section>`).join("");
+  $("#panels").innerHTML = P.map(p=>`<section class="panel${p.span?' wide':''}"><h2>${p.title}</h2>${p.toolbar?`<div class="toolbar">${p.toolbar}</div>`:""}${p.svg?`<div>${p.svg}</div>`:""}${p.legend?`<div class="legend">${p.legend}</div>`:""}${p.extra||""}</section>`).join("");
 }
-// Manhattan is wide → make its panel span the grid.
-function fixSpans(){ const first=$("#panels").firstElementChild; if(first) first.style.gridColumn="1 / -1"; }
+function fixSpans(){}  // wide panels now use the .wide class
 
 // ── Interaction: hover tooltip + click-to-select (delegated) ──────────
 $("#panels").addEventListener("mousemove", e=>{ const t=e.target;
   if(t.classList&&t.classList.contains("mark")){ tip.innerHTML=t.dataset.tip; tip.style.opacity=1; tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY+12)+"px"; } else tip.style.opacity=0; });
 $("#panels").addEventListener("mouseleave", ()=>tip.style.opacity=0);
-$("#panels").addEventListener("click", e=>{ const t=e.target; if(t.classList&&t.classList.contains("mark")) selectGene(+t.dataset.i); });
+$("#panels").addEventListener("click", e=>{ const t=e.target;
+  if(t.classList&&t.classList.contains("mark")){ selectGene(+t.dataset.i); return; }
+  const cand=t.closest&&t.closest(".cand"); if(cand){ selectGene(+cand.dataset.i); return; }
+  const chip=t.closest&&t.closest(".chip.regime"); if(chip){ regimeFilter=chip.dataset.regime||null; renderPanels(); fixSpans(); renderTable(); } });
 
 function selectGene(i){ selected = (selected===i)?null:i; renderPanels(); fixSpans(); renderTable();
   if(selected!=null){ const row=document.querySelector(`#tbl tbody tr[data-i="${selected}"]`); if(row) row.scrollIntoView({block:"nearest"}); } }
@@ -460,8 +494,7 @@ function cellText(g,k){
   return pcols.has(k)?fmtP(v):fmt(v,(k==="ratio"||k==="ni"||k==="alpha"||k==="pn"||k==="ps"||k==="expN")?4:2);
 }
 function renderTable(){
-  const f=($("#search").value||"").toLowerCase();
-  let rows=genes.filter(g=>!f||g.name.toLowerCase().includes(f)||(g.chrom||"").toLowerCase().includes(f));
+  let rows=filtered();
   rows.sort((a,b)=>{ let x=a[sortKey],y=b[sortKey]; const xn=(x==null||(typeof x==="number"&&!isFinite(x))),yn=(y==null||(typeof y==="number"&&!isFinite(y)));
     if(xn&&yn)return 0; if(xn)return 1; if(yn)return -1;
     if(typeof x==="string")return sortDesc?y.localeCompare(x):x.localeCompare(y); return sortDesc?y-x:x-y; });
@@ -489,7 +522,8 @@ $("#themeTog").addEventListener("click", ()=>{ const r=document.documentElement;
   r.setAttribute("data-theme", cur==="dark"?"light":"dark"); });
 
 // ── Export CSV / JSON of the filtered view ────────────────────────────
-function filtered(){ const f=($("#search").value||"").toLowerCase(); return genes.filter(g=>!f||g.name.toLowerCase().includes(f)||(g.chrom||"").toLowerCase().includes(f)); }
+function filtered(){ const f=($("#search").value||"").toLowerCase();
+  return genes.filter(g=>(!f||g.name.toLowerCase().includes(f)||(g.chrom||"").toLowerCase().includes(f)) && (!regimeFilter||regime(g)===regimeFilter)); }
 function dl(name,txt,type){ const b=new Blob([txt],{type}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href); }
 $("#expCsv").addEventListener("click", ()=>{ const keys=cols.map(c=>c[0]).filter(k=>k!=="dir");
   const head=keys.join(","); const body=filtered().map(g=>keys.map(k=>{const v=g[k];return v==null||(typeof v==="number"&&!isFinite(v))?"NA":v;}).join(",")).join("\n");
