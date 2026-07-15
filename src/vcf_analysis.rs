@@ -159,7 +159,15 @@ pub fn compute_pn_ps(
             let mut local_mismatch = 0usize;
 
             if let Some(snps_list) = chrom_snps {
-                for snp in snps_list.iter() {
+                // SNPs are position-sorted, so binary-search the gene's genomic
+                // span instead of scanning the whole chromosome for every gene
+                // (O(S + G·log S) rather than O(G·S)). genomic_to_cds_offset
+                // still filters precisely per exon, so results are byte-identical.
+                let lo = gene.exons.iter().map(|e| e.start).min().unwrap_or(gene.start);
+                let hi = gene.exons.iter().map(|e| e.end).max().unwrap_or(gene.start);
+                let from = snps_list.partition_point(|s| s.pos < lo);
+                let to = snps_list.partition_point(|s| s.pos <= hi);
+                for snp in &snps_list[from..to] {
                     // Check if this SNP falls within any exon of this gene
                     if let Some(cds_offset) = genomic_to_cds_offset(gene, snp.pos) {
                         let codon_idx = cds_offset / 3;

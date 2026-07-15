@@ -6,6 +6,7 @@
 
 use anyhow::Context;
 use log::warn;
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -265,12 +266,21 @@ pub fn merge_vcfs(
     // Track depth sums for averaging
     let mut depth_sums: HashMap<(String, usize), (u32, u32)> = HashMap::new(); // (sum, count)
 
-    for (i, path) in vcf_paths.iter().enumerate() {
-        let snps = parse_vcf(std::path::Path::new(path))?;
-        let snps = filter_snps(snps, pass_only, None, None, min_depth);
-        log::info!("  Sample {}/{}: {} — {} SNPs", i + 1, vcf_paths.len(), path, snps.len());
+    // Parse + filter every VCF in parallel (the expensive, I/O-bound step). The
+    // map reduction below stays serial and is order-independent (AF = count /
+    // n_samples), so the merged result is deterministic regardless of threads.
+    let per_file: Vec<Vec<VcfSnp>> = vcf_paths
+        .par_iter()
+        .map(|path| {
+            let snps = parse_vcf(std::path::Path::new(path))?;
+            Ok(filter_snps(snps, pass_only, None, None, min_depth))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    for (i, snps) in per_file.into_iter().enumerate() {
+        log::info!("  Sample {}/{}: {} — {} SNPs", i + 1, vcf_paths.len(), vcf_paths[i], snps.len());
         if snps.is_empty() {
-            warn!("Sample {} contributed 0 SNPs (empty or fully filtered); skipping", path);
+            warn!("Sample {} contributed 0 SNPs (empty or fully filtered); skipping", vcf_paths[i]);
         }
 
         for snp in snps {
