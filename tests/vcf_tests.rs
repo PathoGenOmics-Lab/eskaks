@@ -527,6 +527,25 @@ fn vcf_invalid_fdr_rejected() {
 }
 
 #[test]
+fn vcf_plot_creates_pvalue_manhattan() {
+    let out_prefix = "/tmp/eskaks_test_vcf_pvplot";
+    let status = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF, "-o", out_prefix, "--plot",
+        ])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let svg = format!("{}_pvalue_manhattan.svg", out_prefix);
+    let content = fs::read_to_string(&svg).unwrap_or_else(|_| panic!("no SVG at {}", svg));
+    assert!(content.contains("<svg"));
+    assert!(content.contains("log10"), "should be a -log10(p) plot");
+    fs::remove_file(&svg).ok();
+    fs::remove_file(format!("{}_pnps_manhattan.svg", out_prefix)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
 fn vcf_mk_writes_table_and_stats() {
     let out_prefix = "/tmp/eskaks_test_vcf_mk";
     let output = Command::new(binary_path())

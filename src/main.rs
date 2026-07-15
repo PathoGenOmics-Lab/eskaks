@@ -320,10 +320,12 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         info!("McDonald-Kreitman results saved to {}", mk_path);
     }
 
-    // Generate plot if requested
+    // Generate plots if requested
     if args.plot {
         let plot_path = vcf_analysis::write_pnps_plot(&results, &args.output, args.fdr)?;
         info!("Plot saved to {}", plot_path);
+        let pv_path = vcf_analysis::write_pvalue_manhattan(&results, &args.output, args.fdr)?;
+        info!("p-value Manhattan saved to {}", pv_path);
     }
 
     // Print summary statistics
