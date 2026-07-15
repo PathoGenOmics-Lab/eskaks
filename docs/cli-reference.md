@@ -44,6 +44,9 @@ eskaks fasta <INPUT_FILE> [OPTIONS]
 | `--window-step <N>` | Window step size | `1` |
 | `--min-codons <N>` | Filter sequences with < N valid codons | `0` |
 | `--summary` | Print summary statistics to stderr | off |
+| `--neutrality` | Write a per-pair Nei-Gojobori neutrality test (`<output>_pairwise_tests`): dN, dS, SEs, Z, p-value (Nei only) | off |
+| `--bootstrap <N>` | Per-pair 95% bootstrap CIs on dN, dS, dN/dS (`<output>_pairwise_bootstrap`); resamples codons, works for both models | `0` |
+| `--seed <N>` | Seed for reproducible bootstrap resampling | `42` |
 | `--plot` | Generate SVG plot(s) | off |
 
 ### Examples

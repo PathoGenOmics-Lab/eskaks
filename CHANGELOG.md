@@ -36,8 +36,14 @@ All notable changes to this project will be documented in this file.
 - **Nei-Gojobori analytic variance + Z-test** (`eskaks fasta --neutrality`):
   writes `<output>_pairwise_tests` with dN, dS, their standard errors, the NG
   neutrality Z statistic, and a two-sided p-value (Nei model; NaN for Li).
-- **Bootstrap 95% CI** for the genome-wide pooled pN/pS (`--bootstrap`,
+- **Bootstrap 95% CI** for the genome-wide pooled pN/pS (`eskaks vcf --bootstrap`,
   `--seed`), by resampling genes with replacement.
+- **Per-pair bootstrap CIs** for the fasta path (`eskaks fasta --bootstrap`):
+  95% CIs on dN, dS, and dN/dS by resampling codon columns — model-agnostic, so
+  it covers the Li model too (`<output>_pairwise_bootstrap`).
+- **−log10(p) Manhattan plot** (`eskaks vcf --plot` also writes
+  `<prefix>_pvalue_manhattan.svg`): genome-position significance scan with a
+  Benjamini-Hochberg line at `--fdr` and significant genes highlighted.
 
 ### Performance
 - `eskaks vcf` scales to large genomes and cohorts: the per-gene SNP scan is
