@@ -1297,11 +1297,11 @@ mod tests {
     fn test_codon_to_aa() {
         let gc = make_gc();
         // ATG = Met
-        assert_eq!(codon_to_aa(&[b'A', b'T', b'G'], gc), Some(b'M'));
+        assert_eq!(codon_to_aa(b"ATG", gc), Some(b'M'));
         // TAA = Stop
-        assert_eq!(codon_to_aa(&[b'T', b'A', b'A'], gc), Some(b'*'));
+        assert_eq!(codon_to_aa(b"TAA", gc), Some(b'*'));
         // GCT = Ala
-        assert_eq!(codon_to_aa(&[b'G', b'C', b'T'], gc), Some(b'A'));
+        assert_eq!(codon_to_aa(b"GCT", gc), Some(b'A'));
     }
 
     #[test]

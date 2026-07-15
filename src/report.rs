@@ -290,9 +290,12 @@ const RE_QUAR = /(PE_PGRS|PPE|^PE|PE\d|PPE\d|PGRS|maturase|transpos|IS6110)/i;
 const sigVal = g => stringency==="q" ? g.q : g.bonf;
 const isSig  = g => { const v=sigVal(g); return v!=null && isFinite(v) && v < M.fdr; };
 const quar   = g => RE_QUAR.test(g.name||"");
-// Selection regime from polymorphism + significance.
-function regime(g){ if(!isSig(g)) return "neutral"; if(g.ratio!=null&&isFinite(g.ratio)&&g.ratio>1) return "positive"; return "purifying"; }
-const REGIMES = {positive:"var(--pos)", purifying:"var(--accent)", neutral:"var(--ns)"};
+// Selection regime from polymorphism + significance. Genes that fail the test are
+// "not significant" (underpowered) — NOT asserted neutral: they may still be under
+// selection but lack the SNPs to reject H0.
+function regime(g){ if(!isSig(g)) return "ns"; if(g.ratio!=null&&isFinite(g.ratio)&&g.ratio>1) return "positive"; return "purifying"; }
+const REGIMES = {positive:"var(--pos)", purifying:"var(--accent)", ns:"var(--ns)"};
+const RLAB = {positive:"positive", purifying:"purifying", ns:"not significant"};
 let regimeFilter = null;   // regime name to filter the table by, or null
 
 // ── Meta + cards + methods ────────────────────────────────────────────
@@ -332,7 +335,7 @@ function scatter(cfg){
   if(!rows.length) return '<p class="muted">no data for this panel</p>';
   let xs=rows.map(cfg.x), ys=rows.map(cfg.y);
   let xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
-  (cfg.refs||[]).forEach(r=>{ if(r.x!=null){xmin=Math.min(xmin,r.x);xmax=Math.max(xmax,r.x);} if(r.y!=null){ymin=Math.min(ymin,r.y);ymax=Math.max(ymax,r.y);} });
+  (cfg.refs||[]).forEach(r=>{ if(r.x!=null&&isFinite(r.x)){xmin=Math.min(xmin,r.x);xmax=Math.max(xmax,r.x);} if(r.y!=null&&isFinite(r.y)){ymin=Math.min(ymin,r.y);ymax=Math.max(ymax,r.y);} });
   if(cfg.y0) ymin=Math.min(ymin,0);
   const xr=(xmax-xmin)||1, yr=(ymax-ymin)||1; xmin-=xr*0.04;xmax+=xr*0.04;ymin-=yr*0.04;ymax+=yr*0.08;
   const X=v=>ml+(v-xmin)/(xmax-xmin)*pw, Y=v=>mt+ph*(1-(v-ymin)/(ymax-ymin));
@@ -342,6 +345,7 @@ function scatter(cfg){
     s+=`<text x="${ml-8}" y="${Y(yv).toFixed(1)}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${(cfg.yfmt||(v=>v.toFixed(2)))(yv)}</text>`;
     s+=`<text x="${X(xv).toFixed(1)}" y="${mt+ph+16}" font-size="10" fill="var(--muted)" text-anchor="middle">${(cfg.xfmt||(v=>v.toFixed(2)))(xv)}</text>`; }
   (cfg.refs||[]).forEach(r=>{ const c=r.c||"var(--line)";
+    if(r.x!=null&&!isFinite(r.x)) return; if(r.y!=null&&!isFinite(r.y)) return;
     if(r.diag){ s+=`<line x1="${X(Math.max(xmin,ymin)).toFixed(1)}" y1="${Y(Math.max(xmin,ymin)).toFixed(1)}" x2="${X(Math.min(xmax,ymax)).toFixed(1)}" y2="${Y(Math.min(xmax,ymax)).toFixed(1)}" stroke="${c}" stroke-width="1" stroke-dasharray="6,3"/>`; }
     else if(r.x!=null){ s+=`<line x1="${X(r.x).toFixed(1)}" y1="${mt}" x2="${X(r.x).toFixed(1)}" y2="${mt+ph}" stroke="${c}" stroke-width="1" stroke-dasharray="6,3"/>`; if(r.label) s+=`<text x="${X(r.x).toFixed(1)}" y="${mt+10}" font-size="9" fill="${c}" text-anchor="middle">${r.label}</text>`; }
     else if(r.y!=null){ s+=`<line x1="${ml}" y1="${Y(r.y).toFixed(1)}" x2="${ml+pw}" y2="${Y(r.y).toFixed(1)}" stroke="${c}" stroke-width="1" stroke-dasharray="6,3"/>`; if(r.label) s+=`<text x="${ml+pw}" y="${(Y(r.y)-4).toFixed(1)}" font-size="9" fill="${c}" text-anchor="end">${r.label}</text>`; } });
@@ -368,7 +372,7 @@ function panelManhattan(){
       W:900,x:g=>g.start,y:yv,xlabel:"genome position",ylabel:metric==="ratio"?"pN/pS":"−log10(p)",
       xfmt:v=>Math.round(v),color:g=>isSig(g)?"var(--sig)":(metric==="ratio"?(g.ratio<1?"var(--accent)":"var(--pos)"):"var(--ns)"),
       size:rSize,tip:baseTip,
-      refs: metric==="ratio"?[{y:1,label:"pN/pS = 1",c:"var(--pos)"}]:(thr!=null?[{y:-Math.log10(thr),label:(stringency==="q"?"BH":"Bonf")+" "+M.fdr,c:"var(--line)"}]:[])})};
+      refs: metric==="ratio"?[{y:1,label:"pN/pS = 1",c:"var(--muted)"}]:(thr!=null?[{y:-Math.log10(Math.max(thr,1e-300)),label:(stringency==="q"?"BH":"Bonf")+" "+M.fdr,c:"var(--line)"}]:[])})};
 }
 // ── Volcano ───────────────────────────────────────────────────────────
 function panelVolcano(){
@@ -379,7 +383,7 @@ function panelVolcano(){
       x:g=>log2c(g.ratio,-6,6), y:g=>-Math.log10(Math.max(g.p,1e-300)),
       xlabel:"log2(pN/pS)  ←purifying · positive→", ylabel:"−log10(p)",
       color:sigColor,size:rSize,tip:baseTip,y0:true,
-      refs:[{x:0,label:"pN/pS=1",c:"var(--pos)"}].concat(thr!=null?[{y:-Math.log10(thr),label:(stringency==="q"?"BH":"Bonf"),c:"var(--line)"}]:[])})};
+      refs:[{x:0,label:"pN/pS=1",c:"var(--muted)"}].concat(thr!=null?[{y:-Math.log10(Math.max(thr,1e-300)),label:(stringency==="q"?"BH":"Bonf"),c:"var(--line)"}]:[])})};
 }
 // ── Power funnel ──────────────────────────────────────────────────────
 function panelFunnel(){
@@ -388,17 +392,17 @@ function panelFunnel(){
     svg: scatter({rows:genes.filter(g=>g.total>0&&g.ratio!=null&&isFinite(g.ratio)),
       x:g=>Math.log10(g.total),y:g=>g.ratio,xlabel:"total SNPs (log10)",ylabel:"pN/pS",
       xfmt:v=>Math.round(Math.pow(10,v)),color:g=>isSig(g)?"var(--sig)":(g.ratio<1?"var(--accent)":"var(--pos)"),size:rSize,tip:baseTip,y0:true,
-      refs:[{y:1,label:"pN/pS=1",c:"var(--pos)"},{y:S.gwRatio,label:"pooled",c:"var(--line)"}].concat(M.minSnps>1?[{x:Math.log10(M.minSnps),label:"min-snps",c:"var(--muted)"}]:[])})};
+      refs:[{y:1,label:"pN/pS=1",c:"var(--muted)"},{y:S.gwRatio,label:"pooled",c:"var(--line)"}].concat(M.minSnps>1?[{x:Math.log10(M.minSnps),label:"min-snps",c:"var(--muted)"}]:[])})};
 }
 // ── Observed vs expected nonsyn fraction ──────────────────────────────
 function panelObsExp(){
   return {title:"Observed vs expected N-fraction",
-    legend:`<span>above the line → diversifying · below → purifying</span>`,
+    legend:`<span><i style="background:var(--pos)"></i>sig. above (diversifying)</span><span><i style="background:var(--accent)"></i>sig. below (purifying)</span><span><i style="background:var(--ns)"></i>not significant</span>`,
     svg: scatter({rows:genes.filter(g=>g.total>0&&g.expN!=null&&isFinite(g.expN)),
       x:g=>g.expN,y:g=>g.nonsyn/g.total,xlabel:"expected N-fraction  N/(N+S)",ylabel:"observed nonsyn / total",
       color:g=>{ if(!isSig(g))return"var(--ns)"; return (g.nonsyn/g.total)>g.expN?"var(--pos)":"var(--accent)"; },
       size:rSize,tip:g=>baseTip(g)+`<br>exp N-frac ${fmt(g.expN,3)} · obs ${fmt(g.nonsyn/g.total,3)}`,
-      refs:[{diag:true,label:"neutral",c:"var(--pos)"}]})};
+      refs:[{diag:true,label:"neutral",c:"var(--muted)"}]})};
 }
 // ── MK volcano (if --mk) ──────────────────────────────────────────────
 function panelMK(){
@@ -419,7 +423,8 @@ function panelDist(){
   const cmax=Math.max(1,...counts),W=520,H=300,ml=54,mr=18,mt=16,mb=54,pw=W-ml-mr,ph=H-mt-mb,bw=pw/counts.length;
   let s=`<svg viewBox="0 0 ${W} ${H}">`;
   for(let i=0;i<=4;i++){ const v=cmax*i/4,y=mt+ph*(1-i/4); s+=`<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="var(--grid)" stroke-width="0.5"/><text x="${ml-8}" y="${y}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${Math.round(v)}</text>`; }
-  counts.forEach((c,i)=>{ const x=ml+i*bw+3,bh=ph*c/cmax,y=mt+ph-bh,col=edges[i]>=1?"var(--pos)":"var(--accent)";
+  counts.forEach((c,i)=>{ const x=ml+i*bw+3,bh=ph*c/cmax,y=mt+ph-bh,
+    col=edges[i]>=1?(edges[i]<1.5?"var(--ns)":"var(--pos)"):"var(--accent)";   // bin straddling pN/pS=1 shown neutral
     s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-6).toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${col}" opacity="0.85"/>`;
     s+=`<text x="${(x+(bw-6)/2).toFixed(1)}" y="${mt+ph+16}" font-size="9" fill="var(--muted)" text-anchor="middle">${labels[i]}</text>`; });
   s+=`<text x="${ml+pw/2}" y="${H-6}" font-size="11" fill="var(--muted)" text-anchor="middle">pN/pS</text></svg>`;
@@ -437,22 +442,22 @@ function panelRecon(){
       (pastPos.length>15?`<span class="muted">+${pastPos.length-15} more</span>`:"")+`</div>`
     : `<div class="candlist muted">No past-positive candidates in this set.</div>`;
   return {title:`Polymorphism vs divergence (${rows.length} genes matched)`, span:true,
-    legend:`<span><i style="background:var(--pos)"></i>past positive (fixed)</span><span><i style="background:var(--s3)"></i>diversifying</span><span><i style="background:var(--ns)"></i>purifying</span><span><i style="background:var(--accent)"></i>relaxed/recent</span>`,
+    legend:`<span><i style="background:var(--pos)"></i>past positive (fixed)</span><span><i style="background:var(--s3)"></i>diversifying</span><span><i style="background:var(--s7)"></i>relaxed/recent</span><span><i style="background:var(--accent)"></i>purifying</span>`,
     extra: cand,
     svg: scatter({rows, x:g=>g.ratio, y:g=>g.div, xlabel:"pN/pS (within-sample polymorphism)", ylabel:"dN/dS (divergence)",
-      color:g=>{ const x=g.ratio,y=g.div; if(y>1&&x<1)return"var(--pos)"; if(x>1&&y>1)return"var(--s3)"; if(x>1&&y<1)return"var(--accent)"; return"var(--ns)"; },
+      color:g=>{ const x=g.ratio,y=g.div; if(y>1&&x<1)return"var(--pos)"; if(x>1&&y>1)return"var(--s3)"; if(x>1&&y<1)return"var(--s7)"; return"var(--accent)"; },
       size:g=>{ const base=rSize(g); return (g.div>1&&g.ratio<1)?base+1.5:base; },
       tip:g=>`<b>${g.name}</b><br>pN/pS ${fmt(g.ratio,3)} · dN/dS ${fmt(g.div,3)}<br>${g.nonsyn}N/${g.syn}S SNPs`,
-      refs:[{diag:true,label:"concordance",c:"var(--line)"},{x:1,label:"pN/pS=1",c:"var(--pos)"},{y:1,label:"dN/dS=1",c:"var(--pos)"}]})};
+      refs:[{diag:true,label:"concordance",c:"var(--line)"},{x:1,label:"pN/pS=1",c:"var(--muted)"},{y:1,label:"dN/dS=1",c:"var(--muted)"}]})};
 }
 // ── Selection-regime census (click a regime to filter the table) ──────
 function panelCensus(){
-  const counts={positive:0,purifying:0,neutral:0}; genes.forEach(g=>counts[regime(g)]++);
-  const chip=(k,n)=>`<button class="chip regime ${regimeFilter===k?'on':''}" data-regime="${k}"><i style="background:${REGIMES[k]}"></i>${k} <b>${n}</b></button>`;
+  const counts={positive:0,purifying:0,ns:0}; genes.forEach(g=>counts[regime(g)]++);
+  const chip=(k,n)=>`<button class="chip regime ${regimeFilter===k?'on':''}" data-regime="${k}"><i style="background:${REGIMES[k]}"></i>${RLAB[k]} <b>${n}</b></button>`;
   const all=`<button class="chip regime ${regimeFilter==null?'on':''}" data-regime="">all <b>${genes.length}</b></button>`;
   return {title:"Selection regimes", span:true,
-    legend:`<span>click a regime to filter the table below</span>`,
-    extra:`<div class="census">${all}${chip("positive",counts.positive)}${chip("purifying",counts.purifying)}${chip("neutral",counts.neutral)}</div>`,
+    legend:`<span>click a regime to filter the table below · "not significant" = insufficient SNPs to reject neutrality (may still be selected)</span>`,
+    extra:`<div class="census">${all}${chip("positive",counts.positive)}${chip("purifying",counts.purifying)}${chip("ns",counts.ns)}</div>`,
     svg:""};
 }
 
@@ -463,6 +468,7 @@ function renderPanels(){
   if(hasDiv) P.push(panelRecon());
   P.push(panelFunnel(),panelObsExp());
   const d=panelDist(); if(d) P.push(d);
+  if(typeof tip!=="undefined"&&tip) tip.style.opacity=0;   // clear any stale tooltip before rebuild
   $("#panels").innerHTML = P.map(p=>`<section class="panel${p.span?' wide':''}"><h2>${p.title}</h2>${p.toolbar?`<div class="toolbar">${p.toolbar}</div>`:""}${p.svg?`<div>${p.svg}</div>`:""}${p.legend?`<div class="legend">${p.legend}</div>`:""}${p.extra||""}</section>`).join("");
 }
 function fixSpans(){}  // wide panels now use the .wide class
@@ -476,7 +482,11 @@ $("#panels").addEventListener("click", e=>{ const t=e.target;
   const cand=t.closest&&t.closest(".cand"); if(cand){ selectGene(+cand.dataset.i); return; }
   const chip=t.closest&&t.closest(".chip.regime"); if(chip){ regimeFilter=chip.dataset.regime||null; renderPanels(); fixSpans(); renderTable(); } });
 
-function selectGene(i){ selected = (selected===i)?null:i; renderPanels(); fixSpans(); renderTable();
+function selectGene(i){ selected = (selected===i)?null:i;
+  // If a filter/search would hide the newly-selected gene, relax it so the
+  // highlighted point always has a findable table row.
+  if(selected!=null && !filtered().some(g=>g._i===selected)){ regimeFilter=null; $("#search").value=""; }
+  renderPanels(); fixSpans(); renderTable();
   if(selected!=null){ const row=document.querySelector(`#tbl tbody tr[data-i="${selected}"]`); if(row) row.scrollIntoView({block:"nearest"}); } }
 
 // ── Table ─────────────────────────────────────────────────────────────
@@ -495,7 +505,8 @@ function cellText(g,k){
 }
 function renderTable(){
   let rows=filtered();
-  rows.sort((a,b)=>{ let x=a[sortKey],y=b[sortKey]; const xn=(x==null||(typeof x==="number"&&!isFinite(x))),yn=(y==null||(typeof y==="number"&&!isFinite(y)));
+  const sk = sortKey==="dir" ? "ratio" : sortKey;   // 'dir' is derived from ratio
+  rows.sort((a,b)=>{ let x=a[sk],y=b[sk]; const xn=(x==null||(typeof x==="number"&&!isFinite(x))),yn=(y==null||(typeof y==="number"&&!isFinite(y)));
     if(xn&&yn)return 0; if(xn)return 1; if(yn)return -1;
     if(typeof x==="string")return sortDesc?y.localeCompare(x):x.localeCompare(y); return sortDesc?y-x:x-y; });
   $("#tbl tbody").innerHTML=rows.map(g=>`<tr data-i="${g._i}" class="${isSig(g)?'sig ':''}${g._i===selected?'sel':''}">`+cols.map(c=>{
@@ -526,7 +537,8 @@ function filtered(){ const f=($("#search").value||"").toLowerCase();
   return genes.filter(g=>(!f||g.name.toLowerCase().includes(f)||(g.chrom||"").toLowerCase().includes(f)) && (!regimeFilter||regime(g)===regimeFilter)); }
 function dl(name,txt,type){ const b=new Blob([txt],{type}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href); }
 $("#expCsv").addEventListener("click", ()=>{ const keys=cols.map(c=>c[0]).filter(k=>k!=="dir");
-  const head=keys.join(","); const body=filtered().map(g=>keys.map(k=>{const v=g[k];return v==null||(typeof v==="number"&&!isFinite(v))?"NA":v;}).join(",")).join("\n");
+  const cell=v=>{ const s=(v==null||(typeof v==="number"&&!isFinite(v)))?"NA":String(v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const head=keys.map(cell).join(","); const body=filtered().map(g=>keys.map(k=>cell(g[k])).join(",")).join("\n");
   dl("eskaks_genes.csv", head+"\n"+body, "text/csv"); });
 $("#expJson").addEventListener("click", ()=>{ dl("eskaks_genes.json", JSON.stringify(filtered().map(g=>{const o={...g};delete o._i;return o;}),null,1), "application/json"); });
 
