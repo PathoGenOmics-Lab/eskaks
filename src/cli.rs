@@ -84,6 +84,12 @@ pub struct FastaArgs {
     #[arg(long)]
     pub summary: bool,
 
+    /// Also write a per-pair Nei-Gojobori neutrality test
+    /// (<output>_pairwise_tests): dN, dS, standard errors, Z, and a two-sided
+    /// p-value. Analytic variances are Nei-only (NaN for --model li).
+    #[arg(long)]
+    pub neutrality: bool,
+
     /// Generate SVG plot file
     #[arg(long)]
     pub plot: bool,

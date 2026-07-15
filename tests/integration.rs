@@ -454,3 +454,28 @@ fn summary_and_plot_together() {
     fs::remove_file(format!("{}_dnds_histogram.svg", out_prefix)).ok();
     fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
 }
+
+#[test]
+fn neutrality_test_writes_pairwise_tests() {
+    let out_prefix = "/tmp/eskaks_test_neutrality";
+    let output = Command::new(binary_path())
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--neutrality"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let rows = parse_tsv(&format!("{}_pairwise_tests.tsv", out_prefix));
+    assert_eq!(
+        rows[0],
+        vec!["Seq1", "Seq2", "dN", "dS", "SE_dN", "SE_dS", "Z", "P_value"],
+        "neutrality header mismatch: {:?}", rows[0]
+    );
+    assert!(rows.len() > 1, "should have at least one pair");
+    // P_value column (index 7) must be a probability in [0,1] or NaN.
+    let p_str = &rows[1][7];
+    if p_str != "NaN" {
+        let p: f64 = p_str.parse().expect("P_value numeric");
+        assert!((0.0..=1.0).contains(&p), "P in [0,1]: {}", p);
+    }
+    fs::remove_file(format!("{}_pairwise_tests.tsv", out_prefix)).ok();
+    fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
+}

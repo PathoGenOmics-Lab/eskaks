@@ -55,6 +55,25 @@ impl ComputeEngine {
             ComputeEngine::Li(tables) => tables.compute_pair(s1, s2),
         }
     }
+
+    /// Compute `(dN, dS, var_dN, var_dS)` for a pair of unique indices. The
+    /// Nei-Gojobori analytic variances are only defined for the Nei model; the
+    /// Li model returns NaN variances (use bootstrap for Li instead).
+    #[inline]
+    pub fn compute_pair_stats(&self, data: &SequenceData, u_i: usize, u_j: usize) -> (f64, f64, f64, f64) {
+        if u_i == u_j {
+            return (0.0, 0.0, 0.0, 0.0);
+        }
+        let s1 = &data.unique_codon_indices[u_i];
+        let s2 = &data.unique_codon_indices[u_j];
+        match self {
+            ComputeEngine::Nei(tables) => tables.compute_pair_stats(s1, s2),
+            ComputeEngine::Li(tables) => {
+                let (dn, ds) = tables.compute_pair(s1, s2);
+                (dn, ds, f64::NAN, f64::NAN)
+            }
+        }
+    }
 }
 
 #[cfg(test)]

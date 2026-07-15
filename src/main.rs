@@ -130,6 +130,18 @@ fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
     // Dispatch to the appropriate output mode
     dispatch_output(&args, &data, &out_cfg, compute_pair, compute_pair_slices)?;
 
+    // Optional per-pair Nei-Gojobori neutrality test (variance + Z-test).
+    if args.neutrality {
+        if args.model != models::Model::Nei {
+            info!("Note: analytic NG variances are Nei-only; SE/Z/P will be NaN for --model li.");
+        }
+        let stats = |u_i: usize, u_j: usize| engine.compute_pair_stats(&data, u_i, u_j);
+        let path = output::write_pairwise_tests(
+            &data.ids, &data.uidx_by_id, stats, &args.output, sep, ext,
+        )?;
+        info!("Neutrality test saved to {}", path);
+    }
+
     // Print summary
     if let Some(ref stats) = summary_stats {
         if args.summary {

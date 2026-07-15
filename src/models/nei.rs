@@ -193,6 +193,17 @@ impl NeiTables {
     /// codons differing at multiple nucleotide positions.
     #[inline]
     pub fn compute_pair(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64) {
+        let (dn, ds, _, _) = self.compute_pair_stats(codon_indices1, codon_indices2);
+        (dn, ds)
+    }
+
+    /// Like [`compute_pair`] but also returns the Nei-Gojobori analytic
+    /// sampling variances `(var_dn, var_ds)` from the Jukes-Cantor delta method:
+    /// `V(d) = p(1-p) / [L · (1 - 4/3·p)²]`, where `p` is the difference
+    /// proportion and `L` the site count. NaN where the distance is NaN
+    /// (saturation) or the sites are zero.
+    #[inline]
+    pub fn compute_pair_stats(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64, f64, f64) {
         let mut count_valid_codons = 0u32;
         let mut syn_diffs = 0.0f64;
         let mut nonsyn_diffs = 0.0f64;
@@ -262,7 +273,7 @@ impl NeiTables {
         }
 
         if count_valid_codons == 0 {
-            return (f64::NAN, f64::NAN);
+            return (f64::NAN, f64::NAN, f64::NAN, f64::NAN);
         }
 
         let potential_syn_sites = (sum_syn_sites_seq1 / 3.0 + sum_syn_sites_seq2 / 3.0) / 2.0;
@@ -284,8 +295,23 @@ impl NeiTables {
         if ds.is_finite() && ds < 0.0 { ds = 0.0; }
         if dn.is_finite() && dn < 0.0 { dn = 0.0; }
 
-        (dn, ds)
+        let var_ds = jc_variance(ps, potential_syn_sites);
+        let var_dn = jc_variance(pn, potential_nonsyn_sites);
+
+        (dn, ds, var_dn, var_ds)
     }
+}
+
+/// Jukes-Cantor delta-method variance of a corrected distance:
+/// `V(d) = p(1-p) / [L · (1 - 4/3·p)²]`. NaN at/above saturation or L == 0.
+#[inline]
+fn jc_variance(p: f64, sites: f64) -> f64 {
+    // NaN p falls through to the arithmetic below, which yields NaN.
+    if sites <= 0.0 || p >= JC_SATURATION_THRESHOLD {
+        return f64::NAN;
+    }
+    let denom = 1.0 - (4.0 / 3.0) * p;
+    p * (1.0 - p) / (sites * denom * denom)
 }
 
 #[cfg(test)]

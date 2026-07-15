@@ -362,6 +362,30 @@ pub fn bonferroni(pvals: &[f64]) -> Vec<f64> {
         .collect()
 }
 
+/// Error function (Abramowitz & Stegun 7.1.26, max abs error ~1.5e-7).
+fn erf(x: f64) -> f64 {
+    let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
+    let y = 1.0
+        - (((((1.061_405_429 * t - 1.453_152_027) * t) + 1.421_413_741) * t - 0.284_496_736) * t
+            + 0.254_829_592)
+            * t
+            * (-x * x).exp();
+    if x < 0.0 {
+        -y
+    } else {
+        y
+    }
+}
+
+/// Two-sided p-value for a standard-normal Z statistic: erfc(|z|/√2).
+/// Used for the Nei-Gojobori analytic neutrality (Z) test.
+pub fn normal_two_sided_p(z: f64) -> f64 {
+    if !z.is_finite() {
+        return f64::NAN;
+    }
+    (1.0 - erf(z.abs() / std::f64::consts::SQRT_2)).clamp(0.0, 1.0)
+}
+
 /// Two-sided Fisher's exact test p-value for the 2×2 table
 /// `[[a, b], [c, d]]`, by summing the hypergeometric probabilities of all
 /// tables (with the same margins) no more likely than the observed one.
@@ -458,6 +482,16 @@ mod tests {
         assert!((b[0] - 0.02).abs() < 1e-12); // m=2
         assert!(b[1].is_nan());
         assert!((b[2] - 1.0).abs() < 1e-12); // 0.5*2 capped at 1
+    }
+
+    #[test]
+    fn normal_p_known_values() {
+        assert!((normal_two_sided_p(0.0) - 1.0).abs() < 1e-6);
+        assert!((normal_two_sided_p(1.959_964) - 0.05).abs() < 1e-3);
+        assert!((normal_two_sided_p(2.575_829) - 0.01).abs() < 1e-3);
+        assert!(normal_two_sided_p(f64::NAN).is_nan());
+        // Symmetric in sign
+        assert!((normal_two_sided_p(1.5) - normal_two_sided_p(-1.5)).abs() < 1e-12);
     }
 
     #[test]

@@ -42,6 +42,63 @@ pub struct OutputConfig<'a> {
 
 /// Writes pairwise results using a dedicated writer thread.
 /// Computes pairs on-the-fly with lazy per-row caching (O(U) memory per thread).
+/// Write a per-pair Nei-Gojobori neutrality-test table:
+/// Seq1, Seq2, dN, dS, SE_dN, SE_dS, Z, P_value, where Z = (dN-dS)/√(V(dN)+V(dS))
+/// and P_value is the two-sided normal p. `stats(u_i, u_j)` returns
+/// `(dn, ds, var_dn, var_ds)`. SE/Z/P are NaN for the Li model (no NG variance).
+pub fn write_pairwise_tests(
+    ids: &[String],
+    uidx_by_id: &[usize],
+    stats: impl Fn(usize, usize) -> (f64, f64, f64, f64) + Sync,
+    prefix: &str,
+    sep: char,
+    ext: &str,
+) -> anyhow::Result<String> {
+    use rayon::prelude::*;
+
+    let n = ids.len();
+    let pairs: Vec<(usize, usize)> =
+        (0..n).flat_map(|i| (i + 1..n).map(move |j| (i, j))).collect();
+    let is_json = ext == "json";
+    let fmt = |v: f64| if v.is_finite() { format!("{:.6}", v) } else { "NaN".to_string() };
+    let jfmt = |v: f64| if v.is_finite() { format!("{:.6}", v) } else { "null".to_string() };
+
+    let rows: Vec<String> = pairs
+        .par_iter()
+        .map(|&(i, j)| {
+            let (dn, ds, var_dn, var_ds) = stats(uidx_by_id[i], uidx_by_id[j]);
+            let var_sum = var_dn + var_ds;
+            let z = if var_sum > 0.0 { (dn - ds) / var_sum.sqrt() } else { f64::NAN };
+            let p = crate::stats::normal_two_sided_p(z);
+            if is_json {
+                format!(
+                    "  {{\"seq1\":\"{}\",\"seq2\":\"{}\",\"dN\":{},\"dS\":{},\"SE_dN\":{},\"SE_dS\":{},\"Z\":{},\"P_value\":{}}}",
+                    ids[i], ids[j], jfmt(dn), jfmt(ds), jfmt(var_dn.sqrt()), jfmt(var_ds.sqrt()), jfmt(z), jfmt(p)
+                )
+            } else {
+                format!(
+                    "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
+                    ids[i], ids[j], fmt(dn), fmt(ds), fmt(var_dn.sqrt()), fmt(var_ds.sqrt()), fmt(z), fmt(p), s = sep
+                )
+            }
+        })
+        .collect();
+
+    let output_path = format!("{}_pairwise_tests.{}", prefix, ext);
+    let mut file = BufWriter::new(File::create(&output_path)?);
+    if is_json {
+        writeln!(file, "[")?;
+        writeln!(file, "{}", rows.join(",\n"))?;
+        writeln!(file, "]")?;
+    } else {
+        writeln!(file, "Seq1{s}Seq2{s}dN{s}dS{s}SE_dN{s}SE_dS{s}Z{s}P_value", s = sep)?;
+        for row in &rows {
+            writeln!(file, "{}", row)?;
+        }
+    }
+    Ok(output_path)
+}
+
 pub fn write_pairwise(
     ids: &[String],
     uidx_by_id: &[usize],
