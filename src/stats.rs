@@ -173,9 +173,24 @@ impl SummaryStats {
             eprintln!("  dN:    min={:.6}  max={:.6}  mean={:.6}", floats.min_dn, floats.max_dn, mean_dn);
             eprintln!("  dS:    min={:.6}  max={:.6}  mean={:.6}", floats.min_ds, floats.max_ds, mean_ds);
         }
+        // Pooled ratio = mean(dN)/mean(dS). This is the preferred summary: the
+        // mean of per-pair ratios is statistically biased (mean of ratios !=
+        // ratio of means) and is dominated by pairs with a near-zero dS.
+        if floats.valid_count > 0 && floats.sum_ds > 0.0 {
+            eprintln!("  dN/dS (pooled = meanDN/meanDS): {:.6}", floats.sum_dn / floats.sum_ds);
+        }
         if floats.finite_ratio_count > 0 {
             let mean_ratio = floats.sum_ratio / floats.finite_ratio_count as f64;
-            eprintln!("  dN/dS: min={:.6}  max={:.6}  mean={:.6}", floats.min_ratio, floats.max_ratio, mean_ratio);
+            let excluded = floats.valid_count.saturating_sub(floats.finite_ratio_count);
+            let note = if excluded > 0 {
+                format!(", {} undefined excluded", excluded)
+            } else {
+                String::new()
+            };
+            eprintln!(
+                "  dN/dS (mean of per-pair ratios): min={:.6}  max={:.6}  mean={:.6}  (n={}{})",
+                floats.min_ratio, floats.max_ratio, mean_ratio, floats.finite_ratio_count, note
+            );
         }
 
         // Histogram
