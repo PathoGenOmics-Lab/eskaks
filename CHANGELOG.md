@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Genome-wide (pooled) pN/pS** in the `eskaks vcf` summary: an overall estimate
+  computed by pooling SNP counts and site counts across all genes
+  (`pN = Σ nonsyn / Σ N_sites`, `pS = Σ syn / Σ S_sites`) rather than averaging
+  per-gene ratios. Respects `--af-weighted` (reported as πN/πS) and includes a
+  coarse selection label (purifying / near-neutral / diversifying).
+
 ## [1.4.0] - 2026-03-29
 
 ### Added
