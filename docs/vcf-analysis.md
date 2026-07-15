@@ -196,7 +196,7 @@ eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
 4. **Apply filters**: PASS-only, min/max AF, minimum depth
 5. **For each gene**:
    - Extract the CDS sequence from the reference (handling exon order, reverse complement for minus strand, phase offset)
-   - **Count sites**: For each reference codon, enumerate all 9 possible single-nucleotide changes. Classify each as synonymous or nonsynonymous. S_sites = syn_changes/3, N_sites = nonsyn_changes/3.
+   - **Count sites**: For each reference codon, enumerate all 9 possible single-nucleotide changes, *excluding* changes to stop codons, and classify each as synonymous or nonsynonymous. Each codon contributes exactly 3 sites, split proportionally: S_sites = 3 × syn/(syn+nonsyn). With [`--kappa`](#mutation-spectrum-aware-site-counting---kappa) each change is weighted by its transition/transversion rate before this split.
    - **Classify SNPs**: For each SNP within the gene's CDS, reconstruct the reference and alternate codons. Look up amino acids → synonymous or nonsynonymous.
    - **Compute**: pN = nonsyn_SNPs / N_sites, pS = syn_SNPs / S_sites, pN/pS = pN / pS
 
