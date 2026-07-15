@@ -594,9 +594,13 @@ fn vcf_report_writes_self_contained_html() {
                    "Observed vs expected", "selectGene", "expCsv", "themeTog",
                    // v2: verdict banner, help popovers, glossary, new panels/columns.
                    "renderVerdict", "renderGuide", "const HELP =", "helpHtml",
-                   "panelQQ", "panelLollipop", "panelHits", "invNorm",
+                   "panelQQ", "panelLollipop", "panelHits",
                    "P-value QQ", "Top genes by selection signal", "Significant hits",
-                   "printBtn", "z(N)", "DoS"] {
+                   "printBtn", "z(N)", "DoS",
+                   // v2.1: SFS, core/repetitive, CVD mode, canvas, CIs, λ, provenance.
+                   "panelSFS", "panelCoreRep", "drawCanvases", "cvdTog",
+                   "pN/pS by allele frequency", "Core vs repetitive", "95% CI",
+                   "Inflation", "\"lambda\":", "Command:", "\"sfsNonsyn\":"] {
         assert!(html.contains(needle), "report missing '{}'", needle);
     }
     // Self-contained: no external network assets.

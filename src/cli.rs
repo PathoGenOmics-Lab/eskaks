@@ -234,4 +234,18 @@ pub struct VcfArgs {
     /// matched to the pN/pS results by name.
     #[arg(long)]
     pub divergence: Option<String>,
+
+    /// Apply a genomic-control correction to the neutrality test: divide each
+    /// gene's chi-square by the median-based inflation factor lambda (never below
+    /// one) and report corrected p/q columns. Recommended for clonal organisms
+    /// such as M. tuberculosis, where genome-wide linkage inflates significance.
+    #[arg(long)]
+    pub genomic_control: bool,
+
+    /// Exclude repetitive / hard-to-map genes (PE/PPE/PGRS, IS elements,
+    /// maturases) from the genome-wide pooled estimate and the neutrality-test
+    /// family, since their SNP calls are frequently mapping artefacts. They still
+    /// appear in the per-gene table, flagged.
+    #[arg(long)]
+    pub exclude_repetitive: bool,
 }

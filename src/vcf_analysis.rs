@@ -59,6 +59,54 @@ pub struct GenePnPs {
     pub mk_pn: u32,
     /// McDonald-Kreitman polymorphic synonymous count (Ps)
     pub mk_ps: u32,
+    /// Two-sided binomial −log10(p) in log space — finite even where `p_value`
+    /// underflows to 0 (NaN when untested).
+    pub neglog10p: f64,
+    /// Lower/upper bound of a 95% Wilson confidence interval on pN/pS (NaN when
+    /// untested or --af-weighted). `pn_ps_hi` is +∞ when the CI reaches pS = 0.
+    pub pn_ps_lo: f64,
+    pub pn_ps_hi: f64,
+    /// Genomic-control-corrected p-value and BH q-value (NaN unless
+    /// `--genomic-control`; the χ² statistic is divided by the inflation λ).
+    pub p_gc: f64,
+    pub q_gc: f64,
+    /// True for repetitive / hard-to-map genes (PE/PPE/PGRS, IS elements, …).
+    pub repetitive: bool,
+    /// Site-frequency-spectrum counts of nonsynonymous / synonymous SNPs binned
+    /// by allele frequency (see [`SFS_EDGES`]). Pooled genome-wide for the SFS
+    /// panel; not written to the per-gene table.
+    pub sfs_nonsyn: [u32; SFS_NBINS],
+    pub sfs_syn: [u32; SFS_NBINS],
+}
+
+/// Number of allele-frequency bins for the site-frequency-spectrum panel.
+pub const SFS_NBINS: usize = 6;
+/// Upper edges of the AF bins (a variant with AF ≤ edge falls in that bin).
+pub const SFS_EDGES: [f64; SFS_NBINS] = [0.1, 0.2, 0.4, 0.6, 0.8, 1.0];
+
+/// Bin an allele frequency into `0..SFS_NBINS`.
+fn sfs_bin(af: f64) -> usize {
+    for (i, &e) in SFS_EDGES.iter().enumerate() {
+        if af <= e {
+            return i;
+        }
+    }
+    SFS_NBINS - 1
+}
+
+/// Heuristic flag for repetitive / hard-to-map *M. tuberculosis* genes whose
+/// SNP calls are frequently mapping artefacts (PE/PPE/PGRS, IS6110, maturases).
+/// Mirrors the report's badge regex so the two never disagree.
+pub fn is_repetitive(name: &str) -> bool {
+    let n = name.to_ascii_uppercase();
+    // PE/PPE family: the prefix must be followed by a digit, '_', or end of name
+    // (PE13, PE_PGRS, PPE18) — so real genes like pepN/pepA are NOT flagged.
+    let pe_family = |pre: &str| {
+        n.strip_prefix(pre).is_some_and(|rest| {
+            rest.is_empty() || rest.starts_with('_') || rest.starts_with(|c: char| c.is_ascii_digit())
+        })
+    };
+    pe_family("PE") || pe_family("PPE") || ["PGRS", "MATURASE", "TRANSPOS", "IS6110"].iter().any(|m| n.contains(m))
 }
 
 /// Genome-wide (pooled) pN/pS aggregated across all analyzed genes.
@@ -168,6 +216,9 @@ pub fn compute_pn_ps(
             let mut local_mismatch = 0usize;
             // McDonald-Kreitman: fixed (AF >= threshold) vs polymorphic counts.
             let (mut mk_dn, mut mk_ds, mut mk_pn, mut mk_ps) = (0u32, 0u32, 0u32, 0u32);
+            // Site frequency spectrum: nonsyn/syn SNP counts per allele-frequency bin.
+            let mut sfs_nonsyn = [0u32; SFS_NBINS];
+            let mut sfs_syn = [0u32; SFS_NBINS];
 
             if let Some(snps_list) = chrom_snps {
                 // SNPs are position-sorted, so binary-search the gene's genomic
@@ -241,11 +292,14 @@ pub fn compute_pn_ps(
                                     // as raw counts (not AF-weighted).
                                     let af = snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0);
                                     let fixed = af >= mk_fixed_af;
+                                    let bin = sfs_bin(af);
                                     if r == a {
                                         syn_count += weight;
+                                        sfs_syn[bin] += 1;
                                         if fixed { mk_ds += 1 } else { mk_ps += 1 }
                                     } else {
                                         nonsyn_count += weight;
+                                        sfs_nonsyn[bin] += 1;
                                         if fixed { mk_dn += 1 } else { mk_pn += 1 }
                                     }
                                 }
@@ -283,14 +337,29 @@ pub fn compute_pn_ps(
             // fraction of SNPs equals the mutational opportunity N/(N+S). Only
             // valid with integer counts, so skip it under --af-weighted.
             let sites = n_sites + s_sites;
-            let p_value = if !af_weighted && total_snps > 0.0 && sites > 0.0 {
-                crate::stats::binomial_two_sided_p(
-                    nonsyn_count.round() as u64,
-                    total_snps.round() as u64,
-                    n_sites / sites,
+            let (p_value, neglog10p) = if !af_weighted && total_snps > 0.0 && sites > 0.0 {
+                let k = nonsyn_count.round() as u64;
+                let n = total_snps.round() as u64;
+                let p0 = n_sites / sites;
+                (
+                    crate::stats::binomial_two_sided_p(k, n, p0),
+                    crate::stats::binomial_two_sided_neglog10p(k, n, p0),
                 )
             } else {
-                f64::NAN
+                (f64::NAN, f64::NAN)
+            };
+
+            // 95% Wilson CI on pN/pS: bound the nonsynonymous fraction of SNPs,
+            // then map q → (q/(1−q))·(S_sites/N_sites). Undefined under AF weighting.
+            let (pn_ps_lo, pn_ps_hi) = if !af_weighted && total_snps > 0.0 && n_sites > 0.0 && s_sites > 0.0 {
+                let k = nonsyn_count.round() as u64;
+                let n = total_snps.round() as u64;
+                let (qlo, qhi) = crate::stats::wilson_interval(k, n, 0.95);
+                let scale = s_sites / n_sites;
+                let map = |q: f64| if q >= 1.0 { f64::INFINITY } else { (q / (1.0 - q)) * scale };
+                (map(qlo), map(qhi))
+            } else {
+                (f64::NAN, f64::NAN)
             };
 
             let genome_end = gene.exons.iter().map(|e| e.end).max().unwrap_or(gene.start);
@@ -318,6 +387,14 @@ pub fn compute_pn_ps(
                 mk_ds,
                 mk_pn,
                 mk_ps,
+                neglog10p,
+                pn_ps_lo,
+                pn_ps_hi,
+                p_gc: f64::NAN,
+                q_gc: f64::NAN,
+                repetitive: is_repetitive(&gene.name),
+                sfs_nonsyn,
+                sfs_syn,
             })
         })
         .collect();
@@ -405,13 +482,77 @@ pub fn bootstrap_genome_wide_ci(
 /// Fill in Benjamini-Hochberg FDR q-values and Bonferroni-corrected p-values
 /// for the per-gene neutrality test, across every gene with a finite p-value.
 /// Genes not tested (no SNPs / --af-weighted) keep NaN.
-pub fn apply_multiple_testing(results: &mut [GenePnPs]) {
-    let pvals: Vec<f64> = results.iter().map(|r| r.p_value).collect();
+pub fn apply_multiple_testing(results: &mut [GenePnPs], exclude_repetitive: bool) {
+    // Excluding repetitive genes removes them from the test family entirely, so
+    // they neither shrink other genes' q-values nor appear as hits.
+    let pvals: Vec<f64> = results
+        .iter()
+        .map(|r| if exclude_repetitive && r.repetitive { f64::NAN } else { r.p_value })
+        .collect();
     let qvals = crate::stats::benjamini_hochberg(&pvals);
     let bonf = crate::stats::bonferroni(&pvals);
     for (r, (q, b)) in results.iter_mut().zip(qvals.into_iter().zip(bonf)) {
         r.q_value = q;
         r.p_bonferroni = b;
+    }
+}
+
+/// Genomic-control inflation factor λ = median(χ²) / median(χ²₁) over the tested
+/// genes (finite q-value = in the correction family). Per gene, χ² =
+/// (Φ⁻¹(1 − p/2))². λ ≈ 1 means well-calibrated; λ ≫ 1 flags inflation, expected
+/// in clonal organisms where genes are not independent. NaN with < 2 tested genes.
+pub fn genomic_inflation_lambda(results: &[GenePnPs]) -> f64 {
+    let mut chi2: Vec<f64> = results
+        .iter()
+        .filter(|r| r.q_value.is_finite())
+        .map(gene_chi2)
+        .filter(|c| c.is_finite())
+        .collect();
+    if chi2.len() < 2 {
+        return f64::NAN;
+    }
+    chi2.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    crate::stats::percentile_sorted(&chi2, 50.0) / 0.454_936_4
+}
+
+/// The χ²₁ statistic for a gene's neutrality test, computed from the log-space
+/// −log10(p) so it stays finite even where the raw p underflowed (falls back to
+/// the raw p-value when `neglog10p` is unavailable, e.g. in synthetic tests).
+fn gene_chi2(r: &GenePnPs) -> f64 {
+    let nlp = if r.neglog10p.is_finite() {
+        r.neglog10p
+    } else if r.p_value.is_finite() && r.p_value > 0.0 {
+        -r.p_value.log10()
+    } else {
+        f64::NAN
+    };
+    crate::stats::chi2_from_two_sided_neglog10p(nlp)
+}
+
+/// Apply genomic control: divide every tested gene's χ² by λ (floored at 1, so
+/// the correction only ever deflates), then recompute a corrected p-value and a
+/// BH q-value into `p_gc` / `q_gc`. Untested genes stay NaN.
+pub fn apply_genomic_control(results: &mut [GenePnPs], lambda: f64) {
+    let lam = if lambda.is_finite() && lambda > 1.0 { lambda } else { 1.0 };
+    let pgc: Vec<f64> = results
+        .iter()
+        .map(|r| {
+            if r.q_value.is_finite() {
+                let chi2 = gene_chi2(r);
+                if chi2.is_finite() {
+                    crate::stats::normal_two_sided_p((chi2 / lam).sqrt())
+                } else {
+                    f64::NAN
+                }
+            } else {
+                f64::NAN
+            }
+        })
+        .collect();
+    let qgc = crate::stats::benjamini_hochberg(&pgc);
+    for (r, (p, q)) in results.iter_mut().zip(pgc.into_iter().zip(qgc)) {
+        r.p_gc = p;
+        r.q_gc = q;
     }
 }
 
@@ -422,15 +563,24 @@ pub fn apply_multiple_testing(results: &mut [GenePnPs]) {
 /// there is no variation at all, `+Infinity` when there are nonsynonymous but
 /// no synonymous changes.
 pub fn genome_wide_pn_ps(results: &[GenePnPs]) -> Option<GenomeWidePnPs> {
-    if results.is_empty() {
+    pool_pn_ps(results.iter())
+}
+
+/// Pool a (possibly filtered) set of genes into one pN/pS estimate. Shared by
+/// the whole-genome and the core-vs-repetitive stratified estimates.
+fn pool_pn_ps<'a>(it: impl Iterator<Item = &'a GenePnPs>) -> Option<GenomeWidePnPs> {
+    let (mut n_sites, mut s_sites, mut nonsyn_snps, mut syn_snps, mut any) =
+        (0.0, 0.0, 0.0, 0.0, false);
+    for r in it {
+        any = true;
+        n_sites += r.n_sites;
+        s_sites += r.s_sites;
+        nonsyn_snps += r.nonsyn_snps;
+        syn_snps += r.syn_snps;
+    }
+    if !any {
         return None;
     }
-
-    let n_sites: f64 = results.iter().map(|r| r.n_sites).sum();
-    let s_sites: f64 = results.iter().map(|r| r.s_sites).sum();
-    let nonsyn_snps: f64 = results.iter().map(|r| r.nonsyn_snps).sum();
-    let syn_snps: f64 = results.iter().map(|r| r.syn_snps).sum();
-
     let pn = if n_sites > 0.0 { nonsyn_snps / n_sites } else { 0.0 };
     let ps = if s_sites > 0.0 { syn_snps / s_sites } else { 0.0 };
     let pn_ps = if ps > 0.0 {
@@ -440,16 +590,18 @@ pub fn genome_wide_pn_ps(results: &[GenePnPs]) -> Option<GenomeWidePnPs> {
     } else {
         f64::NAN
     };
+    Some(GenomeWidePnPs { n_sites, s_sites, nonsyn_snps, syn_snps, pn, ps, pn_ps })
+}
 
-    Some(GenomeWidePnPs {
-        n_sites,
-        s_sites,
-        nonsyn_snps,
-        syn_snps,
-        pn,
-        ps,
-        pn_ps,
-    })
+/// Pooled pN/pS split into (core, repetitive) — repetitive = PE/PPE/PGRS/IS/etc.
+/// A big gap between the two flags mapping-artefact inflation in the repeats.
+pub fn genome_wide_core_repetitive(
+    results: &[GenePnPs],
+) -> (Option<GenomeWidePnPs>, Option<GenomeWidePnPs>) {
+    (
+        pool_pn_ps(results.iter().filter(|r| !r.repetitive)),
+        pool_pn_ps(results.iter().filter(|r| r.repetitive)),
+    )
 }
 
 /// A short qualitative interpretation of a pN/pS ratio.
@@ -1464,6 +1616,14 @@ mod tests {
             mk_ds: 0,
             mk_pn: 0,
             mk_ps: 0,
+            neglog10p: f64::NAN,
+            pn_ps_lo: f64::NAN,
+            pn_ps_hi: f64::NAN,
+            p_gc: f64::NAN,
+            q_gc: f64::NAN,
+            repetitive: false,
+            sfs_nonsyn: [0; SFS_NBINS],
+            sfs_syn: [0; SFS_NBINS],
         }
     }
 
@@ -1545,5 +1705,92 @@ mod tests {
         // Minus strand: position 109 maps to CDS offset 0
         assert_eq!(genomic_to_cds_offset(&gene, 109), Some(0));
         assert_eq!(genomic_to_cds_offset(&gene, 100), Some(9));
+    }
+
+    #[test]
+    fn test_is_repetitive_flags() {
+        for n in ["PE_PGRS12", "PPE18", "Rv1234_PGRS", "IS6110", "some_transposase", "PE13", "maturase", "PE", "PPE"] {
+            assert!(is_repetitive(n), "{n} should be repetitive");
+        }
+        // Real genes whose symbol merely starts with "PE"/"PPE" must NOT be flagged.
+        for n in ["Rv0001", "katG", "rpoB", "gyrA", "pepN", "pepA", "pepD", "penA"] {
+            assert!(!is_repetitive(n), "{n} should be core");
+        }
+    }
+
+    #[test]
+    fn test_core_repetitive_split() {
+        let mut a = gene_result(100.0, 100.0, 10.0, 20.0);
+        a.repetitive = false;
+        let mut b = gene_result(50.0, 50.0, 30.0, 5.0);
+        b.repetitive = true;
+        let (core, rep) = genome_wide_core_repetitive(&[a, b]);
+        let core = core.expect("core present");
+        let rep = rep.expect("rep present");
+        // Core pools only the first gene, repetitive only the second.
+        assert!((core.nonsyn_snps - 10.0).abs() < 1e-9 && (core.syn_snps - 20.0).abs() < 1e-9);
+        assert!((rep.nonsyn_snps - 30.0).abs() < 1e-9 && (rep.syn_snps - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_genomic_control_deflates_and_labels() {
+        // Build a set of tested genes with a range of p-values.
+        let mut genes: Vec<GenePnPs> = Vec::new();
+        for (i, p) in [1e-8, 1e-6, 1e-4, 1e-3, 0.01, 0.05, 0.2, 0.5, 0.7, 0.9].iter().enumerate() {
+            let mut g = gene_result(100.0, 100.0, (10 + i) as f64, 20.0);
+            g.p_value = *p;
+            genes.push(g);
+        }
+        apply_multiple_testing(&mut genes, false);
+        let lambda = genomic_inflation_lambda(&genes);
+        assert!(lambda.is_finite() && lambda > 0.0);
+        apply_genomic_control(&mut genes, lambda);
+        // When λ > 1, every corrected p is >= the raw p (correction only deflates);
+        // corrected values are valid probabilities.
+        for g in &genes {
+            assert!(g.p_gc.is_finite() && (0.0..=1.0).contains(&g.p_gc));
+            if lambda > 1.0 {
+                assert!(g.p_gc >= g.p_value - 1e-9, "GC should not make p smaller: {} < {}", g.p_gc, g.p_value);
+            }
+        }
+        // λ < 2 tested genes → NaN.
+        assert!(genomic_inflation_lambda(&genes[..1]).is_nan());
+    }
+
+    #[test]
+    fn test_genomic_control_survives_underflowed_pvalues() {
+        // Genes so significant their exact p underflows to 0 but neglog10p is finite.
+        // Older code took Φ⁻¹(1 − p/2) from the raw p and got +∞; λ and GC must stay finite.
+        let mut genes: Vec<GenePnPs> = Vec::new();
+        for i in 0..10 {
+            let mut g = gene_result(100.0, 100.0, 90.0, 5.0);
+            g.p_value = 0.0; // underflowed
+            g.neglog10p = 40.0 + i as f64; // finite log-space statistic
+            genes.push(g);
+        }
+        // add a couple of moderate genes so the set is not degenerate
+        for p in [0.2_f64, 0.6_f64] {
+            let mut g = gene_result(100.0, 100.0, 50.0, 50.0);
+            g.p_value = p;
+            g.neglog10p = -p.log10();
+            genes.push(g);
+        }
+        apply_multiple_testing(&mut genes, false);
+        let lambda = genomic_inflation_lambda(&genes);
+        assert!(lambda.is_finite() && lambda > 0.0, "λ must be finite, got {lambda}");
+        apply_genomic_control(&mut genes, lambda);
+        for g in &genes {
+            assert!(!g.p_gc.is_nan(), "p_gc must not be NaN");
+            assert!((0.0..=1.0).contains(&g.p_gc));
+        }
+    }
+
+    #[test]
+    fn test_sfs_bins_edges() {
+        assert_eq!(sfs_bin(0.05), 0);
+        assert_eq!(sfs_bin(0.1), 0);
+        assert_eq!(sfs_bin(0.15), 1);
+        assert_eq!(sfs_bin(1.0), SFS_NBINS - 1);
+        assert_eq!(sfs_bin(0.99), SFS_NBINS - 1);
     }
 }

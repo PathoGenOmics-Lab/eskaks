@@ -365,7 +365,14 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     // robust to low-count genes), captured before any --min-snps filtering.
     let total_genes = results.len();
     let genes_with_snps = results.iter().filter(|r| r.total_snps > 0.0).count();
-    let genome_wide = vcf_analysis::genome_wide_pn_ps(&results);
+    // Stratified core vs repetitive pooled ratios (always computed, for the
+    // report). --exclude-repetitive makes the primary estimate core-only.
+    let (core_gw, rep_gw) = vcf_analysis::genome_wide_core_repetitive(&results);
+    let genome_wide = if args.exclude_repetitive {
+        core_gw.clone()
+    } else {
+        vcf_analysis::genome_wide_pn_ps(&results)
+    };
     let gw_ci = if args.bootstrap > 0 {
         vcf_analysis::bootstrap_genome_wide_ci(&results, args.bootstrap, args.seed, 0.95)
     } else {
@@ -383,8 +390,17 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     }
 
     // Per-gene neutrality test correction (BH-FDR q-values + Bonferroni),
-    // over the retained genes only.
-    vcf_analysis::apply_multiple_testing(&mut results);
+    // over the retained genes only (excluding repetitive genes if requested).
+    vcf_analysis::apply_multiple_testing(&mut results, args.exclude_repetitive);
+
+    // Genomic-control diagnostic (always) and correction (opt-in). λ summarises
+    // how far the tested p-values depart from the uniform null — inflated in
+    // clonal, linked genomes.
+    let lambda = vcf_analysis::genomic_inflation_lambda(&results);
+    if args.genomic_control {
+        vcf_analysis::apply_genomic_control(&mut results, lambda);
+        info!("Genomic control applied (λ = {:.3})", lambda);
+    }
 
     // Write results
     let output_path = vcf_analysis::write_results(&results, &args.output, &args.format)?;
@@ -407,6 +423,8 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     // Interactive HTML report.
     if args.report {
         let gc_label = format!("{} ({})", gc.id, gc.name);
+        let command = std::env::args().collect::<Vec<_>>().join(" ");
+        let vcf_file = args.vcf.join(", ");
         let rmeta = report::ReportMeta {
             n_samples,
             genetic_code: &gc_label,
@@ -417,13 +435,22 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             mk: args.mk,
             mk_fixed_af: args.mk_fixed_af,
             gw_ci,
+            lambda,
+            genomic_control: args.genomic_control,
+            exclude_repetitive: args.exclude_repetitive,
+            version: env!("CARGO_PKG_VERSION"),
+            command: &command,
+            vcf_file: &vcf_file,
+            ref_file: &args.reference,
+            gff_file: &args.gff,
         };
         let divergence = match &args.divergence {
             Some(p) => Some(parse_divergence(p)?),
             None => None,
         };
         let report_path = report::write_html_report(
-            &results, genome_wide.as_ref(), &rmeta, divergence.as_ref(), &args.output,
+            &results, genome_wide.as_ref(), core_gw.as_ref(), rep_gw.as_ref(),
+            &rmeta, divergence.as_ref(), &args.output,
         )?;
         info!("Report saved to {}", report_path);
     }

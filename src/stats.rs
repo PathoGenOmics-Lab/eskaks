@@ -316,6 +316,14 @@ pub fn percentile_sorted(sorted: &[f64], pct: f64) -> f64 {
     let lo = rank.floor() as usize;
     let hi = rank.ceil() as usize;
     let frac = rank - lo as f64;
+    // Return the exact endpoint when the rank lands on one, so an ±∞ value with a
+    // zero interpolation weight can't produce `∞·0 = NaN`.
+    if lo == hi || frac == 0.0 {
+        return sorted[lo];
+    }
+    if frac == 1.0 {
+        return sorted[hi];
+    }
     sorted[lo] * (1.0 - frac) + sorted[hi] * frac
 }
 
@@ -373,6 +381,130 @@ pub fn binomial_two_sided_p(k: u64, n: u64, p0: f64) -> f64 {
     let lower: f64 = (0..=k).map(pmf).sum();
     let upper: f64 = (k..=n).map(pmf).sum();
     (2.0 * lower.min(upper)).min(1.0)
+}
+
+/// Two-sided exact binomial −log10(p), computed in log space (log-sum-exp per
+/// tail) so it stays finite even when the p-value is far below the ~1e-300
+/// underflow floor of [`binomial_two_sided_p`]. Same "twice the smaller tail"
+/// convention. Returns NaN when undefined (n == 0, k > n, p0 ∉ (0,1)); returns
+/// 0.0 when p ≥ 1.
+pub fn binomial_two_sided_neglog10p(k: u64, n: u64, p0: f64) -> f64 {
+    if n == 0 || k > n || !p0.is_finite() || p0 <= 0.0 || p0 >= 1.0 {
+        return f64::NAN;
+    }
+    let ln_p = p0.ln();
+    let ln_q = (1.0 - p0).ln();
+    let ln_pmf = |i: u64| ln_binom_coeff(n, i) + i as f64 * ln_p + (n - i) as f64 * ln_q;
+    // Numerically stable sum of a tail's probabilities in log space.
+    let ln_tail = |lo: u64, hi: u64| -> f64 {
+        let mut mx = f64::NEG_INFINITY;
+        for i in lo..=hi {
+            let v = ln_pmf(i);
+            if v > mx {
+                mx = v;
+            }
+        }
+        if mx == f64::NEG_INFINITY {
+            return f64::NEG_INFINITY;
+        }
+        let s: f64 = (lo..=hi).map(|i| (ln_pmf(i) - mx).exp()).sum();
+        mx + s.ln()
+    };
+    // Both tails include i == k, matching binomial_two_sided_p.
+    let ln_two_sided = std::f64::consts::LN_2 + ln_tail(0, k).min(ln_tail(k, n));
+    if ln_two_sided >= 0.0 {
+        0.0
+    } else {
+        -ln_two_sided / std::f64::consts::LN_10
+    }
+}
+
+/// Convert a two-sided −log10(p) into the matching χ²₁ statistic, staying finite
+/// in the far tail. For representable p it equals (Φ⁻¹(1 − p/2))²; deeper in the
+/// tail — where `1 − p/2` would round to exactly 1.0 and [`inv_normal_cdf`] would
+/// return +∞ — it uses the χ²₁ upper-tail asymptotic p ≈ e^(−c/2)·√(2/(πc)),
+/// solved for c by a few fixed-point steps. Returns NaN for non-finite/negative input.
+pub fn chi2_from_two_sided_neglog10p(nlp: f64) -> f64 {
+    if !nlp.is_finite() || nlp < 0.0 {
+        return f64::NAN;
+    }
+    let ln_p = -nlp * std::f64::consts::LN_10; // ln(p), two-sided
+    let p = ln_p.exp();
+    if p > 1e-12 {
+        // 1 − p/2 is safely representable here, so the exact probit is fine.
+        let z = inv_normal_cdf(1.0 - p / 2.0);
+        return z * z;
+    }
+    // ln p = −c/2 + ½·ln(2/(π c))  ⇒  c = −2 ln p + ln(2/(π c)).
+    let mut c = -2.0 * ln_p;
+    for _ in 0..4 {
+        let next = -2.0 * ln_p + (2.0 / (std::f64::consts::PI * c)).ln();
+        if !next.is_finite() {
+            break;
+        }
+        c = next;
+    }
+    c
+}
+
+/// Wilson score interval for a binomial proportion `k`/`n` at confidence `conf`
+/// (e.g. 0.95). Returns `(lo, hi)` clamped to [0, 1]; `(NaN, NaN)` when n == 0.
+/// Robust at small n and near 0/1, unlike the normal (Wald) interval.
+pub fn wilson_interval(k: u64, n: u64, conf: f64) -> (f64, f64) {
+    if n == 0 {
+        return (f64::NAN, f64::NAN);
+    }
+    // z = two-sided normal quantile for the given confidence.
+    let z = inv_normal_cdf(0.5 + conf / 2.0);
+    let nf = n as f64;
+    let phat = k as f64 / nf;
+    let z2 = z * z;
+    let denom = 1.0 + z2 / nf;
+    let center = (phat + z2 / (2.0 * nf)) / denom;
+    let half = (z / denom) * ((phat * (1.0 - phat) / nf) + z2 / (4.0 * nf * nf)).sqrt();
+    ((center - half).clamp(0.0, 1.0), (center + half).clamp(0.0, 1.0))
+}
+
+/// Inverse standard-normal CDF (probit) via Acklam's rational approximation
+/// (abs error < 1.2e-9). Returns ±∞ at 0/1.
+pub fn inv_normal_cdf(p: f64) -> f64 {
+    if p <= 0.0 {
+        return f64::NEG_INFINITY;
+    }
+    if p >= 1.0 {
+        return f64::INFINITY;
+    }
+    const A: [f64; 6] = [
+        -3.969_683_028_665_376e1, 2.209_460_984_245_205e2, -2.759_285_104_469_687e2,
+        1.383_577_518_672_69e2, -3.066_479_806_614_716e1, 2.506_628_277_459_239e0,
+    ];
+    const B: [f64; 5] = [
+        -5.447_609_879_822_406e1, 1.615_858_368_580_409e2, -1.556_989_798_598_866e2,
+        6.680_131_188_771_972e1, -1.328_068_155_288_572e1,
+    ];
+    const C: [f64; 6] = [
+        -7.784_894_002_430_293e-3, -3.223_964_580_411_365e-1, -2.400_758_277_161_838e0,
+        -2.549_732_539_343_734e0, 4.374_664_141_464_968e0, 2.938_163_982_698_783e0,
+    ];
+    const D: [f64; 4] = [
+        7.784_695_709_041_462e-3, 3.224_671_290_700_398e-1, 2.445_134_137_142_996e0,
+        3.754_408_661_907_416e0,
+    ];
+    let pl = 0.024_25;
+    if p < pl {
+        let q = (-2.0 * p.ln()).sqrt();
+        (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
+            / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
+    } else if p <= 1.0 - pl {
+        let q = p - 0.5;
+        let r = q * q;
+        (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q
+            / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
+    } else {
+        let q = (-2.0 * (1.0 - p).ln()).sqrt();
+        -(((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
+            / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
+    }
 }
 
 /// Benjamini-Hochberg FDR q-values, aligned with the input. NaN inputs
@@ -569,5 +701,90 @@ mod tests {
         // A zero row/col is still well-defined (p ≤ 1)
         let p = fisher_exact_two_sided(4, 0, 2, 3);
         assert!((0.0..=1.0).contains(&p));
+    }
+
+    #[test]
+    fn neglog10p_matches_probability_in_representable_range() {
+        // Where the raw p-value does not underflow, −log10(p) must agree.
+        for &(k, n, p0) in &[(8u64, 10u64, 0.5), (2, 10, 0.5), (30, 100, 0.2), (0, 5, 0.3)] {
+            let p = binomial_two_sided_p(k, n, p0);
+            let nl = binomial_two_sided_neglog10p(k, n, p0);
+            if p > 0.0 {
+                assert!((nl - (-p.log10())).abs() < 1e-9, "k={k} n={n}: {nl} vs {}", -p.log10());
+            }
+        }
+        // p == 1 (k exactly at the null mean) → −log10(p) == 0.
+        assert_eq!(binomial_two_sided_neglog10p(5, 10, 0.5), 0.0);
+        // Undefined cases → NaN.
+        assert!(binomial_two_sided_neglog10p(0, 0, 0.5).is_nan());
+        assert!(binomial_two_sided_neglog10p(11, 10, 0.5).is_nan());
+    }
+
+    #[test]
+    fn neglog10p_stays_finite_when_raw_p_underflows() {
+        // 4000 nonsynonymous SNPs out of 4000 under a 0.5 null: the exact p is
+        // astronomically small (underflows f64 to 0), but −log10(p) is finite.
+        let p = binomial_two_sided_p(4000, 4000, 0.5);
+        assert_eq!(p, 0.0, "raw p should underflow to 0");
+        let nl = binomial_two_sided_neglog10p(4000, 4000, 0.5);
+        assert!(nl.is_finite() && nl > 1000.0, "−log10(p) should be a large finite value, got {nl}");
+        // ≈ 4000·log10(2) since P(X=4000)=0.5^4000 dominates the tail.
+        assert!((nl - 4000.0 * 2.0_f64.log10()).abs() < 1.0);
+    }
+
+    #[test]
+    fn chi2_from_neglog10p_stays_finite_in_far_tail() {
+        // Representable range: matches (Φ⁻¹(1−p/2))².
+        for &p in &[0.5_f64, 0.05, 1e-4, 1e-8] {
+            let nlp = -p.log10();
+            let z = inv_normal_cdf(1.0 - p / 2.0);
+            assert!((chi2_from_two_sided_neglog10p(nlp) - z * z).abs() < 1e-6);
+        }
+        // Far tail where 1 − p/2 rounds to 1.0: must be a large FINITE value.
+        let c = chi2_from_two_sided_neglog10p(28.0); // p ≈ 1e-28
+        assert!(c.is_finite() && c > 100.0 && c < 200.0, "got {c}");
+        // Monotone increasing in the statistic; NaN for bad input.
+        assert!(chi2_from_two_sided_neglog10p(50.0) > chi2_from_two_sided_neglog10p(20.0));
+        assert!(chi2_from_two_sided_neglog10p(f64::NAN).is_nan());
+        assert!(chi2_from_two_sided_neglog10p(-1.0).is_nan());
+    }
+
+    #[test]
+    fn percentile_handles_infinity_endpoints() {
+        // Median lands on an ∞ element: must return ∞, not NaN (∞·0 hazard).
+        assert!(percentile_sorted(&[1.0, f64::INFINITY, f64::INFINITY], 50.0).is_infinite());
+        assert_eq!(percentile_sorted(&[2.0, 4.0], 0.0), 2.0);
+        assert_eq!(percentile_sorted(&[2.0, 4.0], 100.0), 4.0);
+        assert!((percentile_sorted(&[0.0, 10.0], 50.0) - 5.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn inv_normal_cdf_known_quantiles() {
+        assert!((inv_normal_cdf(0.5)).abs() < 1e-9);
+        assert!((inv_normal_cdf(0.975) - 1.959_963_984_540_054).abs() < 1e-6);
+        assert!((inv_normal_cdf(0.025) + 1.959_963_984_540_054).abs() < 1e-6);
+        // Symmetry and monotonicity
+        assert!((inv_normal_cdf(0.8) + inv_normal_cdf(0.2)).abs() < 1e-6);
+        assert!(inv_normal_cdf(0.9) > inv_normal_cdf(0.6));
+        assert_eq!(inv_normal_cdf(0.0), f64::NEG_INFINITY);
+        assert_eq!(inv_normal_cdf(1.0), f64::INFINITY);
+    }
+
+    #[test]
+    fn wilson_interval_properties() {
+        // Contains the point estimate and is inside [0,1].
+        let (lo, hi) = wilson_interval(3, 10, 0.95);
+        assert!(lo >= 0.0 && hi <= 1.0 && lo < 0.3 && hi > 0.3);
+        // Degenerate 0/n and n/n stay in-bounds (Wilson never leaves [0,1]).
+        let (lo0, hi0) = wilson_interval(0, 8, 0.95);
+        assert!(lo0 == 0.0 && hi0 > 0.0 && hi0 < 1.0);
+        let (lo1, hi1) = wilson_interval(8, 8, 0.95);
+        assert!(hi1 == 1.0 && lo1 > 0.0 && lo1 < 1.0);
+        // More data → tighter interval.
+        let (a, b) = wilson_interval(50, 100, 0.95);
+        let (c, d) = wilson_interval(5, 10, 0.95);
+        assert!((b - a) < (d - c));
+        // n == 0 → NaN.
+        assert!(wilson_interval(0, 0, 0.95).0.is_nan());
     }
 }

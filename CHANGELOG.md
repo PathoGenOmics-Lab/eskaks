@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Genomic-control clonality correction** (`eskaks vcf --genomic-control`): the
+  per-gene neutrality χ² is divided by the median-based inflation factor λ
+  (never below 1) and re-tested, adding `p_gc`/`q_gc` columns. λ is always
+  reported (in the summary and the report's QQ panel/inflation card) as a
+  diagnostic — in clonal organisms like *M. tuberculosis* genome-wide linkage
+  inflates significance, so the raw per-gene test is anti-conservative.
+- **`--exclude-repetitive` core-genome mode**: drops PE/PPE/PGRS, IS elements and
+  maturases from the genome-wide pooled estimate and the neutrality-test family
+  (their SNP calls are frequently mapping artefacts). The report always shows a
+  **core-vs-repetitive** pooled comparison so the gap is visible either way.
+- **Per-gene 95% confidence interval on pN/pS** (Wilson score on the
+  nonsynonymous SNP fraction, mapped to pN/pS): new `pn_ps_lo`/`pn_ps_hi` output
+  and CI whiskers on the report's power funnel.
+- **Site-frequency-spectrum panel**: pN/pS split by allele-frequency bin — a
+  falling profile is the signature of purifying selection keeping deleterious
+  nonsynonymous variants rare (informative for multi-sample cohorts).
+- **Log-space −log10(p)**: the neutrality test now also reports a `−log10(p)`
+  computed in log space, so genes whose exact p underflows to 0 keep a finite,
+  meaningful value.
+- **Report scales to whole genomes**: scatter panels render to a `<canvas>` with
+  nearest-point hover/click above ~1200 genes, and the per-gene table is
+  virtualized — thousands of genes stay responsive.
+- **Colour-blind (CVD) mode** in the report: a toggle swaps to a validated
+  Okabe-Ito palette **and** adds direction shapes (▲ diversifying / ▼ purifying /
+  • not significant) so selection direction never depends on colour alone.
+- **Provenance block** in the report: eskaks version, the invoking command line,
+  and the input file paths, for reproducibility.
 - **Genome-wide (pooled) pN/pS** in the `eskaks vcf` summary: an overall estimate
   computed by pooling SNP counts and site counts across all genes
   (`pN = Σ nonsyn / Σ N_sites`, `pS = Σ syn / Σ S_sites`) rather than averaging
