@@ -90,6 +90,16 @@ pub struct FastaArgs {
     #[arg(long)]
     pub neutrality: bool,
 
+    /// Bootstrap replicates for per-pair 95% CIs on dN, dS, and dN/dS
+    /// (resamples codon columns; works for both models). Writes
+    /// <output>_pairwise_bootstrap. 0 disables it.
+    #[arg(long, default_value_t = 0)]
+    pub bootstrap: usize,
+
+    /// Seed for reproducible bootstrap resampling.
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+
     /// Generate SVG plot file
     #[arg(long)]
     pub plot: bool,

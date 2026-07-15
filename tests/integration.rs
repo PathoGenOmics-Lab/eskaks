@@ -479,3 +479,23 @@ fn neutrality_test_writes_pairwise_tests() {
     fs::remove_file(format!("{}_pairwise_tests.tsv", out_prefix)).ok();
     fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
 }
+
+#[test]
+fn bootstrap_writes_pairwise_cis() {
+    let out_prefix = "/tmp/eskaks_test_boot";
+    let status = Command::new(binary_path())
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--bootstrap", "200"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let rows = parse_tsv(&format!("{}_pairwise_bootstrap.tsv", out_prefix));
+    assert_eq!(
+        rows[0],
+        vec!["Seq1", "Seq2", "dN", "dN_CI_low", "dN_CI_high", "dS",
+             "dS_CI_low", "dS_CI_high", "dN/dS", "dNdS_CI_low", "dNdS_CI_high"],
+        "bootstrap header mismatch: {:?}", rows[0]
+    );
+    assert!(rows.len() > 1);
+    fs::remove_file(format!("{}_pairwise_bootstrap.tsv", out_prefix)).ok();
+    fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
+}

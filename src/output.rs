@@ -99,6 +99,61 @@ pub fn write_pairwise_tests(
     Ok(output_path)
 }
 
+/// Write a per-pair bootstrap-CI table:
+/// Seq1, Seq2, dN, dN_CI_low, dN_CI_high, dS, dS_CI_low, dS_CI_high,
+/// dN/dS, dNdS_CI_low, dNdS_CI_high. `stats(u_i, u_j)` returns
+/// `(dn, ds, dn_lo, dn_hi, ds_lo, ds_hi, ratio_lo, ratio_hi)`.
+pub fn write_pairwise_bootstrap(
+    ids: &[String],
+    uidx_by_id: &[usize],
+    stats: impl Fn(usize, usize) -> (f64, f64, f64, f64, f64, f64, f64, f64) + Sync,
+    prefix: &str,
+    sep: char,
+    ext: &str,
+) -> anyhow::Result<String> {
+    use rayon::prelude::*;
+
+    let n = ids.len();
+    let pairs: Vec<(usize, usize)> =
+        (0..n).flat_map(|i| (i + 1..n).map(move |j| (i, j))).collect();
+    let is_json = ext == "json";
+    let fmt = |v: f64| if v.is_finite() { format!("{:.6}", v) } else { "NaN".to_string() };
+    let jfmt = |v: f64| if v.is_finite() { format!("{:.6}", v) } else { "null".to_string() };
+
+    let rows: Vec<String> = pairs
+        .par_iter()
+        .map(|&(i, j)| {
+            let (dn, ds, dn_lo, dn_hi, ds_lo, ds_hi, r_lo, r_hi) = stats(uidx_by_id[i], uidx_by_id[j]);
+            let ratio = if ds > 0.0 { dn / ds } else { f64::NAN };
+            if is_json {
+                format!(
+                    "  {{\"seq1\":\"{}\",\"seq2\":\"{}\",\"dN\":{},\"dN_CI_low\":{},\"dN_CI_high\":{},\"dS\":{},\"dS_CI_low\":{},\"dS_CI_high\":{},\"dN_dS\":{},\"dNdS_CI_low\":{},\"dNdS_CI_high\":{}}}",
+                    ids[i], ids[j], jfmt(dn), jfmt(dn_lo), jfmt(dn_hi), jfmt(ds), jfmt(ds_lo), jfmt(ds_hi), jfmt(ratio), jfmt(r_lo), jfmt(r_hi)
+                )
+            } else {
+                format!(
+                    "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
+                    ids[i], ids[j], fmt(dn), fmt(dn_lo), fmt(dn_hi), fmt(ds), fmt(ds_lo), fmt(ds_hi), fmt(ratio), fmt(r_lo), fmt(r_hi), s = sep
+                )
+            }
+        })
+        .collect();
+
+    let output_path = format!("{}_pairwise_bootstrap.{}", prefix, ext);
+    let mut file = BufWriter::new(File::create(&output_path)?);
+    if is_json {
+        writeln!(file, "[")?;
+        writeln!(file, "{}", rows.join(",\n"))?;
+        writeln!(file, "]")?;
+    } else {
+        writeln!(file, "Seq1{s}Seq2{s}dN{s}dN_CI_low{s}dN_CI_high{s}dS{s}dS_CI_low{s}dS_CI_high{s}dN/dS{s}dNdS_CI_low{s}dNdS_CI_high", s = sep)?;
+        for row in &rows {
+            writeln!(file, "{}", row)?;
+        }
+    }
+    Ok(output_path)
+}
+
 pub fn write_pairwise(
     ids: &[String],
     uidx_by_id: &[usize],

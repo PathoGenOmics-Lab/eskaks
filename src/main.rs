@@ -142,6 +142,29 @@ fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
         info!("Neutrality test saved to {}", path);
     }
 
+    // Optional per-pair bootstrap CIs (model-agnostic; resamples codons).
+    if args.bootstrap > 0 {
+        let seed = args.seed;
+        let n_boot = args.bootstrap;
+        let boot = |u_i: usize, u_j: usize| {
+            let s1 = &data.unique_codon_indices[u_i];
+            let s2 = &data.unique_codon_indices[u_j];
+            let (dn, ds) = engine.compute_slices(s1, s2);
+            // Per-pair seed keeps the bootstrap reproducible and independent
+            // across pairs (so parallel writing stays deterministic).
+            let pair_seed = seed
+                ^ (u_i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                ^ (u_j as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
+            let (dn_lo, dn_hi, ds_lo, ds_hi, r_lo, r_hi) =
+                engine.bootstrap_ci(s1, s2, n_boot, pair_seed);
+            (dn, ds, dn_lo, dn_hi, ds_lo, ds_hi, r_lo, r_hi)
+        };
+        let path = output::write_pairwise_bootstrap(
+            &data.ids, &data.uidx_by_id, boot, &args.output, sep, ext,
+        )?;
+        info!("Bootstrap CIs saved to {}", path);
+    }
+
     // Print summary
     if let Some(ref stats) = summary_stats {
         if args.summary {

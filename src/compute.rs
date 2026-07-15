@@ -56,6 +56,59 @@ impl ComputeEngine {
         }
     }
 
+    /// Percentile bootstrap 95% CIs for a pair's dN, dS, and dN/dS by resampling
+    /// codon columns with replacement `n_boot` times (seeded). Model-agnostic,
+    /// so it works for both Nei and Li. Returns
+    /// `(dn_lo, dn_hi, ds_lo, ds_hi, ratio_lo, ratio_hi)`.
+    pub fn bootstrap_ci(
+        &self,
+        s1: &[u8],
+        s2: &[u8],
+        n_boot: usize,
+        seed: u64,
+    ) -> (f64, f64, f64, f64, f64, f64) {
+        let l = s1.len().min(s2.len());
+        let nan6 = (f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN, f64::NAN);
+        if l == 0 || n_boot == 0 {
+            return nan6;
+        }
+        let mut rng = crate::stats::SplitMix64::new(seed);
+        let (mut dns, mut dss, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
+        let mut b1 = vec![0u8; l];
+        let mut b2 = vec![0u8; l];
+        for _ in 0..n_boot {
+            for k in 0..l {
+                let idx = rng.below(l);
+                b1[k] = s1[idx];
+                b2[k] = s2[idx];
+            }
+            let (dn, ds) = self.compute_slices(&b1, &b2);
+            if dn.is_finite() {
+                dns.push(dn);
+            }
+            if ds.is_finite() {
+                dss.push(ds);
+            }
+            if dn.is_finite() && ds.is_finite() && ds > 0.0 {
+                ratios.push(dn / ds);
+            }
+        }
+        let ci = |mut v: Vec<f64>| -> (f64, f64) {
+            if v.is_empty() {
+                return (f64::NAN, f64::NAN);
+            }
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            (
+                crate::stats::percentile_sorted(&v, 2.5),
+                crate::stats::percentile_sorted(&v, 97.5),
+            )
+        };
+        let (dn_lo, dn_hi) = ci(dns);
+        let (ds_lo, ds_hi) = ci(dss);
+        let (r_lo, r_hi) = ci(ratios);
+        (dn_lo, dn_hi, ds_lo, ds_hi, r_lo, r_hi)
+    }
+
     /// Compute `(dN, dS, var_dN, var_dS)` for a pair of unique indices. The
     /// Nei-Gojobori analytic variances are only defined for the Nei model; the
     /// Li model returns NaN variances (use bootstrap for Li instead).
