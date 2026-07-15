@@ -1,5 +1,34 @@
 # FAQ
 
+## I'm new — where do I start?
+
+Run the [getting-started tutorial](tutorial.md). It uses example data that ships in
+the `examples/` folder, so you can get a full result in a couple of minutes without
+any data of your own. Any unfamiliar term is defined in the [glossary](glossary.md).
+
+## Which mode do I use — `fasta` or `vcf`?
+
+- Comparing **sequences** (one gene from several species/strains, already aligned)?
+  → `eskaks fasta` gives you **dN/dS**.
+- Comparing **individuals in a population** (you have a reference genome and a VCF of
+  variants)? → `eskaks vcf` gives you **pN/pS per gene**.
+
+## What input files do I need?
+
+- **`eskaks fasta`**: one **codon-aligned** FASTA (sequences in frame, all the same
+  length). If yours aren't aligned yet, run [MAFFT](https://mafft.cbrc.jp/) +
+  [PAL2NAL](http://www.bork.embl.de/pal2nal/) or [MACSE](https://bioweb.supagro.inra.fr/macse/) first.
+- **`eskaks vcf`**: three files — a **reference FASTA**, a **GFF3** annotation, and one
+  or more **VCF** files. The **contig/chromosome names must match** across all three.
+
+## My `eskaks vcf` output is empty or all `NA`
+
+Almost always a **name mismatch**: the chromosome name in the VCF (e.g. `chr1`) must
+be *identical* to the sequence name in the reference FASTA (`>chr1`) and the first
+column of the GFF3. eskaks warns when it can't reconcile them — run with `-v` to see
+the details. Also check that your GFF3 has `CDS` features and that `--genetic-code`
+matches your organism (`11` for bacteria).
+
 ## Why is eskaks so much faster?
 
 Three main reasons:

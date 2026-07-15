@@ -5,6 +5,7 @@
 # User Guide
 
 - [Installation](./installation.md)
+- [Getting Started (tutorial)](./tutorial.md)
 - [Quick Start](./quickstart.md)
 - [Models](./models.md)
 - [Genetic Codes](./genetic-codes.md)
@@ -14,5 +15,6 @@
 
 # Reference
 
+- [Glossary](./glossary.md)
 - [CLI Reference](./cli-reference.md)
 - [FAQ](./faq.md)

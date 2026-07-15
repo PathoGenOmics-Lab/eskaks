@@ -6,6 +6,8 @@ Detailed documentation for eskaks. Browse on GitHub or build locally with [mdboo
 
 | Document | Description |
 |---|---|
+| [**Getting started (tutorial)**](tutorial.md) | **Start here** — hands-on walkthrough with bundled example data |
+| [Glossary](glossary.md) | Plain-language definitions of every term |
 | [Models](models.md) | Nei-Gojobori (1986) vs Li (1993) — formulas, differences, when to use each |
 | [Genetic Codes](genetic-codes.md) | 20 supported NCBI translation tables with usage examples |
 | [Output Formats](output-formats.md) | TSV, CSV, JSON — output modes and SVG plot generation |

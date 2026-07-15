@@ -13,7 +13,7 @@
 **Pairwise dN/dS (Ka/Ks) and per-gene pN/pS from codon-aligned sequences or VCF files.**
 **Pure Rust · no C dependencies · self-contained interactive HTML reports.**
 
-[Quick Start](#quick-start) · [Report](#interactive-html-report) · [Features](#features) · [Docs](docs/) · [Citation](#citation)
+[Tutorial](docs/tutorial.md) · [Quick Start](#quick-start) · [Report](#interactive-html-report) · [Docs](docs/) · [Citation](#citation)
 
 </div>
 
@@ -26,7 +26,20 @@ __and Mireia Coscolla<sup>1</sup>__
 
 ## What is eskaks?
 
-eskaks measures the strength and direction of natural selection on protein-coding
+> [!TIP]
+> **New here?** The [**getting-started tutorial**](docs/tutorial.md) walks you from
+> install to a finished analysis using example data that ships with the tool — no
+> background assumed. Unfamiliar with a term? See the [glossary](docs/glossary.md).
+
+**In plain terms:** genes are read in **codons** (DNA triplets). A mutation is
+either *synonymous* (silent — the protein is unchanged) or *nonsynonymous* (it
+changes the protein). Natural selection acts on the protein, so comparing the two
+rates tells you what selection is doing: a ratio **below 1** means harmful changes
+are being removed (*purifying selection*, the normal state of a working gene), and a
+ratio **above 1** means changes are being favoured (*positive selection* — drug
+targets, antigens, immune genes).
+
+eskaks measures the strength and direction of that selection on protein-coding
 genes. It runs in two modes:
 
 - **`eskaks fasta`** — **pairwise dN/dS** (Ka/Ks) from codon-aligned sequences,
@@ -99,6 +112,23 @@ cargo install --path .
 ```
 
 ## Quick Start
+
+**Try it right now** with the datasets in [`examples/`](examples/) (no data of your
+own needed):
+
+```bash
+# dN/dS from aligned sequences
+eskaks fasta examples/genes.fasta -o first_run
+
+# per-gene pN/pS from a VCF + an interactive report
+eskaks vcf --ref examples/toy_genome/reference.fasta \
+  --gff examples/toy_genome/genes.gff3 \
+  --vcf examples/toy_genome/variants.vcf \
+  --genetic-code 11 --report -o toy_scan
+# → open toy_scan_report.html in a browser
+```
+
+The [tutorial](docs/tutorial.md) explains every step and how to read the output.
 
 ### Pairwise dN/dS (FASTA)
 
@@ -276,6 +306,8 @@ methodology in [benchmarks/](benchmarks/).
 
 | Document | Description |
 |---|---|
+| [**Tutorial**](docs/tutorial.md) | **Start here** — a hands-on walkthrough with example data |
+| [Glossary](docs/glossary.md) | Plain-language definitions of every term |
 | [VCF Analysis (pN/pS)](docs/vcf-analysis.md) | pN/pS per gene, neutrality test, MK, genomic control, SFS, the report |
 | [Models](docs/models.md) | Nei-Gojobori vs Li — formulas, differences, when to use each |
 | [Genetic Codes](docs/genetic-codes.md) | 20 NCBI translation tables with examples |

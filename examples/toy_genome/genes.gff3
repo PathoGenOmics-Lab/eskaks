@@ -1,0 +1,25 @@
+##gff-version 3
+chr1	eskaks	gene	1	399	.	+	.	ID=g1;Name=gene01
+chr1	eskaks	CDS	1	399	.	+	0	Parent=g1;gene=gene01
+chr1	eskaks	gene	441	695	.	+	.	ID=g2;Name=gene02
+chr1	eskaks	CDS	441	695	.	+	0	Parent=g2;gene=gene02
+chr1	eskaks	gene	733	999	.	+	.	ID=g3;Name=gene03
+chr1	eskaks	CDS	733	999	.	+	0	Parent=g3;gene=gene03
+chr1	eskaks	gene	1038	1439	.	+	.	ID=g4;Name=PPE_toy1
+chr1	eskaks	CDS	1038	1439	.	+	0	Parent=g4;gene=PPE_toy1
+chr1	eskaks	gene	1472	1840	.	+	.	ID=g5;Name=gene05
+chr1	eskaks	CDS	1472	1840	.	+	0	Parent=g5;gene=gene05
+chr1	eskaks	gene	1878	2198	.	+	.	ID=g6;Name=gene06
+chr1	eskaks	CDS	1878	2198	.	+	0	Parent=g6;gene=gene06
+chr1	eskaks	gene	2233	2592	.	+	.	ID=g7;Name=gene07
+chr1	eskaks	CDS	2233	2592	.	+	0	Parent=g7;gene=gene07
+chr1	eskaks	gene	2631	3065	.	+	.	ID=g8;Name=gene08
+chr1	eskaks	CDS	2631	3065	.	+	0	Parent=g8;gene=gene08
+chr1	eskaks	gene	3107	3478	.	+	.	ID=g9;Name=PE_PGRS_toy2
+chr1	eskaks	CDS	3107	3478	.	+	0	Parent=g9;gene=PE_PGRS_toy2
+chr1	eskaks	gene	3524	3895	.	+	.	ID=g10;Name=gene10
+chr1	eskaks	CDS	3524	3895	.	+	0	Parent=g10;gene=gene10
+chr1	eskaks	gene	3947	4426	.	+	.	ID=g11;Name=gene11
+chr1	eskaks	CDS	3947	4426	.	+	0	Parent=g11;gene=gene11
+chr1	eskaks	gene	4459	4764	.	+	.	ID=g12;Name=gene12
+chr1	eskaks	CDS	4459	4764	.	+	0	Parent=g12;gene=gene12
