@@ -40,6 +40,38 @@ pub struct GenePnPs {
     pub chrom: String,
 }
 
+/// Genome-wide (pooled) pN/pS aggregated across all analyzed genes.
+///
+/// Unlike averaging per-gene pN/pS ratios — which over-weights genes carrying
+/// only a handful of sites — this pools SNP counts and site counts across the
+/// whole coding genome *before* taking the ratio:
+///
+/// ```text
+/// pN = Σ nonsyn_snps / Σ N_sites
+/// pS = Σ syn_snps    / Σ S_sites
+/// ```
+///
+/// This is the standard way to summarise the overall strength and direction of
+/// selection over a set of genes. Counts are AF-weighted when the per-gene
+/// results were computed with `--af-weighted` (making this πN/πS).
+#[derive(Debug, Clone)]
+pub struct GenomeWidePnPs {
+    /// Total nonsynonymous sites summed over all genes
+    pub n_sites: f64,
+    /// Total synonymous sites summed over all genes
+    pub s_sites: f64,
+    /// Total nonsynonymous SNPs (AF-weighted if applicable)
+    pub nonsyn_snps: f64,
+    /// Total synonymous SNPs (AF-weighted if applicable)
+    pub syn_snps: f64,
+    /// Pooled pN (Σ nonsyn_snps / Σ N_sites)
+    pub pn: f64,
+    /// Pooled pS (Σ syn_snps / Σ S_sites)
+    pub ps: f64,
+    /// Pooled pN/pS ratio
+    pub pn_ps: f64,
+}
+
 /// Compute pN/pS for all genes given a reference sequence, gene annotations, and SNPs.
 ///
 /// If `af_weighted` is true, each SNP contributes its allele frequency to the
@@ -198,6 +230,62 @@ pub fn compute_pn_ps(
 
     info!("Computed pN/pS for {} genes", results.len());
     results
+}
+
+/// Aggregate per-gene results into a single genome-wide (pooled) pN/pS estimate.
+///
+/// Returns `None` when there are no genes to aggregate. The pooled ratio uses
+/// the same NaN/Infinity conventions as the per-gene computation: `NaN` when
+/// there is no variation at all, `+Infinity` when there are nonsynonymous but
+/// no synonymous changes.
+pub fn genome_wide_pn_ps(results: &[GenePnPs]) -> Option<GenomeWidePnPs> {
+    if results.is_empty() {
+        return None;
+    }
+
+    let n_sites: f64 = results.iter().map(|r| r.n_sites).sum();
+    let s_sites: f64 = results.iter().map(|r| r.s_sites).sum();
+    let nonsyn_snps: f64 = results.iter().map(|r| r.nonsyn_snps).sum();
+    let syn_snps: f64 = results.iter().map(|r| r.syn_snps).sum();
+
+    let pn = if n_sites > 0.0 { nonsyn_snps / n_sites } else { 0.0 };
+    let ps = if s_sites > 0.0 { syn_snps / s_sites } else { 0.0 };
+    let pn_ps = if ps > 0.0 {
+        pn / ps
+    } else if pn > 0.0 {
+        f64::INFINITY
+    } else {
+        f64::NAN
+    };
+
+    Some(GenomeWidePnPs {
+        n_sites,
+        s_sites,
+        nonsyn_snps,
+        syn_snps,
+        pn,
+        ps,
+        pn_ps,
+    })
+}
+
+/// A short qualitative interpretation of a pN/pS ratio.
+///
+/// The 0.9–1.1 neutral band is a coarse convenience heuristic, not a
+/// statistical test — genome-wide pN/pS is routinely below 1 for real
+/// populations, and formal inference needs a null model.
+pub fn selection_label(pn_ps: f64) -> &'static str {
+    if pn_ps.is_nan() {
+        "undetermined (no coding variation)"
+    } else if pn_ps.is_infinite() {
+        "no synonymous variation (ratio undefined)"
+    } else if pn_ps < 0.9 {
+        "purifying selection (pN/pS < 1)"
+    } else if pn_ps > 1.1 {
+        "positive/diversifying selection (pN/pS > 1)"
+    } else {
+        "near-neutral (pN/pS ~ 1)"
+    }
 }
 
 /// Extract the CDS sequence from the reference, handling strand and multi-exon genes.
@@ -459,7 +547,7 @@ pub fn write_results(
                     file,
                     "{}{s}{}{s}{:.4}{s}{:.4}{s}{:.6}{s}{:.6}{s}{}{s}{:.4}{s}{:.4}{s}{:.4}",
                     r.name, r.length_bp, r.n_sites, r.s_sites,
-                    r.pn, r.ps, format_pnps(r.pn_ps),
+                    r.pn, r.ps, format_ratio(r.pn_ps),
                     r.nonsyn_snps, r.syn_snps, r.total_snps,
                     s = sep
                 )?;
@@ -470,7 +558,9 @@ pub fn write_results(
     Ok(output_path)
 }
 
-fn format_pnps(v: f64) -> String {
+/// Format a pN/pS ratio for human-readable output, mapping NaN/Infinity to
+/// stable textual tokens instead of Rust's default `NaN`/`inf` Display.
+pub fn format_ratio(v: f64) -> String {
     if v.is_nan() {
         "NaN".to_string()
     } else if v.is_infinite() {
@@ -737,6 +827,92 @@ mod tests {
         assert_eq!(genomic_to_cds_offset(&gene, 109), Some(9));
         assert_eq!(genomic_to_cds_offset(&gene, 110), None);
         assert_eq!(genomic_to_cds_offset(&gene, 99), None);
+    }
+
+    /// Build a minimal `GenePnPs` for aggregation tests. Only the fields read
+    /// by `genome_wide_pn_ps` need to be meaningful.
+    fn gene_result(n_sites: f64, s_sites: f64, nonsyn: f64, syn: f64) -> GenePnPs {
+        let pn = if n_sites > 0.0 { nonsyn / n_sites } else { 0.0 };
+        let ps = if s_sites > 0.0 { syn / s_sites } else { 0.0 };
+        let pn_ps = if ps > 0.0 {
+            pn / ps
+        } else if pn > 0.0 {
+            f64::INFINITY
+        } else {
+            f64::NAN
+        };
+        GenePnPs {
+            name: "g".to_string(),
+            length_bp: 0,
+            n_sites,
+            s_sites,
+            pn,
+            ps,
+            pn_ps,
+            nonsyn_snps: nonsyn,
+            syn_snps: syn,
+            total_snps: nonsyn + syn,
+            genome_start: 0,
+            chrom: "chr1".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_genome_wide_pools_counts_not_ratios() {
+        // Gene 1: many sites, ratio 0.5. Gene 2: few sites, ratio 4.0.
+        // Averaging ratios would give 2.25; pooling counts must not.
+        let results = vec![
+            gene_result(100.0, 100.0, 10.0, 20.0), // pN=0.10, pS=0.20
+            gene_result(2.0, 2.0, 4.0, 1.0),       // pN=2.00, pS=0.50
+        ];
+        let gw = genome_wide_pn_ps(&results).expect("should aggregate");
+        assert!((gw.n_sites - 102.0).abs() < 1e-9);
+        assert!((gw.s_sites - 102.0).abs() < 1e-9);
+        assert!((gw.nonsyn_snps - 14.0).abs() < 1e-9);
+        assert!((gw.syn_snps - 21.0).abs() < 1e-9);
+        // pooled pN = 14/102, pS = 21/102, ratio = 14/21
+        assert!((gw.pn - 14.0 / 102.0).abs() < 1e-9);
+        assert!((gw.ps - 21.0 / 102.0).abs() < 1e-9);
+        assert!((gw.pn_ps - 14.0 / 21.0).abs() < 1e-9, "got {}", gw.pn_ps);
+    }
+
+    #[test]
+    fn test_genome_wide_empty_is_none() {
+        assert!(genome_wide_pn_ps(&[]).is_none());
+    }
+
+    #[test]
+    fn test_genome_wide_no_variation_is_nan() {
+        // Genes exist but carry no SNPs → ratio is NaN, not 0 or Inf.
+        let results = vec![gene_result(50.0, 25.0, 0.0, 0.0)];
+        let gw = genome_wide_pn_ps(&results).unwrap();
+        assert_eq!(gw.pn, 0.0);
+        assert_eq!(gw.ps, 0.0);
+        assert!(gw.pn_ps.is_nan(), "expected NaN, got {}", gw.pn_ps);
+    }
+
+    #[test]
+    fn test_genome_wide_no_syn_is_infinite() {
+        // Nonsynonymous variation but zero synonymous → +Infinity.
+        let results = vec![gene_result(50.0, 25.0, 3.0, 0.0)];
+        let gw = genome_wide_pn_ps(&results).unwrap();
+        assert!(gw.pn_ps.is_infinite() && gw.pn_ps > 0.0);
+    }
+
+    #[test]
+    fn test_selection_label_bands() {
+        assert!(selection_label(0.3).contains("purifying"));
+        assert!(selection_label(1.0).contains("neutral"));
+        assert!(selection_label(2.0).contains("diversifying"));
+        assert!(selection_label(f64::NAN).contains("undetermined"));
+        assert!(selection_label(f64::INFINITY).contains("synonymous"));
+    }
+
+    #[test]
+    fn test_format_ratio_special_values() {
+        assert_eq!(format_ratio(f64::NAN), "NaN");
+        assert_eq!(format_ratio(f64::INFINITY), "inf");
+        assert_eq!(format_ratio(0.5), "0.500000");
     }
 
     #[test]

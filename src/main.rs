@@ -182,14 +182,25 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     // Print summary statistics
     let total_genes = results.len();
     let genes_with_snps = results.iter().filter(|r| r.total_snps > 0.0).count();
-    let total_syn: f64 = results.iter().map(|r| r.syn_snps).sum();
-    let total_nonsyn: f64 = results.iter().map(|r| r.nonsyn_snps).sum();
+    let genome_wide = vcf_analysis::genome_wide_pn_ps(&results);
+    let (total_syn, total_nonsyn) = genome_wide
+        .as_ref()
+        .map(|gw| (gw.syn_snps, gw.nonsyn_snps))
+        .unwrap_or((0.0, 0.0));
     let mode = if args.af_weighted { "πN/πS (AF-weighted)" } else { "pN/pS" };
+    let ratio_name = if args.af_weighted { "πN/πS" } else { "pN/pS" };
     eprintln!("\n── {} Summary ──────────────────────────", mode);
     eprintln!("  Genes analyzed:      {}", total_genes);
     eprintln!("  Genes with SNPs:     {}", genes_with_snps);
     eprintln!("  Total synonymous:    {:.2}", total_syn);
     eprintln!("  Total nonsynonymous: {:.2}", total_nonsyn);
+    if let Some(gw) = &genome_wide {
+        eprintln!("  ── Genome-wide (pooled) ──────────────────");
+        eprintln!("  N / S sites:         {:.1} / {:.1}", gw.n_sites, gw.s_sites);
+        eprintln!("  Overall pN / pS:     {:.6} / {:.6}", gw.pn, gw.ps);
+        eprintln!("  Overall {}:       {}", ratio_name, vcf_analysis::format_ratio(gw.pn_ps));
+        eprintln!("  Selection:           {}", vcf_analysis::selection_label(gw.pn_ps));
+    }
     eprintln!("───────────────────────────────────────────");
 
     info!("VCF analysis completed successfully.");
