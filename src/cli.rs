@@ -216,4 +216,10 @@ pub struct VcfArgs {
     /// Generate SVG Manhattan-style plot of pN/pS per gene
     #[arg(long)]
     pub plot: bool,
+
+    /// Write a self-contained interactive HTML report (<prefix>_report.html)
+    /// with summary cards, an interactive Manhattan plot, and a sortable,
+    /// filterable per-gene table. No internet/CDN needed.
+    #[arg(long)]
+    pub report: bool,
 }

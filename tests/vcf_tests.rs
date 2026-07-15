@@ -575,6 +575,29 @@ fn vcf_mk_writes_table_and_stats() {
 }
 
 #[test]
+fn vcf_report_writes_self_contained_html() {
+    let out_prefix = "/tmp/eskaks_test_vcf_report";
+    let status = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", out_prefix, "--report", "--mk",
+        ])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let html = fs::read_to_string(format!("{}_report.html", out_prefix)).expect("report html");
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    assert!(html.contains("const DATA ="), "data must be embedded");
+    assert!(html.contains("\"name\":\"geneA\""), "gene data present");
+    // Self-contained: no external network assets.
+    assert!(!html.contains("http://") && !html.contains("https://") && !html.contains("cdn"),
+        "report must not reference external assets");
+    fs::remove_file(format!("{}_report.html", out_prefix)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+    fs::remove_file(format!("{}_mk.tsv", out_prefix)).ok();
+}
+
+#[test]
 fn vcf_invalid_mk_fixed_af_rejected() {
     let output = Command::new(binary_path())
         .args([

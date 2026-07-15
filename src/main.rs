@@ -7,6 +7,7 @@ mod input;
 mod models;
 mod output;
 mod plot;
+mod report;
 mod stats;
 mod vcf;
 mod vcf_analysis;
@@ -349,6 +350,25 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         info!("Plot saved to {}", plot_path);
         let pv_path = vcf_analysis::write_pvalue_manhattan(&results, &args.output, args.fdr)?;
         info!("p-value Manhattan saved to {}", pv_path);
+    }
+
+    // Interactive HTML report.
+    if args.report {
+        let gc_label = format!("{} ({})", gc.id, gc.name);
+        let rmeta = report::ReportMeta {
+            n_samples,
+            genetic_code: &gc_label,
+            kappa: args.kappa,
+            af_weighted: args.af_weighted,
+            fdr: args.fdr,
+            min_snps: args.min_snps,
+            mk: args.mk,
+            mk_fixed_af: args.mk_fixed_af,
+            gw_ci,
+        };
+        let report_path =
+            report::write_html_report(&results, genome_wide.as_ref(), &rmeta, &args.output)?;
+        info!("Report saved to {}", report_path);
     }
 
     // Print summary statistics
