@@ -167,6 +167,12 @@ pub struct VcfArgs {
     #[arg(long, default_value_t = 1.0)]
     pub kappa: f64,
 
+    /// Drop genes with fewer than this many SNPs from the per-gene table,
+    /// plot, and neutrality test (their pN/pS is unreliable). The genome-wide
+    /// pooled estimate still uses all genes.
+    #[arg(long, default_value_t = 0)]
+    pub min_snps: usize,
+
     /// False-discovery-rate threshold for calling genes significant in the
     /// per-gene neutrality test (used for the summary count and plot highlight).
     #[arg(long, default_value_t = 0.05)]

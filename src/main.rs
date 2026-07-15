@@ -269,7 +269,24 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     let mut results =
         vcf_analysis::compute_pn_ps(&reference, &genes, &snps, gc, args.af_weighted, args.kappa);
 
-    // Per-gene neutrality test correction (BH-FDR q-values + Bonferroni).
+    // Genome-wide pooled estimate and gene counts use ALL genes (pooling is
+    // robust to low-count genes), captured before any --min-snps filtering.
+    let total_genes = results.len();
+    let genes_with_snps = results.iter().filter(|r| r.total_snps > 0.0).count();
+    let genome_wide = vcf_analysis::genome_wide_pn_ps(&results);
+
+    // --min-snps drops unreliable low-count genes from the per-gene table,
+    // plot, and neutrality test (but not from the pooled estimate above).
+    let mut dropped = 0usize;
+    if args.min_snps > 0 {
+        let before = results.len();
+        results.retain(|r| r.total_snps >= args.min_snps as f64);
+        dropped = before - results.len();
+        info!("--min-snps {}: kept {} of {} genes", args.min_snps, results.len(), before);
+    }
+
+    // Per-gene neutrality test correction (BH-FDR q-values + Bonferroni),
+    // over the retained genes only.
     vcf_analysis::apply_multiple_testing(&mut results);
 
     // Write results
@@ -283,9 +300,6 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     }
 
     // Print summary statistics
-    let total_genes = results.len();
-    let genes_with_snps = results.iter().filter(|r| r.total_snps > 0.0).count();
-    let genome_wide = vcf_analysis::genome_wide_pn_ps(&results);
     let (total_syn, total_nonsyn) = genome_wide
         .as_ref()
         .map(|gw| (gw.syn_snps, gw.nonsyn_snps))
@@ -298,6 +312,9 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     }
     eprintln!("  Genes analyzed:      {}", total_genes);
     eprintln!("  Genes with SNPs:     {}", genes_with_snps);
+    if args.min_snps > 0 {
+        eprintln!("  Genes kept (>= {} SNPs): {}  ({} dropped)", args.min_snps, results.len(), dropped);
+    }
     eprintln!("  Total synonymous:    {:.2}", total_syn);
     eprintln!("  Total nonsynonymous: {:.2}", total_nonsyn);
     if let Some(gw) = &genome_wide {
