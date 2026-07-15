@@ -110,6 +110,17 @@ All notable changes to this project will be documented in this file.
   `merge_vcfs` parses per-sample VCFs in parallel — both byte-identical output.
 
 ### Fixed
+- **Robustness / escaping (second audit):**
+  - A GFF3 CDS with `end < start` underflowed `end - start` (panic in debug, a
+    capacity-overflow panic in release, aborting the whole run); such lines are now
+    skipped with a warning.
+  - SVG plot labels (genome/lineage/group names) and the FASTA report's genome/
+    lineage/group names are now XML/HTML-escaped, so a name containing `&`, `<`, `>`
+    or `"` no longer produces a blank `.svg` or injects markup into the report.
+  - In the pN/pS report, a gene with `pN/pS = ∞` (synonymous count 0, nonsynonymous
+    > 0) — the strongest diversifying signal — was serialized as a null ratio and
+    then mislabelled **purifying** (blue, ▼) in the census, Manhattan, hits and
+    table; it is now correctly classified as diversifying everywhere.
 - **Correctness (dN/dS & pN/pS):**
   - Genetic codes **24** and **33** mistranslated `AGA` as Lys; it is **Ser**
     (`AGG` stays Lys), so every codon comparison involving `AGA` and the resulting

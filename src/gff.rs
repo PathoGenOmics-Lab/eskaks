@@ -88,6 +88,13 @@ pub fn parse_gff3(path: &Path) -> anyhow::Result<Vec<Gene>> {
         let end: usize = fields[4]
             .parse()
             .with_context(|| format!("Invalid end at GFF3 line {}", line_no + 1))?;
+        // GFF3 requires start <= end (strand is given separately). A malformed line
+        // with end < start would underflow `end - start` (panic in debug, a huge
+        // wrapped length → capacity-overflow panic in release), so skip it.
+        if end < start {
+            warn!("CDS end {} < start {} at GFF3 line {}, skipping", end, start, line_no + 1);
+            continue;
+        }
         let strand = match fields[6] {
             "+" => Strand::Plus,
             "-" => Strand::Minus,
@@ -258,6 +265,21 @@ chr1\t.\tCDS\t100\t200\t.\t+\t0\tParent=gene1;gene=geneA\n";
         assert_eq!(genes[0].exons[0].start, 100);
         assert_eq!(genes[0].exons[0].end, 200);
         assert_eq!(genes[0].strand, Strand::Plus);
+    }
+
+    #[test]
+    fn cds_with_end_before_start_is_skipped_not_panicking() {
+        // Regression: a malformed CDS (end < start) used to underflow `end - start`
+        // (panic in debug, capacity-overflow panic in release). It must be skipped.
+        let gff = "\
+##gff-version 3
+chr1\t.\tCDS\t200\t100\t.\t+\t0\tParent=g1;gene=bad
+chr1\t.\tCDS\t300\t360\t.\t+\t0\tParent=g2;gene=ok\n";
+        let f = write_temp_gff(gff);
+        let genes = parse_gff3(f.path()).unwrap();
+        // The bad line is dropped; the valid gene survives.
+        assert_eq!(genes.len(), 1);
+        assert_eq!(genes[0].name, "ok");
     }
 
     #[test]

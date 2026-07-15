@@ -418,12 +418,16 @@ const sigVal = g => stringency==="q" ? (M.genomicControl ? g.qGc : g.q) : g.bonf
 const pStat = g => (M.genomicControl && stringency==="q") ? g.pGc : g.p;
 const isSig  = g => { const v=sigVal(g); return v!=null && isFinite(v) && v < M.fdr; };
 const quar   = g => (g.rep!=null ? g.rep : RE_QUAR.test(g.name||""));
+// Is the gene diversifying (pN/pS>1)? When pN/pS is +∞ (syn=0, nonsyn>0) the ratio
+// is serialized as null, so fall back to the counts — that gene is the STRONGEST
+// diversifying signal and must not be mislabelled purifying.
+const isUp = g => (g.ratio!=null&&isFinite(g.ratio)) ? g.ratio>1 : ((g.nonsyn||0) > (g.syn||0));
 // Direction as a marker shape (used in CVD mode so colour is never the only cue).
-const dirShape = g => !isSig(g) ? "dot" : (g.ratio!=null&&g.ratio>1 ? "up" : "down");
+const dirShape = g => !isSig(g) ? "dot" : (isUp(g) ? "up" : "down");
 // Selection regime from polymorphism + significance. Genes that fail the test are
 // "not significant" (underpowered) — NOT asserted neutral: they may still be under
 // selection but lack the SNPs to reject H0.
-function regime(g){ if(!isSig(g)) return "ns"; if(g.ratio!=null&&isFinite(g.ratio)&&g.ratio>1) return "positive"; return "purifying"; }
+function regime(g){ if(!isSig(g)) return "ns"; return isUp(g) ? "positive" : "purifying"; }
 const REGIMES = {positive:"var(--pos)", purifying:"var(--accent)", ns:"var(--ns)"};
 const RLAB = {positive:"positive", purifying:"purifying", ns:"not significant"};
 let regimeFilter = null;   // regime name to filter the table by, or null
@@ -627,7 +631,7 @@ const rSize = g => Math.min(9,Math.max(2.6,Math.sqrt((g.total||1))*1.1));
 // Unified colour rule across every panel: red = significant diversifying (pN/pS>1),
 // blue = significant purifying (<1), grey = not significant. (--sig and --pos share a
 // hex, so we must never colour "significance" red independently of direction.)
-const dirColor = g => isSig(g) ? (g.ratio!=null&&g.ratio>1 ? "var(--pos)" : "var(--accent)") : "var(--ns)";
+const dirColor = g => isSig(g) ? (isUp(g) ? "var(--pos)" : "var(--accent)") : "var(--ns)";
 const sigColor = dirColor;
 const ciTip = g => (g.ratioLo!=null&&isFinite(g.ratioLo)) ? ` [${fmt(g.ratioLo,2)}–${isFinite(g.ratioHi)?fmt(g.ratioHi,2):'∞'}]` : '';
 // HTML-escape data-derived strings (gene/chrom names) before putting them in
@@ -778,7 +782,7 @@ function panelHits(){
   const hits=genes.filter(isSig).slice().sort((a,b)=>{ const sa=sigVal(a),sb=sigVal(b);
     const na=(sa==null||!isFinite(sa)),nb=(sb==null||!isFinite(sb)); if(na&&nb)return 0; if(na)return 1; if(nb)return -1; return sa-sb; });
   const body = hits.length
-    ? `<div class="candlist">`+hits.map(g=>`<span class="cand" data-i="${g._i}">${g.ratio>1?"▲":"▼"} ${hesc(g.name)} <small>${fmt(g.ratio,2)} · ${stringency==="q"?"q":"pB"} ${fmtP(sigVal(g))}${quar(g)?" ⚠":""}</small></span>`).join("")+`</div>`
+    ? `<div class="candlist">`+hits.map(g=>`<span class="cand" data-i="${g._i}">${isUp(g)?"▲":"▼"} ${hesc(g.name)} <small>${fmt(g.ratio,2)} · ${stringency==="q"?"q":"pB"} ${fmtP(sigVal(g))}${quar(g)?" ⚠":""}</small></span>`).join("")+`</div>`
     : `<div class="candlist muted">No gene rejects neutrality at ${stringency==="q"?"BH-FDR":"Bonferroni"} &lt; ${M.fdr}. In clonal M. tuberculosis this is common — most genes are underpowered rather than neutral.</div>`;
   return {title:`Significant hits (${hits.length})`, help:"hits", span:true, legend:"", extra:body, svg:""};
 }
@@ -918,7 +922,8 @@ const pcols=new Set(["p","q","bonf","fisherP","pGc","qGc"]); const icols=new Set
 let sortKey="p",sortDesc=false;
 $("#tbl thead").innerHTML="<tr>"+cols.map(c=>`<th data-k="${c[0]}" scope="col">${c[1]}</th>`).join("")+"</tr>";
 function cellText(g,k){
-  if(k==="dir"){ return g.ratio==null||!isFinite(g.ratio)?"·":(g.ratio>1?"▲":(g.ratio<1?"▼":"·")); }
+  if(k==="dir"){ if(g.ratio!=null&&isFinite(g.ratio)) return g.ratio>1?"▲":(g.ratio<1?"▼":"·");
+    return (g.total>0&&(g.nonsyn||0)!==(g.syn||0)) ? (g.nonsyn>g.syn?"▲":"▼") : "·"; }
   if(k==="ci"){ return (g.ratioLo!=null&&isFinite(g.ratioLo)) ? `${fmt(g.ratioLo,2)}–${isFinite(g.ratioHi)?fmt(g.ratioHi,2):"∞"}` : "NA"; }
   let v=g[k]; if(typeof v==="string") return k==="name"?hesc(v)+(quar(g)?'<span class="badge">rep</span>':""):hesc(v);
   if(icols.has(k)) return v==null?"NA":v;
@@ -929,7 +934,7 @@ function rowHtml(g, idx){
   // Zebra by ABSOLUTE row index (idx) so striping is stable under virtualization,
   // where a leading spacer <tr> would otherwise flip :nth-child parity.
   return `<tr data-i="${g._i}" class="${isSig(g)?'sig ':''}${idx%2?'zebra ':''}${g._i===selected?'sel':''}">`+cols.map(c=>{
-    const col = c[0]==="dir" ? (g.ratio>1?"var(--pos)":"var(--accent)") : null;
+    const col = c[0]==="dir" ? (isUp(g)?"var(--pos)":"var(--accent)") : null;
     return `<td${col?` style="color:${col}"`:""}>${cellText(g,c[0])}</td>`; }).join("")+"</tr>";
 }
 function renderTableWindow(){
@@ -1163,6 +1168,9 @@ const FASTA_BODY: &str = r#"<div class="wrap">
 const FASTA_SCRIPT: &str = r##"
 const $ = s => document.querySelector(s);
 const M = DATA.meta, tip = $("#tip");
+// HTML-escape genome/lineage/group names before putting them in SVG text, tooltips
+// or legends, so a name with < > & " can't break markup or inject HTML.
+const hesc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const fmt = (v,d=4) => v==null||!isFinite(v) ? "NA" : Number(v).toFixed(d);
 // PathoGenOmics-Lab mycolorsTB — M. tuberculosis lineage colors (keyed by name).
 const MYCOLORS = {A1:"#d1ae00",A2:"#8ef5c8",A3:"#73c2ff",A4:"#ff9cdb",L1:"#ff3091",L2:"#001aff",
@@ -1226,13 +1234,13 @@ if (DATA.lineage) {
   grid(s,ml,pw,mt,ph,ymax,Y,2); neutral(s,ml,pw,ymax,Y);
   lins.forEach((L,i)=>{ const cx=X(i), cw=pw/lins.length*0.62;
     pts.filter(d=>d.lineage===L).forEach(d=>{ const jx=cx+(rnd()-0.5)*cw, cy=Y(d.ratio);
-      s.v+=`<circle cx="${jx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3.3" fill="${lc(L)}" opacity="0.6" data-tip="<b>${d.genome}</b><br>${L} · dN/dS ${fmt(d.ratio,3)}"/>`; });
+      s.v+=`<circle cx="${jx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3.3" fill="${lc(L)}" opacity="0.6" data-tip="<b>${hesc(d.genome)}</b><br>${hesc(L)} · dN/dS ${fmt(d.ratio,3)}"/>`; });
     const my=Y(meanOf[L]);
-    s.v+=`<line x1="${(cx-cw/1.5).toFixed(1)}" y1="${my.toFixed(1)}" x2="${(cx+cw/1.5).toFixed(1)}" y2="${my.toFixed(1)}" stroke="var(--fg)" stroke-width="2.6" data-tip="<b>${L}</b><br>mean ${fmt(meanOf[L],3)} (n=${nOf[L]})"/>`;
-    s.v+=`<text x="${cx}" y="${mt+ph+14}" font-size="10" fill="var(--muted)" text-anchor="end" transform="rotate(-40,${cx},${mt+ph+14})">${L}</text>`; });
+    s.v+=`<line x1="${(cx-cw/1.5).toFixed(1)}" y1="${my.toFixed(1)}" x2="${(cx+cw/1.5).toFixed(1)}" y2="${my.toFixed(1)}" stroke="var(--fg)" stroke-width="2.6" data-tip="<b>${hesc(L)}</b><br>mean ${fmt(meanOf[L],3)} (n=${nOf[L]})"/>`;
+    s.v+=`<text x="${cx}" y="${mt+ph+14}" font-size="10" fill="var(--muted)" text-anchor="end" transform="rotate(-40,${cx},${mt+ph+14})">${hesc(L)}</text>`; });
   s.v+=`<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt+ph}" stroke="var(--fg)"/><line x1="${ml}" y1="${mt+ph}" x2="${ml+pw}" y2="${mt+ph}" stroke="var(--fg)"/>`;
   s.v+=`<text x="16" y="${mt+ph/2}" font-size="12" fill="var(--muted)" text-anchor="middle" transform="rotate(-90,16,${mt+ph/2})">dN/dS</text></svg>`;
-  box.innerHTML=s.v+`<div class="legend">`+lins.slice(0,8).map((L,i)=>`<span><i style="background:var(${SER[i]})"></i>${L}</span>`).join("")+(lins.length>8?`<span><i style="background:var(--ns)"></i>other</span>`:"")+`</div>`;
+  box.innerHTML=s.v+`<div class="legend">`+lins.slice(0,8).map((L,i)=>`<span><i style="background:var(${SER[i]})"></i>${hesc(L)}</span>`).join("")+(lins.length>8?`<span><i style="background:var(--ns)"></i>other</span>`:"")+`</div>`;
   wireTip(box);
 }
 
@@ -1248,8 +1256,8 @@ if (DATA.group) {
   g.forEach((d,i)=>{ const cx=X(i);
     if(isFinite(d.ciLow)&&isFinite(d.ciHigh)){ s.v+=`<line x1="${cx}" y1="${Y(d.ciLow).toFixed(1)}" x2="${cx}" y2="${Y(d.ciHigh).toFixed(1)}" stroke="var(--muted)" stroke-width="1.5"/>`;
       s.v+=`<line x1="${cx-5}" y1="${Y(d.ciHigh).toFixed(1)}" x2="${cx+5}" y2="${Y(d.ciHigh).toFixed(1)}" stroke="var(--muted)"/><line x1="${cx-5}" y1="${Y(d.ciLow).toFixed(1)}" x2="${cx+5}" y2="${Y(d.ciLow).toFixed(1)}" stroke="var(--muted)"/>`; }
-    s.v+=`<circle cx="${cx}" cy="${Y(d.mean).toFixed(1)}" r="4.5" fill="var(--accent)" data-tip="<b>${d.label}</b><br>mean ${fmt(d.mean,3)}<br>95% CI [${fmt(d.ciLow,3)}, ${fmt(d.ciHigh,3)}]"/>`;
-    s.v+=`<text x="${cx}" y="${mt+ph+14}" font-size="10" fill="var(--muted)" text-anchor="end" transform="rotate(-40,${cx},${mt+ph+14})">${d.label}</text>`; });
+    s.v+=`<circle cx="${cx}" cy="${Y(d.mean).toFixed(1)}" r="4.5" fill="var(--accent)" data-tip="<b>${hesc(d.label)}</b><br>mean ${fmt(d.mean,3)}<br>95% CI [${fmt(d.ciLow,3)}, ${fmt(d.ciHigh,3)}]"/>`;
+    s.v+=`<text x="${cx}" y="${mt+ph+14}" font-size="10" fill="var(--muted)" text-anchor="end" transform="rotate(-40,${cx},${mt+ph+14})">${hesc(d.label)}</text>`; });
   s.v+=`<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt+ph}" stroke="var(--fg)"/><line x1="${ml}" y1="${mt+ph}" x2="${ml+pw}" y2="${mt+ph}" stroke="var(--fg)"/>`;
   s.v+=`<text x="16" y="${mt+ph/2}" font-size="12" fill="var(--muted)" text-anchor="middle" transform="rotate(-90,16,${mt+ph/2})">mean dN/dS</text></svg>`;
   box.innerHTML=s.v; wireTip(box);
@@ -1285,7 +1293,7 @@ if (DATA.hist) {
   for(let i=0;i<=4;i++){ const val=cmax*i/4, y=mt+ph*(1-i/4);
     s+=`<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="var(--border)" stroke-width="0.5"/><text x="${ml-8}" y="${y}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${Math.round(val)}</text>`; }
   h.forEach((d,i)=>{ const x=ml+i*bw+3, bh=ph*d.count/cmax, y=mt+ph-bh;
-    s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-6).toFixed(1)}" height="${bh.toFixed(1)}" fill="var(--accent)" opacity="0.8" data-tip="<b>${d.label}</b><br>${d.count} pairs"/>`;
+    s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-6).toFixed(1)}" height="${bh.toFixed(1)}" fill="var(--accent)" opacity="0.8" data-tip="<b>${hesc(d.label)}</b><br>${d.count} pairs"/>`;
     s+=`<text x="${(x+(bw-6)/2).toFixed(1)}" y="${mt+ph+16}" font-size="9" fill="var(--muted)" text-anchor="middle">${d.label}</text>`; });
   s+=`<line x1="${ml}" y1="${mt+ph}" x2="${ml+pw}" y2="${mt+ph}" stroke="var(--fg)"/>`;
   s+=`<text x="${ml+pw/2}" y="${H-6}" font-size="12" fill="var(--muted)" text-anchor="middle">dN/dS bin</text></svg>`;

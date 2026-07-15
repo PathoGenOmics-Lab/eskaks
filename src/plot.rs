@@ -54,6 +54,13 @@ fn write_svg(path: &str, content: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// XML-escape a user-controlled label before placing it in an SVG `<text>` element.
+/// Without this, a genome/lineage/group name containing `&`, `<`, or `>` produces
+/// ill-formed XML and the whole `.svg` renders blank in conformant viewers.
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
 /// Generate a histogram SVG of dN/dS distribution.
 pub fn histogram_svg(stats: &SummaryStats, path: &str) -> std::io::Result<()> {
     let bins = stats.get_histogram();
@@ -360,7 +367,7 @@ pub fn group_bar_svg(groups: &[GroupPlotData], path: &str) -> std::io::Result<()
         // X-axis label
         let _ = writeln!(svg,
             r#"<text x="{:.1}" y="{:.1}" class="tick-label" text-anchor="middle" transform="rotate(-30,{:.1},{:.1})">{}</text>"#,
-            cx, MARGIN_TOP + PLOT_H + 20.0, cx, MARGIN_TOP + PLOT_H + 20.0, group.label);
+            cx, MARGIN_TOP + PLOT_H + 20.0, cx, MARGIN_TOP + PLOT_H + 20.0, xml_escape(&group.label));
     }
 
     // Axes
@@ -452,7 +459,7 @@ pub fn lineage_bar_svg(data: &[LineagePlotData], path: &str) -> std::io::Result<
         };
         let _ = writeln!(svg,
             r#"<text x="{:.1}" y="{:.1}" class="tick-label" text-anchor="end" transform="rotate(-45,{:.1},{:.1})" font-size="8">{}</text>"#,
-            cx, MARGIN_TOP + PLOT_H + 15.0, cx, MARGIN_TOP + PLOT_H + 15.0, label_short);
+            cx, MARGIN_TOP + PLOT_H + 15.0, cx, MARGIN_TOP + PLOT_H + 15.0, xml_escape(&label_short));
     }
 
     // Axes
@@ -472,4 +479,18 @@ pub fn lineage_bar_svg(data: &[LineagePlotData], path: &str) -> std::io::Result<
 
     svg.push_str(svg_footer());
     write_svg(path, &svg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::xml_escape;
+
+    #[test]
+    fn xml_escape_neutralizes_metacharacters() {
+        assert_eq!(xml_escape("L2&L4"), "L2&amp;L4");
+        assert_eq!(xml_escape("a<b>c"), "a&lt;b&gt;c");
+        assert_eq!(xml_escape("plain"), "plain");
+        // & is escaped first, so an existing entity is not double-mangled into a valid one.
+        assert_eq!(xml_escape("x & <y>"), "x &amp; &lt;y&gt;");
+    }
 }
