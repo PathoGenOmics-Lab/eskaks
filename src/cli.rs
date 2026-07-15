@@ -12,6 +12,15 @@ pub struct Args {
     #[arg(long)]
     pub list_codes: bool,
 
+    /// Increase log verbosity: -v shows info, -vv shows debug.
+    /// Data-quality warnings are shown by default; RUST_LOG overrides this.
+    #[arg(short = 'v', long, action = clap::ArgAction::Count, global = true)]
+    pub verbose: u8,
+
+    /// Silence all logs except errors.
+    #[arg(short = 'q', long, global = true)]
+    pub quiet: bool,
+
     #[command(subcommand)]
     pub command: Option<SubCmd>,
 }

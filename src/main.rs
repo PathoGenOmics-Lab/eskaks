@@ -13,7 +13,7 @@ mod vcf_analysis;
 
 use anyhow::{bail, Context};
 use clap::Parser;
-use log::info;
+use log::{info, LevelFilter};
 
 use cli::{Args, SubCmd};
 use compute::ComputeEngine;
@@ -22,8 +22,24 @@ use output::OutputConfig;
 use stats::SummaryStats;
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
     let args = Args::parse();
+
+    // Show data-quality warnings by default (previously env_logger defaulted to
+    // "off", hiding every REF-mismatch / skipped-gene / saturation diagnostic
+    // unless the user knew to set RUST_LOG). RUST_LOG still overrides this.
+    let level = if args.quiet {
+        LevelFilter::Error
+    } else {
+        match args.verbose {
+            0 => LevelFilter::Warn,
+            1 => LevelFilter::Info,
+            _ => LevelFilter::Debug,
+        }
+    };
+    env_logger::Builder::new()
+        .filter_level(level)
+        .parse_default_env()
+        .init();
 
     // Handle --list-codes (top-level flag)
     if args.list_codes {
