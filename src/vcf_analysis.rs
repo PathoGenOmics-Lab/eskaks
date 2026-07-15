@@ -627,8 +627,18 @@ pub fn selection_label(pn_ps: f64) -> &'static str {
 fn extract_cds_sequence(gene: &Gene, ref_seq: &[u8]) -> Vec<u8> {
     let mut cds = Vec::with_capacity(gene.length_bp);
 
-    // Exons are already sorted in coding order (ascending for +, descending for -)
-    for exon in &gene.exons {
+    // Assemble the forward-strand bases in ASCENDING genomic order (regardless of
+    // strand) so the single reverse-complement below yields the coding sequence in
+    // the exact order genomic_to_cds_offset assumes (5'-most coding exon first).
+    // gene.exons are stored descending for minus strand, so iterate them reversed;
+    // otherwise a multi-exon minus gene ends up with its exons swapped — because
+    // revcomp(A ++ B) = revcomp(B) ++ revcomp(A) — and every SNP is mis-codon'd.
+    let ordered: Vec<_> = if gene.strand == Strand::Minus {
+        gene.exons.iter().rev().collect()
+    } else {
+        gene.exons.iter().collect()
+    };
+    for exon in ordered {
         let start_idx = exon.start.saturating_sub(1); // Convert 1-based to 0-based
         let end_idx = exon.end.min(ref_seq.len());
         if start_idx >= ref_seq.len() || start_idx >= end_idx {
@@ -638,7 +648,7 @@ fn extract_cds_sequence(gene: &Gene, ref_seq: &[u8]) -> Vec<u8> {
     }
 
     if gene.strand == Strand::Minus {
-        // Reverse complement
+        // Reverse complement the ascending-genomic buffer → coding sequence.
         cds = reverse_complement(&cds);
     }
 
@@ -1705,6 +1715,30 @@ mod tests {
         // Minus strand: position 109 maps to CDS offset 0
         assert_eq!(genomic_to_cds_offset(&gene, 109), Some(0));
         assert_eq!(genomic_to_cds_offset(&gene, 100), Some(9));
+    }
+
+    #[test]
+    fn test_multi_exon_minus_strand_cds_consistency() {
+        // Regression: for a multi-exon minus gene, extract_cds_sequence and
+        // genomic_to_cds_offset must agree — the CDS base at a SNP's offset must be
+        // the complement of the reference base there (the coding base). The old code
+        // assembled the exons in swapped order, breaking this and mis-codon'ing SNPs.
+        let ref_seq: Vec<u8> = (0..30).map(|i| b"ACGT"[i % 4]).collect();
+        let ex = |start, end| crate::gff::CdsExon {
+            seqid: "chr1".to_string(), start, end, strand: Strand::Minus, phase: 0,
+        };
+        // Stored descending for minus strand: high exon first.
+        let gene = Gene {
+            name: "m".to_string(), seqid: "chr1".to_string(), strand: Strand::Minus,
+            exons: vec![ex(20, 25), ex(10, 15)], length_bp: 12, start: 10,
+        };
+        let cds = extract_cds_sequence(&gene, &ref_seq);
+        assert_eq!(cds.len(), 12);
+        for pos in [25usize, 24, 20, 15, 12, 10] {
+            let off = genomic_to_cds_offset(&gene, pos).expect("position is in an exon");
+            let expected = complement(ref_seq[pos - 1]).to_ascii_uppercase();
+            assert_eq!(cds[off], expected, "pos {pos} -> off {off} mismatch");
+        }
     }
 
     #[test]

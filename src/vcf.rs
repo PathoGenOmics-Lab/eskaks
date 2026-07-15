@@ -111,14 +111,16 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
 
         // Parse allele frequencies
         let alt_freqs = if let Some(af_str) = parse_info_field(info, "AF") {
-            // AF from INFO field
-            let all_afs: Vec<f64> = af_str
+            // AF from INFO field (Number=A: one per ALT). Keep positional alignment —
+            // an unparseable token (e.g. ".") becomes None at ITS position so the
+            // remaining ALTs keep the right frequency, instead of shifting left.
+            let all_afs: Vec<Option<f64>> = af_str
                 .split(',')
-                .filter_map(|v| v.parse::<f64>().ok())
+                .map(|v| v.parse::<f64>().ok())
                 .collect();
             valid_alt_indices
                 .iter()
-                .map(|&i| all_afs.get(i).copied().unwrap_or(0.0))
+                .map(|&i| all_afs.get(i).copied().flatten().unwrap_or(0.0))
                 .collect()
         } else if sample_count > 0 && fields.len() > 9 {
             // Calculate from GT fields
@@ -283,6 +285,11 @@ pub fn merge_vcfs(
             warn!("Sample {} contributed 0 SNPs (empty or fully filtered); skipping", vcf_paths[i]);
         }
 
+        // AF = fraction of SAMPLES carrying the variant, so each sample contributes at
+        // most 1 per (chrom, pos, alt) — dedupe within the file to guard against a
+        // caller emitting the same allele on more than one record.
+        let mut seen_this_sample: std::collections::HashSet<(String, usize, u8)> =
+            std::collections::HashSet::new();
         for snp in snps {
             ref_alleles
                 .entry((snp.chrom.clone(), snp.pos))
@@ -298,8 +305,9 @@ pub fn merge_vcfs(
 
             for alt_base in &snp.alt_alleles {
                 let key = (snp.chrom.clone(), snp.pos, *alt_base);
-                let entry = variant_counts.entry(key).or_insert((snp.ref_allele, 0.0));
-                entry.1 += 1.0;
+                if seen_this_sample.insert(key.clone()) {
+                    variant_counts.entry(key).or_insert((snp.ref_allele, 0.0)).1 += 1.0;
+                }
             }
         }
     }
@@ -386,6 +394,22 @@ chr1\t100\t.\tA\tG,C\t30\tPASS\tAF=0.3,0.2\n";
         assert_eq!(snps.len(), 1);
         assert_eq!(snps[0].alt_alleles, vec![b'G', b'C']);
         assert_eq!(snps[0].alt_freqs.len(), 2);
+    }
+
+    #[test]
+    fn af_missing_token_keeps_positional_alignment() {
+        // Regression: a missing AF token (".") must not shift the remaining
+        // frequencies onto the wrong ALT. G has no AF (0.0), C=0.2, T=0.3.
+        let vcf = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chr1\t100\t.\tA\tG,C,T\t30\tPASS\tAF=.,0.2,0.3\n";
+        let f = write_temp_vcf(vcf);
+        let snps = parse_vcf(f.path()).unwrap();
+        assert_eq!(snps[0].alt_alleles, vec![b'G', b'C', b'T']);
+        assert!((snps[0].alt_freqs[0] - 0.0).abs() < 1e-9, "G should be 0.0, got {}", snps[0].alt_freqs[0]);
+        assert!((snps[0].alt_freqs[1] - 0.2).abs() < 1e-9, "C should be 0.2, got {}", snps[0].alt_freqs[1]);
+        assert!((snps[0].alt_freqs[2] - 0.3).abs() < 1e-9, "T should be 0.3, got {}", snps[0].alt_freqs[2]);
     }
 
     #[test]

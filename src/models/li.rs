@@ -96,13 +96,19 @@ fn count_1diff_titv(gc: &[u8; 64], cod1: &[char; 3], cod2: &[char; 3], weight: f
             let class2 = get_codon_class(gc, cod2, pos);
 
             // Special case: CGA<->AGA and CGG<->AGG at position 0 (Arg synonymous)
-            // In KaKs_Calculator LWL85, this gets Si_temp[class1]+=0.5, Vi_temp[class2]+=0.5
+            // In KaKs_Calculator LWL85, this gets Si_temp[class1]+=0.5, Vi_temp[class2]+=0.5.
+            // Only apply it when the two codons are actually SYNONYMOUS (and non-stop)
+            // under the active genetic code — in some mitochondrial codes AGA is Ser or
+            // a stop, so this transversion is nonsynonymous and must NOT get the split.
             let is_arg_special = pos == 0 && (
                 (cod1 == &['C','G','A'] && cod2 == &['A','G','A']) ||
                 (cod1 == &['A','G','A'] && cod2 == &['C','G','A']) ||
                 (cod1 == &['C','G','G'] && cod2 == &['A','G','G']) ||
                 (cod1 == &['A','G','G'] && cod2 == &['C','G','G'])
-            );
+            ) && {
+                let a1 = get_amino_acid(gc, codon_to_index(cod1));
+                a1 != b'!' && a1 == get_amino_acid(gc, codon_to_index(cod2))
+            };
 
             if is_arg_special {
                 ti[class1] += 0.5 * weight;
@@ -417,18 +423,20 @@ impl LiTables {
             if l_sum[k] == 0.0 { continue; }
             let denom_a = 1.0 - 2.0 * p_k[k] - q_k[k];
             let denom_b = 1.0 - 2.0 * q_k[k];
-            if denom_a > LI_EPSILON && denom_b > LI_EPSILON {
-                // Kimura two-parameter correction (Li 1993):
-                //   A_k = 0.5*ln(a_k) - 0.25*ln(b_k)  where a_k=1/(1-2P-Q), b_k=1/(1-2Q)
-                //       = -0.5*ln(1-2P-Q) + 0.25*ln(1-2Q)
-                //   B_k = 0.5*ln(b_k) = -0.5*ln(1-2Q)
-                let a_val = -0.5 * denom_a.ln() + 0.25 * denom_b.ln();
+            // Kimura two-parameter correction (Li 1993):
+            //   A_k = -0.5*ln(1-2P-Q) + 0.25*ln(1-2Q)   (needs BOTH terms finite)
+            //   B_k = -0.5*ln(1-2Q)                      (depends only on Q)
+            // Gate each independently: when transitions saturate (denom_a ≤ ε) but
+            // transversions do not, B_k is still recoverable and must not be zeroed.
+            if denom_b > LI_EPSILON {
                 let b_val = -0.5 * denom_b.ln();
-                // Clamp to 0 (matching KaKs_Calculator behavior)
-                a_k[k] = if a_val >= 0.0 { a_val } else { 0.0 };
                 b_k[k] = if b_val >= 0.0 { b_val } else { 0.0 };
+                if denom_a > LI_EPSILON {
+                    let a_val = -0.5 * denom_a.ln() + 0.25 * denom_b.ln();
+                    a_k[k] = if a_val >= 0.0 { a_val } else { 0.0 };
+                }
             }
-            // else: leave as 0.0 (saturation — matching KaKs_Calculator which initializes to 0)
+            // else: leave as 0.0 (transversions saturated → no reliable estimate)
         }
 
         // LPB93 Ka/Ks formulas (Li 1993, Pamilo & Bianchi 1993)

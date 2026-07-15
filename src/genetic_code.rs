@@ -117,7 +117,7 @@ static TABLES: &[GeneticCode] = &[
     GeneticCode {
         id: 24,
         name: "Rhabdopleuridae Mitochondrial",
-        aa_table: *b"KNKNTTTTKSKSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVV*Y*YSSSSWCWCLFLF",
+        aa_table: *b"KNKNTTTTSSKSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVV*Y*YSSSSWCWCLFLF",
     },
     GeneticCode {
         id: 25,
@@ -132,7 +132,7 @@ static TABLES: &[GeneticCode] = &[
     GeneticCode {
         id: 33,
         name: "Cephalodiscidae Mitochondrial UAA-Tyr",
-        aa_table: *b"KNKNTTTTKSKSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVYY*YSSSSWCWCLFLF",
+        aa_table: *b"KNKNTTTTSSKSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVYY*YSSSSWCWCLFLF",
     },
 ];
 
@@ -331,5 +331,18 @@ mod tests {
         }
         assert!(fallback_count > 0,
             "Vertebrate mito should have at least one 2-diff pair triggering fallback, got 0");
+    }
+
+    #[test]
+    fn tables_24_and_33_aga_is_ser() {
+        // Regression: NCBI transl_table 24 and 33 define AGA=Ser, AGG=Lys. The Li
+        // index for a codon is 16*b1+4*b2+b3 (A=0,C=1,G=2,T=3), so AGA=8 and AGG=10.
+        for id in [24u8, 33] {
+            let t = get_table(id).unwrap();
+            assert_eq!(t.aa_table[8], b'S', "code {id}: AGA must be Ser");
+            assert_eq!(t.aa_table[10], b'K', "code {id}: AGG must be Lys");
+            assert_eq!(t.aa_table[9], b'S', "code {id}: AGC must be Ser");
+            assert_eq!(t.aa_table[11], b'S', "code {id}: AGT must be Ser");
+        }
     }
 }

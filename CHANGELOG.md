@@ -110,6 +110,34 @@ All notable changes to this project will be documented in this file.
   `merge_vcfs` parses per-sample VCFs in parallel — both byte-identical output.
 
 ### Fixed
+- **Correctness (dN/dS & pN/pS):**
+  - Genetic codes **24** and **33** mistranslated `AGA` as Lys; it is **Ser**
+    (`AGG` stays Lys), so every codon comparison involving `AGA` and the resulting
+    dN/dS was wrong under those two tables.
+  - **Multi-exon minus-strand** genes reconstructed their CDS with the exons in
+    swapped order, so every SNP was mapped to the wrong codon and most were dropped
+    as "REF mismatch"; pN/pS, MK counts, and site totals were all wrong for such
+    genes. (Single-exon and plus-strand genes were unaffected.)
+  - VCF `INFO/AF`: a missing/malformed token (e.g. `AF=.,0.2,0.3`) was silently
+    dropped, shifting every later allele frequency onto the **wrong ALT**; parsing
+    now preserves positional alignment.
+  - The Li/LPB93 Arg synonymous-transversion special case is now gated on the
+    active genetic code (it wrongly applied to non-synonymous `AGA`/`AGG` under
+    codes where those are not Arg), and the Kimura `B` term is recovered when only
+    transitions saturate.
+  - `merge_vcfs` counted duplicate records within one sample more than once when
+    computing "fraction of samples"; it now dedupes per sample.
+- **Determinism:** the pairwise, sliding-window, lineage, and group-average TSV/JSON
+  outputs (and the lineage/group plot data) were written in thread-completion order;
+  they are now emitted in a stable, reproducible order regardless of thread count.
+- **Robustness:** output files are created in the calling thread (a bad output path
+  now returns a clean error instead of panicking a worker) and buffered writers are
+  flushed explicitly; `--min-codons` that leaves fewer than two sequences now errors
+  clearly instead of proceeding.
+- **Report:** gene/chromosome names are HTML/JSON-escaped, so a name containing
+  `</script>`, `<`, `&`, or `"` can no longer break the page or inject markup;
+  scatter axis bounds are computed without a spread that could overflow the stack on
+  whole-genome runs.
 - Data-quality warnings (REF mismatches, skipped genes, saturation) are shown by
   default; added `-v`/`-vv`/`-q`. Validate AF-filter ranges and reconcile
   contig names up front (both previously produced a silent all-NaN output).

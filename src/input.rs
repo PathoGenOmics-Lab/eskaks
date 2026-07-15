@@ -187,8 +187,13 @@ pub fn load_sequences(
             ids = new_ids;
             all_codon_indices = new_codons;
         }
-        if ids.is_empty() {
-            bail!("All sequences filtered out by --min-codons {}", min_codons);
+        // Pairwise comparison needs at least two sequences; --min-codons can drop
+        // below that without emptying the set, so check the count, not just emptiness.
+        if ids.len() < 2 {
+            bail!(
+                "Only {} sequence(s) remain after --min-codons {} (need at least 2 for pairwise comparison)",
+                ids.len(), min_codons
+            );
         }
     }
 

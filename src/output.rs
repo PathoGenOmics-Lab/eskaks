@@ -40,6 +40,46 @@ pub struct OutputConfig<'a> {
     pub summary: Option<&'a SummaryStats>,
 }
 
+/// Spawn a writer thread that reassembles index-tagged blocks in ascending index
+/// order, so the output is **deterministic** regardless of the order parallel tasks
+/// finish (only the out-of-order window is buffered). Each task must send exactly one
+/// `(index, block)` per index in `0..n`, including empty blocks so `index` advances.
+///
+/// The output file is created (and the header written) in the CALLING thread, so a
+/// create/permission error surfaces as a clean `Err` instead of later panicking the
+/// worker threads on a closed channel. The buffered writer is flushed explicitly so a
+/// final-flush I/O error propagates rather than being swallowed by `Drop`.
+type OrderedWriter = (
+    crossbeam::channel::Sender<(usize, String)>,
+    thread::JoinHandle<Result<(), std::io::Error>>,
+);
+fn spawn_ordered_writer(path: String, header: String) -> anyhow::Result<OrderedWriter> {
+    let mut out = BufWriter::new(
+        File::create(&path)
+            .map_err(|e| anyhow::anyhow!("Cannot create '{}': {}", path, e))?,
+    );
+    out.write_all(header.as_bytes())?;
+    let (tx, rx) = unbounded::<(usize, String)>();
+    let handle = thread::spawn(move || -> Result<(), std::io::Error> {
+        let mut pending: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+        let mut next = 0usize;
+        for (i, block) in rx {
+            pending.insert(i, block);
+            while let Some(b) = pending.remove(&next) {
+                out.write_all(b.as_bytes())?;
+                next += 1;
+            }
+        }
+        while let Some(b) = pending.remove(&next) {
+            out.write_all(b.as_bytes())?;
+            next += 1;
+        }
+        out.flush()?;
+        Ok(())
+    });
+    Ok((tx, handle))
+}
+
 /// Writes pairwise results using a dedicated writer thread.
 /// Computes pairs on-the-fly with lazy per-row caching (O(U) memory per thread).
 /// Write a per-pair Nei-Gojobori neutrality-test table:
@@ -173,26 +213,38 @@ pub fn write_pairwise(
         .progress_chars("#>-"));
 
     let nan_count = AtomicUsize::new(0);
-    let (tx, rx) = unbounded::<String>();
+    // Each parallel task sends exactly one (row_index, block) tuple. The writer
+    // reassembles blocks in ascending row order so the output is deterministic
+    // regardless of thread scheduling (only the out-of-order window is buffered).
+    let (tx, rx) = unbounded::<(usize, String)>();
 
     let is_json = ext == "json";
+    // Create the output file in this (parent) thread so a create/permission error is
+    // returned cleanly instead of panicking the workers on a closed channel later.
+    let out_path = format!("{}_pairwise_results.{}", output_prefix, ext);
+    let mut out_file = BufWriter::new(
+        File::create(&out_path).map_err(|e| anyhow::anyhow!("Cannot create '{}': {}", out_path, e))?,
+    );
     let writer_thread = thread::spawn({
-        let output_path = format!("{}_pairwise_results.{}", output_prefix, ext);
         move || -> Result<(), std::io::Error> {
-            let mut out_file = BufWriter::new(
-                File::create(&output_path)
-                    .map_err(|e| std::io::Error::new(e.kind(), format!("Cannot create '{}': {}", output_path, e)))?
-            );
+            let mut pending: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+            let mut next = 0usize;
             if is_json {
                 out_file.write_all(b"[\n")?;
                 let mut first = true;
-                for line_batch in rx {
-                    for line in line_batch.lines() {
-                        if !first { out_file.write_all(b",\n")?; }
+                let emit = |out_file: &mut BufWriter<File>, first: &mut bool, block: &str| -> Result<(), std::io::Error> {
+                    for line in block.lines() {
+                        if !*first { out_file.write_all(b",\n")?; }
                         out_file.write_all(line.as_bytes())?;
-                        first = false;
+                        *first = false;
                     }
+                    Ok(())
+                };
+                for (i, block) in rx {
+                    pending.insert(i, block);
+                    while let Some(b) = pending.remove(&next) { emit(&mut out_file, &mut first, &b)?; next += 1; }
                 }
+                while let Some(b) = pending.remove(&next) { emit(&mut out_file, &mut first, &b)?; next += 1; }
                 out_file.write_all(b"\n]\n")?;
             } else {
                 let header = match model {
@@ -200,10 +252,13 @@ pub fn write_pairwise(
                     Model::Nei => format!("Seq1{s}Seq2{s}dN{s}dS{s}dN/dS\n", s = sep),
                 };
                 out_file.write_all(header.as_bytes())?;
-                for line_batch in rx {
-                    out_file.write_all(line_batch.as_bytes())?;
+                for (i, block) in rx {
+                    pending.insert(i, block);
+                    while let Some(b) = pending.remove(&next) { out_file.write_all(b.as_bytes())?; next += 1; }
                 }
+                while let Some(b) = pending.remove(&next) { out_file.write_all(b.as_bytes())?; next += 1; }
             }
+            out_file.flush()?;
             Ok(())
         }
     });
@@ -257,10 +312,6 @@ pub fn write_pairwise(
                         &ids[i], &ids[j], result.dn, result.ds, ratio, s = sep);
                 }
 
-                if local_buffer.len() > 1024 * 32 {
-                    sender.send(std::mem::take(local_buffer))
-                        .expect("Writer thread channel closed unexpectedly");
-                }
             }
 
             // Flush thread-local stats to shared accumulator (once per row)
@@ -269,10 +320,10 @@ pub fn write_pairwise(
                 local_stats.reset();
             }
 
-            if !local_buffer.is_empty() {
-                sender.send(std::mem::take(local_buffer))
-                    .expect("Writer thread channel closed unexpectedly");
-            }
+            // Send this row's block exactly once, tagged with its index, so the
+            // writer can emit rows in order (empty for the last row, which has no pairs).
+            sender.send((i, std::mem::take(local_buffer)))
+                .expect("Writer thread channel closed unexpectedly");
             pb_write.inc((ids.len() - 1 - i) as u64);
         },
     );
@@ -311,29 +362,16 @@ pub fn write_lineage(
     let num_lineages = lineage_names.len();
     let output_path = format!("{}_lineage_summary.{}", output_prefix, ext);
 
-    let (tx, rx) = unbounded::<String>();
+    let (tx, writer_thread) = spawn_ordered_writer(
+        output_path.clone(),
+        format!("Genome{s}Against_Lineage{s}Mean_dN{s}Mean_dS{s}dN/dS_Ratio\n", s = sep),
+    )?;
     let (plot_tx, plot_rx) = if summary.is_some() {
         let (t, r) = unbounded::<(String, String, f64)>();
         (Some(t), Some(r))
     } else {
         (None, None)
     };
-
-    let writer_thread = thread::spawn({
-        let output_path = output_path.clone();
-        let header = format!("Genome{s}Against_Lineage{s}Mean_dN{s}Mean_dS{s}dN/dS_Ratio\n", s = sep);
-        move || -> Result<(), std::io::Error> {
-            let mut out_file = BufWriter::new(
-                File::create(&output_path)
-                    .map_err(|e| std::io::Error::new(e.kind(), format!("Cannot create '{}': {}", output_path, e)))?
-            );
-            out_file.write_all(header.as_bytes())?;
-            for block in rx {
-                out_file.write_all(block.as_bytes())?;
-            }
-            Ok(())
-        }
-    });
 
     (0..ids.len())
         .into_par_iter()
@@ -402,9 +440,8 @@ pub fn write_lineage(
                     local_stats.reset();
                 }
 
-                if !block.is_empty() {
-                    sender.send(block).expect("Writer thread channel closed unexpectedly");
-                }
+                // Send once per row (even if empty) so the ordered writer can advance.
+                sender.send((i, block)).expect("Writer thread channel closed unexpectedly");
             },
         );
     drop(tx);
@@ -415,7 +452,10 @@ pub fn write_lineage(
         .expect("Writer thread encountered an I/O error");
 
     let plot_data = if let Some(rx) = plot_rx {
-        rx.into_iter().collect()
+        // Received in thread-scheduling order; sort for a deterministic plot.
+        let mut v: Vec<(String, String, f64)> = rx.into_iter().collect();
+        v.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        v
     } else {
         Vec::new()
     };
@@ -469,7 +509,10 @@ pub fn write_group_average(
 
     let output_path = format!("{}_group_avg_dn_ds.{}", output_prefix, ext);
 
-    let (tx, rx) = unbounded::<String>();
+    let (tx, writer_thread) = spawn_ordered_writer(
+        output_path.clone(),
+        format!("Group1{s}Group2{s}NumSeqs1{s}NumSeqs2{s}NumComparisons{s}Mean_dN/dS{s}StdError{s}95%CI\n", s = sep),
+    )?;
     let (plot_tx, plot_rx) = if summary.is_some() {
         let (t, r) = unbounded::<GroupPlotData>();
         (Some(t), Some(r))
@@ -477,23 +520,7 @@ pub fn write_group_average(
         (None, None)
     };
 
-    let writer_thread = thread::spawn({
-        let output_path = output_path.clone();
-        let header = format!("Group1{s}Group2{s}NumSeqs1{s}NumSeqs2{s}NumComparisons{s}Mean_dN/dS{s}StdError{s}95%CI\n", s = sep);
-        move || -> Result<(), std::io::Error> {
-            let mut out_file = BufWriter::new(
-                File::create(&output_path)
-                    .map_err(|e| std::io::Error::new(e.kind(), format!("Cannot create '{}': {}", output_path, e)))?
-            );
-            out_file.write_all(header.as_bytes())?;
-            for line in rx {
-                out_file.write_all(line.as_bytes())?;
-            }
-            Ok(())
-        }
-    });
-
-    group_pairs.into_par_iter().for_each_with((tx, plot_tx), |(s, ps), (g1, g2)| {
+    group_pairs.into_par_iter().enumerate().for_each_with((tx, plot_tx), |(s, ps), (pair_idx, (g1, g2))| {
         let members1 = &group_members[g1];
         let members2 = &group_members[g2];
         let mut pair_dn_ds_ratios = Vec::new();
@@ -566,7 +593,7 @@ pub fn write_group_average(
             let _ = plot_s.send(plot_data);
         }
 
-        s.send(line).expect("Writer thread channel closed unexpectedly");
+        s.send((pair_idx, line)).expect("Writer thread channel closed unexpectedly");
         pb_group.inc(1);
     });
 
@@ -576,7 +603,10 @@ pub fn write_group_average(
     pb_group.finish_with_message("Group average computation completed.");
 
     let plot_data = if let Some(rx) = plot_rx {
-        rx.into_iter().collect()
+        // Received in thread-scheduling order; sort by label for a deterministic plot.
+        let mut v: Vec<GroupPlotData> = rx.into_iter().collect();
+        v.sort_by(|a, b| a.label.cmp(&b.label));
+        v
     } else {
         Vec::new()
     };
@@ -614,26 +644,12 @@ pub fn write_pairwise_windows(
         .progress_chars("#>-"));
 
     let nan_count = AtomicUsize::new(0);
-    let (tx, rx) = unbounded::<String>();
-
-    let writer_thread = thread::spawn({
-        let output_path = format!("{}_pairwise_windows.{}", output_prefix, ext);
-        move || -> Result<(), std::io::Error> {
-            let mut out_file = BufWriter::new(
-                File::create(&output_path)
-                    .map_err(|e| std::io::Error::new(e.kind(), format!("Cannot create '{}': {}", output_path, e)))?
-            );
-            let header = match model {
-                Model::Li => format!("Seq1{s}Seq2{s}Window_Start{s}Window_End{s}dN(Ka){s}dS(Ks){s}dN/dS\n", s = sep),
-                Model::Nei => format!("Seq1{s}Seq2{s}Window_Start{s}Window_End{s}dN{s}dS{s}dN/dS\n", s = sep),
-            };
-            out_file.write_all(header.as_bytes())?;
-            for batch in rx {
-                out_file.write_all(batch.as_bytes())?;
-            }
-            Ok(())
-        }
-    });
+    let header = match model {
+        Model::Li => format!("Seq1{s}Seq2{s}Window_Start{s}Window_End{s}dN(Ka){s}dS(Ks){s}dN/dS\n", s = sep),
+        Model::Nei => format!("Seq1{s}Seq2{s}Window_Start{s}Window_End{s}dN{s}dS{s}dN/dS\n", s = sep),
+    };
+    let (tx, writer_thread) =
+        spawn_ordered_writer(format!("{}_pairwise_windows.{}", output_prefix, ext), header)?;
 
     (0..ids.len()).into_par_iter().for_each_init(
         || {
@@ -676,11 +692,6 @@ pub fn write_pairwise_windows(
 
                     let _ = writeln!(local_buffer, "{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
                         &ids[i], &ids[j], start + 1, end, result.dn, result.ds, ratio, s = sep);
-
-                    if local_buffer.len() > 1024 * 32 {
-                        sender.send(std::mem::take(local_buffer))
-                            .expect("Writer thread channel closed unexpectedly");
-                    }
                 }
                 pb.inc(num_windows as u64);
             }
@@ -690,10 +701,9 @@ pub fn write_pairwise_windows(
                 local_stats.reset();
             }
 
-            if !local_buffer.is_empty() {
-                sender.send(std::mem::take(local_buffer))
-                    .expect("Writer thread channel closed unexpectedly");
-            }
+            // One block per row i, in order, so the output is deterministic.
+            sender.send((i, std::mem::take(local_buffer)))
+                .expect("Writer thread channel closed unexpectedly");
         },
     );
     drop(tx);

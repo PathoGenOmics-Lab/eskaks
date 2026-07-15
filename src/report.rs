@@ -44,7 +44,10 @@ pub struct ReportMeta<'a> {
     pub gff_file: &'a str,
 }
 
-/// JSON-escape a string for embedding in the report.
+/// JSON-escape a string for embedding in the report. `<` and `>` are escaped as
+/// `\uXXXX` too: the JSON lives inside an inline `<script>`, and an unescaped
+/// `</script>` (e.g. in a gene name) would otherwise close the element early and
+/// break the whole page.
 fn esc(s: &str) -> String {
     let mut o = String::with_capacity(s.len() + 2);
     for c in s.chars() {
@@ -54,6 +57,8 @@ fn esc(s: &str) -> String {
             '\n' => o.push_str("\\n"),
             '\r' => o.push_str("\\r"),
             '\t' => o.push_str("\\t"),
+            '<' => o.push_str("\\u003c"),
+            '>' => o.push_str("\\u003e"),
             c if (c as u32) < 0x20 => {
                 let _ = write!(o, "\\u{:04x}", c as u32);
             }
@@ -544,7 +549,11 @@ function scatter(cfg){
   const rows=cfg.rows.filter(g=>{const x=cfg.x(g),y=cfg.y(g);return x!=null&&isFinite(x)&&y!=null&&isFinite(y);});
   if(!rows.length) return '<p class="muted">no data for this panel</p>';
   let xs=rows.map(cfg.x), ys=rows.map(cfg.y);
-  let xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
+  // Loop, not Math.min(...xs): spreading a huge array as arguments overflows the
+  // call stack on whole-genome runs (tens of thousands of points).
+  let xmin=Infinity,xmax=-Infinity,ymin=Infinity,ymax=-Infinity;
+  for(let k=0;k<xs.length;k++){ const xv=xs[k],yv=ys[k];
+    if(xv<xmin)xmin=xv; if(xv>xmax)xmax=xv; if(yv<ymin)ymin=yv; if(yv>ymax)ymax=yv; }
   (cfg.refs||[]).forEach(r=>{ if(r.x!=null&&isFinite(r.x)){xmin=Math.min(xmin,r.x);xmax=Math.max(xmax,r.x);} if(r.y!=null&&isFinite(r.y)){ymin=Math.min(ymin,r.y);ymax=Math.max(ymax,r.y);} });
   if(cfg.y0) ymin=Math.min(ymin,0);
   const xr=(xmax-xmin)||1, yr=(ymax-ymin)||1; xmin-=xr*0.04;xmax+=xr*0.04;ymin-=yr*0.04;ymax+=yr*0.08;
@@ -621,7 +630,10 @@ const rSize = g => Math.min(9,Math.max(2.6,Math.sqrt((g.total||1))*1.1));
 const dirColor = g => isSig(g) ? (g.ratio!=null&&g.ratio>1 ? "var(--pos)" : "var(--accent)") : "var(--ns)";
 const sigColor = dirColor;
 const ciTip = g => (g.ratioLo!=null&&isFinite(g.ratioLo)) ? ` [${fmt(g.ratioLo,2)}–${isFinite(g.ratioHi)?fmt(g.ratioHi,2):'∞'}]` : '';
-const baseTip = g => `<b>${g.name}</b> (${g.chrom}:${g.start} ${g.strand})<br>pN/pS ${fmt(g.ratio,3)}${ciTip(g)} · p ${fmtP(g.p)} · ${stringency==='q'?(M.genomicControl?'q(GC)':'q'):'p(Bonf)'} ${fmtP(sigVal(g))}<br>${g.nonsyn}N / ${g.syn}S of ${g.total} SNPs${quar(g)?' · ⚠ repetitive':''}`;
+// HTML-escape data-derived strings (gene/chrom names) before putting them in
+// innerHTML / SVG text / attributes, so a name with < > & " can't break markup.
+const hesc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const baseTip = g => `<b>${hesc(g.name)}</b> (${hesc(g.chrom)}:${g.start} ${g.strand})<br>pN/pS ${fmt(g.ratio,3)}${ciTip(g)} · p ${fmtP(g.p)} · ${stringency==='q'?(M.genomicControl?'q(GC)':'q'):'p(Bonf)'} ${fmtP(sigVal(g))}<br>${g.nonsyn}N / ${g.syn}S of ${g.total} SNPs${quar(g)?' · ⚠ repetitive':''}`;
 const log2c = (v,lo,hi) => v==null||!isFinite(v)?null : Math.max(lo,Math.min(hi, Math.log2(v<=0?1e-3:v)));
 
 // ── Manhattan ─────────────────────────────────────────────────────────
@@ -681,7 +693,7 @@ function panelMK(){
     svg: scatter({rows:genes.filter(g=>g.alpha!=null&&isFinite(g.alpha)&&g.fisherP!=null&&isFinite(g.fisherP)),
       x:g=>g.alpha,y:g=>-Math.log10(Math.max(g.fisherP,1e-300)),xlabel:"α (proportion adaptive)",ylabel:"−log10(Fisher p)",
       color:g=>g.alpha>0?"var(--pos)":"var(--accent)",shape:g=>g.alpha>0?"up":"down",size:g=>Math.min(9,Math.max(2.6,Math.sqrt((g.dn+g.ds+g.pnMk+g.psMk)||1)*1.3)),
-      tip:g=>`<b>${g.name}</b><br>Dn ${g.dn} Ds ${g.ds} · Pn ${g.pnMk} Ps ${g.psMk}<br>NI ${fmt(g.ni,3)} · α ${fmt(g.alpha,3)} · Fisher p ${fmtP(g.fisherP)}`,y0:true,
+      tip:g=>`<b>${hesc(g.name)}</b><br>Dn ${g.dn} Ds ${g.ds} · Pn ${g.pnMk} Ps ${g.psMk}<br>NI ${fmt(g.ni,3)} · α ${fmt(g.alpha,3)} · Fisher p ${fmtP(g.fisherP)}`,y0:true,
       refs:[{x:0,label:"α=0",c:"var(--line)"}]})};
 }
 // ── pN/pS distribution ────────────────────────────────────────────────
@@ -738,7 +750,7 @@ function panelRecon(){
   const pastPos=rows.filter(g=>g.div>1&&g.ratio<1).sort((a,b)=>b.div-a.div);
   const cand = pastPos.length
     ? `<div class="candlist"><b>Past-positive candidates</b> (dN/dS&gt;1, pN/pS&lt;1) — `+
-      pastPos.slice(0,15).map(g=>`<span class="cand" data-i="${g._i}">${g.name} <small>${fmt(g.div,2)}/${fmt(g.ratio,2)}</small></span>`).join("")+
+      pastPos.slice(0,15).map(g=>`<span class="cand" data-i="${g._i}">${hesc(g.name)} <small>${fmt(g.div,2)}/${fmt(g.ratio,2)}</small></span>`).join("")+
       (pastPos.length>15?`<span class="muted">+${pastPos.length-15} more</span>`:"")+`</div>`
     : `<div class="candlist muted">No past-positive candidates in this set.</div>`;
   return {title:`Polymorphism vs divergence (${rows.length} genes matched)`, help:"recon", span:true,
@@ -747,7 +759,7 @@ function panelRecon(){
     svg: scatter({rows, x:g=>g.ratio, y:g=>g.div, xlabel:"pN/pS (within-sample polymorphism)", ylabel:"dN/dS (divergence)",
       color:g=>{ const x=g.ratio,y=g.div; if(y>1&&x<1)return"var(--pos)"; if(x>1&&y>1)return"var(--s3)"; if(x>1&&y<1)return"var(--s7)"; return"var(--accent)"; },
       size:g=>{ const base=rSize(g); return (g.div>1&&g.ratio<1)?base+1.5:base; },
-      tip:g=>`<b>${g.name}</b><br>pN/pS ${fmt(g.ratio,3)} · dN/dS ${fmt(g.div,3)}<br>${g.nonsyn}N/${g.syn}S SNPs`,
+      tip:g=>`<b>${hesc(g.name)}</b><br>pN/pS ${fmt(g.ratio,3)} · dN/dS ${fmt(g.div,3)}<br>${g.nonsyn}N/${g.syn}S SNPs`,
       refs:[{diag:true,label:"concordance",c:"var(--line)"},{x:1,label:"pN/pS=1",c:"var(--muted)"},{y:1,label:"dN/dS=1",c:"var(--muted)"}]})};
 }
 // ── Selection-regime census (click a regime to filter the table) ──────
@@ -766,7 +778,7 @@ function panelHits(){
   const hits=genes.filter(isSig).slice().sort((a,b)=>{ const sa=sigVal(a),sb=sigVal(b);
     const na=(sa==null||!isFinite(sa)),nb=(sb==null||!isFinite(sb)); if(na&&nb)return 0; if(na)return 1; if(nb)return -1; return sa-sb; });
   const body = hits.length
-    ? `<div class="candlist">`+hits.map(g=>`<span class="cand" data-i="${g._i}">${g.ratio>1?"▲":"▼"} ${g.name} <small>${fmt(g.ratio,2)} · ${stringency==="q"?"q":"pB"} ${fmtP(sigVal(g))}${quar(g)?" ⚠":""}</small></span>`).join("")+`</div>`
+    ? `<div class="candlist">`+hits.map(g=>`<span class="cand" data-i="${g._i}">${g.ratio>1?"▲":"▼"} ${hesc(g.name)} <small>${fmt(g.ratio,2)} · ${stringency==="q"?"q":"pB"} ${fmtP(sigVal(g))}${quar(g)?" ⚠":""}</small></span>`).join("")+`</div>`
     : `<div class="candlist muted">No gene rejects neutrality at ${stringency==="q"?"BH-FDR":"Bonferroni"} &lt; ${M.fdr}. In clonal M. tuberculosis this is common — most genes are underpowered rather than neutral.</div>`;
   return {title:`Significant hits (${hits.length})`, help:"hits", span:true, legend:"", extra:body, svg:""};
 }
@@ -801,7 +813,7 @@ function panelLollipop(){
   ranked.forEach((g,i)=>{ const y=mt+i*rowH+rowH/2, lv=Math.log2(g.ratio<=0?1e-3:g.ratio), x=X(lv), col=REGIMES[regime(g)], sel=(g._i===selected);
     s+=`<line x1="${x0.toFixed(1)}" y1="${y}" x2="${x.toFixed(1)}" y2="${y}" stroke="${col}" stroke-width="2" opacity="0.45"/>`;
     s+=`<circle class="mark" data-i="${g._i}" data-tip="${baseTip(g)}" cx="${x.toFixed(1)}" cy="${y}" r="${sel?6:4.5}" fill="${col}"${sel?' stroke="var(--sel)" stroke-width="2"':''}/>`;
-    s+=`<text x="${ml-8}" y="${y}" font-size="10" fill="var(--fg)" text-anchor="end" dominant-baseline="middle">${g.name}${quar(g)?" ⚠":""}</text>`;
+    s+=`<text x="${ml-8}" y="${y}" font-size="10" fill="var(--fg)" text-anchor="end" dominant-baseline="middle">${hesc(g.name)}${quar(g)?" ⚠":""}</text>`;
     s+=`<text x="${(ml+pw+8).toFixed(1)}" y="${y}" font-size="9" fill="var(--muted)" dominant-baseline="middle">${fmt(g.ratio,2)} · ${isSig(g)?(stringency==="q"?"q":"pB")+" "+fmtP(sigVal(g)):"ns"}</text>`; });
   s+=`<text x="${(ml+pw/2).toFixed(1)}" y="${H-6}" font-size="11" fill="var(--muted)" text-anchor="middle">pN/pS (log2 scale) — stem anchored at neutral (1)</text></svg>`;
   return {title:"Top genes by selection signal", help:"lollipop", span:true,
@@ -908,7 +920,7 @@ $("#tbl thead").innerHTML="<tr>"+cols.map(c=>`<th data-k="${c[0]}" scope="col">$
 function cellText(g,k){
   if(k==="dir"){ return g.ratio==null||!isFinite(g.ratio)?"·":(g.ratio>1?"▲":(g.ratio<1?"▼":"·")); }
   if(k==="ci"){ return (g.ratioLo!=null&&isFinite(g.ratioLo)) ? `${fmt(g.ratioLo,2)}–${isFinite(g.ratioHi)?fmt(g.ratioHi,2):"∞"}` : "NA"; }
-  let v=g[k]; if(typeof v==="string") return k==="name"?v+(quar(g)?'<span class="badge">rep</span>':""):v;
+  let v=g[k]; if(typeof v==="string") return k==="name"?hesc(v)+(quar(g)?'<span class="badge">rep</span>':""):hesc(v);
   if(icols.has(k)) return v==null?"NA":v;
   return pcols.has(k)?fmtP(v):fmt(v,(k==="ratio"||k==="ni"||k==="alpha"||k==="pn"||k==="ps"||k==="expN")?4:2);
 }
