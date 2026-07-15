@@ -589,6 +589,11 @@ fn vcf_report_writes_self_contained_html() {
     assert!(html.starts_with("<!DOCTYPE html>"));
     assert!(html.contains("const DATA ="), "data must be embedded");
     assert!(html.contains("\"name\":\"geneA\""), "gene data present");
+    // Comprehensive dashboard: multiple linked panels + controls present.
+    for needle in ["Manhattan", "Volcano", "McDonald-Kreitman", "Power funnel",
+                   "Observed vs expected", "selectGene", "expCsv", "themeTog"] {
+        assert!(html.contains(needle), "report missing '{}'", needle);
+    }
     // Self-contained: no external network assets.
     assert!(!html.contains("http://") && !html.contains("https://") && !html.contains("cdn"),
         "report must not reference external assets");

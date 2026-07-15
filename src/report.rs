@@ -118,8 +118,8 @@ pub fn write_html_report(
         let comma = if i + 1 < results.len() { "," } else { "" };
         let _ = write!(
             data,
-            "{{\"name\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"nSites\":{},\"sSites\":{},\"expN\":{},\"pn\":{},\"ps\":{},\"ratio\":{},\"nonsyn\":{},\"syn\":{},\"total\":{},\"p\":{},\"q\":{},\"bonf\":{}",
-            esc(&r.name), esc(&r.chrom), r.genome_start, r.genome_end, r.strand,
+            "{{\"name\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"length_bp\":{},\"nSites\":{},\"sSites\":{},\"expN\":{},\"pn\":{},\"ps\":{},\"ratio\":{},\"nonsyn\":{},\"syn\":{},\"total\":{},\"p\":{},\"q\":{},\"bonf\":{}",
+            esc(&r.name), esc(&r.chrom), r.genome_start, r.genome_end, r.strand, r.length_bp,
             num(r.n_sites), num(r.s_sites), num(exp_n), num(r.pn), num(r.ps), num(r.pn_ps),
             num(r.nonsyn_snps), num(r.syn_snps), num(r.total_snps),
             num(r.p_value), num(r.q_value), num(r.p_bonferroni)
@@ -162,47 +162,71 @@ const HEAD: &str = r#"<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>eskaks pN/pS report</title>
+<title>eskaks report</title>
 <style>
-:root{--bg:#ffffff;--fg:#1a1a1a;--muted:#6b7280;--card:#f6f7f9;--border:#e2e5ea;
---accent:#4a90d9;--pos:#d94a4a;--sig:#d94a4a;--ns:#9aa0a6;--line:#2a7f3f;}
-@media (prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e6e8eb;
---muted:#9aa0a6;--card:#1d2026;--border:#2a2e36;}}
+:root{color-scheme:light;--bg:#f9f9f7;--surface:#fcfcfb;--fg:#0b0b0b;--muted:#898781;
+--card:#fcfcfb;--border:#e1e0d9;--grid:#e1e0d9;--axis:#c3c2b7;
+--accent:#2a78d6;--pos:#e34948;--sig:#e34948;--ns:#9aa0a6;--line:#2a7f3f;--sel:#eda100;
+--s1:#2a78d6;--s2:#1baf7a;--s3:#eda100;--s4:#008300;--s5:#4a3aa7;--s6:#e34948;--s7:#e87ba4;--s8:#eb6834;}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){color-scheme:dark;
+--bg:#0d0d0d;--surface:#1a1a19;--fg:#ffffff;--muted:#898781;--card:#1d2026;--border:#2c2c2a;--grid:#2c2c2a;--axis:#383835;
+--accent:#3987e5;--pos:#e66767;--sig:#e66767;--sel:#c98500;
+--s1:#3987e5;--s2:#199e70;--s3:#c98500;--s4:#008300;--s5:#9085e9;--s6:#e66767;--s7:#d55181;--s8:#d95926;}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0d0d0d;--surface:#1a1a19;--fg:#ffffff;--muted:#898781;
+--card:#1d2026;--border:#2c2c2a;--grid:#2c2c2a;--axis:#383835;
+--accent:#3987e5;--pos:#e66767;--sig:#e66767;--sel:#c98500;
+--s1:#3987e5;--s2:#199e70;--s3:#c98500;--s4:#008300;--s5:#9085e9;--s6:#e66767;--s7:#d55181;--s8:#d95926;}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
 background:var(--bg);color:var(--fg);line-height:1.5}
-.wrap{max-width:1100px;margin:0 auto;padding:24px}
+.wrap{max-width:1180px;margin:0 auto;padding:24px}
 h1{font-size:1.5rem;margin:0 0 4px}
-.sub{color:var(--muted);font-size:.85rem;margin-bottom:20px}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
+.sub{color:var(--muted);font-size:.85rem;margin-bottom:14px}
+.topbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px}
-.card .k{color:var(--muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}
-.card .v{font-size:1.35rem;font-weight:650;margin-top:4px}
-.card .v.small{font-size:1rem}
-section{margin-bottom:28px}
-h2{font-size:1.05rem;border-bottom:1px solid var(--border);padding-bottom:6px}
-.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}
-button.tog{background:var(--card);border:1px solid var(--border);color:var(--fg);
-padding:6px 12px;border-radius:8px;cursor:pointer;font-size:.85rem}
+.card .k{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
+.card .v{font-size:1.3rem;font-weight:650;margin-top:4px}
+.card .v.small{font-size:.98rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:20px;margin-bottom:24px}
+section{margin-bottom:8px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+h2{font-size:1rem;margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+button.tog,button.btn{background:var(--card);border:1px solid var(--border);color:var(--fg);
+padding:6px 11px;border-radius:8px;cursor:pointer;font-size:.83rem}
 button.tog.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+button.btn:hover,button.tog:hover{border-color:var(--accent)}
 input[type=search]{flex:1;min-width:180px;padding:7px 10px;border:1px solid var(--border);
-border-radius:8px;background:var(--bg);color:var(--fg);font-size:.9rem}
-#plot{width:100%;overflow-x:auto}
+border-radius:8px;background:var(--surface);color:var(--fg);font-size:.9rem}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:.75rem;color:var(--muted);margin-top:4px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:11px;height:11px;border-radius:50%;display:inline-block}
 svg{max-width:100%;height:auto;display:block}
 .tip{position:fixed;pointer-events:none;background:var(--fg);color:var(--bg);
-padding:6px 9px;border-radius:6px;font-size:.78rem;opacity:0;transition:opacity .08s;z-index:10;white-space:nowrap}
-.tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px}
-table{border-collapse:collapse;width:100%;font-size:.83rem}
-th,td{padding:7px 10px;text-align:right;white-space:nowrap}
-th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--bg)}
+padding:6px 9px;border-radius:6px;font-size:.78rem;opacity:0;transition:opacity .08s;z-index:20;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;max-height:560px}
+table{border-collapse:collapse;width:100%;font-size:.82rem;font-variant-numeric:tabular-nums}
+th,td{padding:6px 9px;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface)}
 thead th{position:sticky;top:0;background:var(--card);cursor:pointer;user-select:none;border-bottom:1px solid var(--border)}
 thead th:hover{color:var(--accent)}
 thead th.sorted::after{content:" ▲";font-size:.7em}
 thead th.sorted.desc::after{content:" ▼"}
 tbody tr:nth-child(even){background:var(--card)}
-tbody tr.sig td{color:var(--sig);font-weight:600}
+tbody tr.sig td{font-weight:600}
+tbody tr.sel{outline:2px solid var(--sel);outline-offset:-2px}
+tbody tr{cursor:pointer}
+.badge{display:inline-block;font-size:.62rem;padding:1px 5px;border-radius:5px;background:var(--pos);color:#fff;margin-left:4px}
+.mbar{display:inline-flex;height:9px;width:70px;border-radius:3px;overflow:hidden;vertical-align:middle;border:1px solid var(--border)}
 .count{color:var(--muted);font-size:.8rem;margin-left:auto}
+details.methods{margin:8px 0 20px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+details.methods summary{cursor:pointer;padding:10px 14px;font-weight:600}
+details.methods .body{padding:0 14px 12px;font-size:.82rem;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap}
+.chip{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:3px 10px}
 footer{color:var(--muted);font-size:.75rem;margin-top:24px;text-align:center}
+.muted{color:var(--muted);font-size:.85rem}
+circle.mark{cursor:pointer}
 </style>
 </head>
 <body>
@@ -211,28 +235,27 @@ footer{color:var(--muted);font-size:.75rem;margin-top:24px;text-align:center}
 const BODY: &str = r#"<div class="wrap">
 <h1>eskaks — pN/pS report</h1>
 <div class="sub" id="meta"></div>
+
+<div class="topbar">
+  <input type="search" id="search" placeholder="Search gene / chromosome…">
+  <button class="tog" id="strTog" title="Multiple-testing stringency">FDR (BH)</button>
+  <button class="btn" id="expCsv">⤓ CSV</button>
+  <button class="btn" id="expJson">⤓ JSON</button>
+  <button class="btn" id="themeTog" title="Toggle light/dark">◑ Theme</button>
+</div>
+
 <div class="cards" id="cards"></div>
 
-<section>
-<h2>Manhattan</h2>
-<div class="toolbar">
-  <button class="tog on" id="btnP" data-metric="neglogp">−log10(p)</button>
-  <button class="tog" id="btnR" data-metric="ratio">pN/pS</button>
-  <span class="count" id="plotNote"></span>
-</div>
-<div id="plot"></div>
-</section>
+<details class="methods"><summary>Methods &amp; parameters</summary><div class="body" id="methods"></div></details>
+
+<div class="grid" id="panels"></div>
 
 <section>
-<h2>Per-gene table</h2>
-<div class="toolbar">
-  <input type="search" id="filter" placeholder="Filter by gene / chromosome…">
-  <span class="count" id="tableCount"></span>
-</div>
+<h2>Per-gene table <span class="count" id="tableCount"></span></h2>
 <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
 </section>
 
-<footer>Generated by eskaks · self-contained, no external assets</footer>
+<footer>Generated by eskaks · self-contained, no external assets · click a point or row to highlight a gene everywhere</footer>
 </div>
 <div class="tip" id="tip"></div>
 "#;
@@ -242,120 +265,221 @@ const $ = s => document.querySelector(s);
 const genes = DATA.genes, S = DATA.summary, M = DATA.meta;
 const fmt = (v,d=4) => v==null||!isFinite(v) ? "NA" : Number(v).toFixed(d);
 const fmtP = v => v==null||!isFinite(v) ? "NA" : (v!==0 && Math.abs(v)<1e-3 ? v.toExponential(2) : v.toFixed(4));
+const tip = $("#tip");
+genes.forEach((g,i)=>g._i=i);
 
-// ── Meta + summary cards ──────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────
+let metric = "neglogp";      // Manhattan y-axis
+let stringency = "q";        // q (BH) | bonf (Bonferroni)
+let selected = null;         // selected gene index
+const RE_QUAR = /(PE_PGRS|PPE|^PE|PE\d|PPE\d|PGRS|maturase|transpos|IS6110)/i;
+const sigVal = g => stringency==="q" ? g.q : g.bonf;
+const isSig  = g => { const v=sigVal(g); return v!=null && isFinite(v) && v < M.fdr; };
+const quar   = g => RE_QUAR.test(g.name||"");
+
+// ── Meta + cards + methods ────────────────────────────────────────────
 $("#meta").textContent =
   `${M.samples} sample(s) · genetic code ${M.code} · kappa ${fmt(M.kappa,2)}` +
-  (M.afWeighted ? " · AF-weighted (πN/πS)" : "") +
-  (M.minSnps>0 ? ` · min-snps ${M.minSnps}` : "");
+  (M.afWeighted ? " · AF-weighted (πN/πS)" : "") + (M.minSnps>0 ? ` · min-snps ${M.minSnps}` : "");
+const card=(k,v,s)=>`<div class="card"><div class="k">${k}</div><div class="v${s?" small":""}">${v}</div></div>`;
+const ciTxt = S.gwCi ? ` [${fmt(S.gwCi[0])}, ${fmt(S.gwCi[1])}]` : "";
+function renderCards(){
+  const nSig = genes.filter(isSig).length;
+  $("#cards").innerHTML =
+    card("Genes analyzed", S.totalGenes) + card("With SNPs", S.genesWithSnps) +
+    card(`Genome-wide ${M.ratioName}`, fmt(S.gwRatio,4)+`<span style="font-size:.6em;color:var(--muted)">${ciTxt}</span>`, true) +
+    card("Selection", S.gwLabel.split(" (")[0], true) +
+    card("Genes tested", S.tested) +
+    card(`Significant (${stringency==="q"?"BH":"Bonf"}<${M.fdr})`, nSig);
+}
+$("#methods").innerHTML = [
+  ["samples",M.samples],["genetic code",M.code],["kappa",fmt(M.kappa,2)],
+  ["af-weighted",M.afWeighted],["FDR",M.fdr],["min-snps",M.minSnps],
+  M.mk?["mk-fixed-af",M.mkFixedAf]:null
+].filter(Boolean).map(([k,v])=>`<span class="chip">${k}: <b>${v}</b></span>`).join("");
 
-function card(k,v,small){return `<div class="card"><div class="k">${k}</div><div class="v${small?" small":""}">${v}</div></div>`;}
-let ciTxt = S.gwCi ? ` [${fmt(S.gwCi[0])}, ${fmt(S.gwCi[1])}]` : "";
-$("#cards").innerHTML =
-  card("Genes analyzed", S.totalGenes) +
-  card("Genes with SNPs", S.genesWithSnps) +
-  card(`Genome-wide ${M.ratioName}`, fmt(S.gwRatio,4)+`<span style="font-size:.6em;color:var(--muted)">${ciTxt}</span>`, true) +
-  card("Selection", S.gwLabel.split(" (")[0], true) +
-  card("Genes tested", S.tested) +
-  card(`Significant (FDR<${M.fdr})`, S.significant);
-
-// ── Benjamini-Hochberg significance threshold p* ──────────────────────
-const ps = genes.map(g=>g.p).filter(v=>v!=null&&isFinite(v)).sort((a,b)=>a-b);
-const m = ps.length; let pStar = null;
-for (let i=0;i<m;i++){ if (ps[i] <= ((i+1)/m)*M.fdr) pStar = ps[i]; }
-const isSig = g => g.q!=null && isFinite(g.q) && g.q < M.fdr;
-
-// ── Interactive Manhattan ─────────────────────────────────────────────
-const tip = $("#tip");
-let metric = "neglogp";
-const W=900,H=420,ml=60,mr=30,mt=20,mb=50,pw=W-ml-mr,ph=H-mt-mb;
-
-function plottable(){ return genes.filter(g => metric==="ratio"
-  ? (g.ratio!=null && isFinite(g.ratio) && g.total>0)
-  : (g.p!=null && isFinite(g.p))); }
-
-function drawPlot(){
-  const pts = plottable();
-  const note = $("#plotNote");
-  if(!pts.length){ $("#plot").innerHTML=""; note.textContent="no data for this metric"; return; }
-  note.textContent = `${pts.length} genes`;
-  const yval = g => metric==="ratio" ? g.ratio : -Math.log10(Math.max(g.p,1e-300));
-  const xs = pts.map(g=>g.start);
-  const xmin=Math.min(...xs), xmax=Math.max(...xs), xr=Math.max(1,xmax-xmin);
-  let ymax = Math.max(...pts.map(yval));
-  const thrLine = metric==="ratio" ? 1 : (pStar!=null ? -Math.log10(pStar) : null);
-  if(thrLine!=null) ymax=Math.max(ymax,thrLine);
-  ymax = (ymax||1)*1.1;
-  const X = p => ml + ((p-xmin)/xr)*pw;
-  const Y = v => mt + ph*(1 - v/ymax);
-  let s = `<svg viewBox="0 0 ${W} ${H}" role="img">`;
-  s += `<rect x="0" y="0" width="${W}" height="${H}" fill="none"/>`;
-  for(let i=0;i<=5;i++){ const val=ymax*i/5, y=Y(val);
-    s+=`<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="var(--border)" stroke-width="0.5"/>`;
-    s+=`<text x="${ml-8}" y="${y}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${val.toFixed(metric==="ratio"?2:1)}</text>`; }
-  if(thrLine!=null){ const y=Y(thrLine);
-    s+=`<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="var(--line)" stroke-width="1" stroke-dasharray="6,3"/>`;
-    s+=`<text x="${ml+pw}" y="${y-4}" font-size="10" fill="var(--line)" text-anchor="end">${metric==="ratio"?"pN/pS = 1":"BH FDR "+M.fdr}</text>`; }
-  pts.forEach((g,i)=>{ const r=Math.min(8,Math.max(2.5,Math.sqrt(g.total||1)));
-    const color = isSig(g) ? "var(--sig)" : (metric==="ratio" ? (g.ratio<1?"var(--accent)":"var(--pos)") : "var(--ns)");
-    s+=`<circle data-i="${genes.indexOf(g)}" cx="${X(g.start).toFixed(1)}" cy="${Y(yval(g)).toFixed(1)}" r="${r.toFixed(1)}" fill="${color}" opacity="0.78"/>`; });
-  s+=`<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt+ph}" stroke="var(--fg)" stroke-width="1.2"/>`;
-  s+=`<line x1="${ml}" y1="${mt+ph}" x2="${ml+pw}" y2="${mt+ph}" stroke="var(--fg)" stroke-width="1.2"/>`;
-  s+=`<text x="${ml+pw/2}" y="${H-10}" font-size="12" fill="var(--muted)" text-anchor="middle">Genome position</text>`;
-  s+=`<text x="16" y="${mt+ph/2}" font-size="12" fill="var(--muted)" text-anchor="middle" transform="rotate(-90,16,${mt+ph/2})">${metric==="ratio"?"pN/pS":"−log10(p)"}</text>`;
-  s+=`</svg>`;
-  $("#plot").innerHTML = s;
+// ── BH threshold p* (for the given stringency) ────────────────────────
+function pThreshold(){
+  const ps = genes.map(g=>g.p).filter(v=>v!=null&&isFinite(v)).sort((a,b)=>a-b);
+  const m = ps.length; if(!m) return null;
+  if(stringency==="bonf") return M.fdr/m;
+  let pStar=null; for(let i=0;i<m;i++){ if(ps[i] <= ((i+1)/m)*M.fdr) pStar=ps[i]; } return pStar;
 }
 
-$("#plot").addEventListener("mousemove", e=>{
-  const t=e.target;
-  if(t.tagName==="circle"){ const g=genes[+t.dataset.i];
-    tip.innerHTML = `<b>${g.name}</b> (${g.chrom}:${g.start} ${g.strand})<br>pN/pS ${fmt(g.ratio,3)} · p ${fmtP(g.p)} · q ${fmtP(g.q)}<br>${g.nonsyn}N / ${g.syn}S SNPs`;
-    tip.style.opacity=1; tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY+12)+"px";
-  } else { tip.style.opacity=0; }
-});
-$("#plot").addEventListener("mouseleave", ()=>tip.style.opacity=0);
-document.querySelectorAll("button.tog").forEach(b=>b.addEventListener("click",()=>{
-  metric=b.dataset.metric;
-  document.querySelectorAll("button.tog").forEach(x=>x.classList.toggle("on",x===b));
-  drawPlot();
-}));
+// ── Generic scatter renderer (returns SVG string) ─────────────────────
+// cfg: {rows,x,y,xlabel,ylabel,xfmt,yfmt,color,size,tip,refs:[{x?,y?,diag?,label,c}],W,H}
+function scatter(cfg){
+  const W=cfg.W||520,H=cfg.H||360,ml=64,mr=22,mt=16,mb=48,pw=W-ml-mr,ph=H-mt-mb;
+  const rows=cfg.rows.filter(g=>{const x=cfg.x(g),y=cfg.y(g);return x!=null&&isFinite(x)&&y!=null&&isFinite(y);});
+  if(!rows.length) return '<p class="muted">no data for this panel</p>';
+  let xs=rows.map(cfg.x), ys=rows.map(cfg.y);
+  let xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
+  (cfg.refs||[]).forEach(r=>{ if(r.x!=null){xmin=Math.min(xmin,r.x);xmax=Math.max(xmax,r.x);} if(r.y!=null){ymin=Math.min(ymin,r.y);ymax=Math.max(ymax,r.y);} });
+  if(cfg.y0) ymin=Math.min(ymin,0);
+  const xr=(xmax-xmin)||1, yr=(ymax-ymin)||1; xmin-=xr*0.04;xmax+=xr*0.04;ymin-=yr*0.04;ymax+=yr*0.08;
+  const X=v=>ml+(v-xmin)/(xmax-xmin)*pw, Y=v=>mt+ph*(1-(v-ymin)/(ymax-ymin));
+  let s=`<svg viewBox="0 0 ${W} ${H}">`;
+  for(let i=0;i<=4;i++){ const yv=ymin+(ymax-ymin)*i/4, xv=xmin+(xmax-xmin)*i/4;
+    s+=`<line x1="${ml}" y1="${Y(yv).toFixed(1)}" x2="${ml+pw}" y2="${Y(yv).toFixed(1)}" stroke="var(--grid)" stroke-width="0.5"/>`;
+    s+=`<text x="${ml-8}" y="${Y(yv).toFixed(1)}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${(cfg.yfmt||(v=>v.toFixed(2)))(yv)}</text>`;
+    s+=`<text x="${X(xv).toFixed(1)}" y="${mt+ph+16}" font-size="10" fill="var(--muted)" text-anchor="middle">${(cfg.xfmt||(v=>v.toFixed(2)))(xv)}</text>`; }
+  (cfg.refs||[]).forEach(r=>{ const c=r.c||"var(--line)";
+    if(r.diag){ s+=`<line x1="${X(Math.max(xmin,ymin)).toFixed(1)}" y1="${Y(Math.max(xmin,ymin)).toFixed(1)}" x2="${X(Math.min(xmax,ymax)).toFixed(1)}" y2="${Y(Math.min(xmax,ymax)).toFixed(1)}" stroke="${c}" stroke-width="1" stroke-dasharray="6,3"/>`; }
+    else if(r.x!=null){ s+=`<line x1="${X(r.x).toFixed(1)}" y1="${mt}" x2="${X(r.x).toFixed(1)}" y2="${mt+ph}" stroke="${c}" stroke-width="1" stroke-dasharray="6,3"/>`; if(r.label) s+=`<text x="${X(r.x).toFixed(1)}" y="${mt+10}" font-size="9" fill="${c}" text-anchor="middle">${r.label}</text>`; }
+    else if(r.y!=null){ s+=`<line x1="${ml}" y1="${Y(r.y).toFixed(1)}" x2="${ml+pw}" y2="${Y(r.y).toFixed(1)}" stroke="${c}" stroke-width="1" stroke-dasharray="6,3"/>`; if(r.label) s+=`<text x="${ml+pw}" y="${(Y(r.y)-4).toFixed(1)}" font-size="9" fill="${c}" text-anchor="end">${r.label}</text>`; } });
+  rows.forEach(g=>{ const r=cfg.size?cfg.size(g):3.2, sel=(g._i===selected);
+    s+=`<circle class="mark" data-i="${g._i}" data-tip="${cfg.tip(g)}" cx="${X(cfg.x(g)).toFixed(1)}" cy="${Y(cfg.y(g)).toFixed(1)}" r="${(sel?r+2:r).toFixed(1)}" fill="${cfg.color(g)}" opacity="${sel?1:0.6}"${sel?' stroke="var(--sel)" stroke-width="2"':''}/>`; });
+  s+=`<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt+ph}" stroke="var(--axis)" stroke-width="1.2"/><line x1="${ml}" y1="${mt+ph}" x2="${ml+pw}" y2="${mt+ph}" stroke="var(--axis)" stroke-width="1.2"/>`;
+  s+=`<text x="${ml+pw/2}" y="${H-6}" font-size="11" fill="var(--muted)" text-anchor="middle">${cfg.xlabel}</text>`;
+  s+=`<text x="14" y="${mt+ph/2}" font-size="11" fill="var(--muted)" text-anchor="middle" transform="rotate(-90,14,${mt+ph/2})">${cfg.ylabel}</text></svg>`;
+  return s;
+}
+const rSize = g => Math.min(9,Math.max(2.6,Math.sqrt((g.total||1))*1.1));
+const sigColor = g => isSig(g) ? "var(--sig)" : "var(--ns)";
+const baseTip = g => `<b>${g.name}</b> (${g.chrom}:${g.start} ${g.strand})<br>pN/pS ${fmt(g.ratio,3)} · p ${fmtP(g.p)} · ${stringency==='q'?'q':'p(Bonf)'} ${fmtP(sigVal(g))}<br>${g.nonsyn}N / ${g.syn}S of ${g.total} SNPs${quar(g)?' · ⚠ repetitive':''}`;
+const log2c = (v,lo,hi) => v==null||!isFinite(v)?null : Math.max(lo,Math.min(hi, Math.log2(v<=0?1e-3:v)));
 
-// ── Sortable / filterable table ───────────────────────────────────────
-let cols = [
-  ["name","Gene"],["chrom","Chrom"],["start","Start"],["strand","±"],
-  ["nSites","N sites"],["sSites","S sites"],["ratio",M.ratioName],
-  ["nonsyn","N SNPs"],["syn","S SNPs"],["expN","Exp N frac"],
-  ["p","p"],["q","q (BH)"],["bonf","p (Bonf)"]
-];
-if(M.mk) cols=cols.concat([["dn","Dn"],["ds","Ds"],["pnMk","Pn"],["psMk","Ps"],["ni","NI"],["alpha","α"],["fisherP","Fisher p"]]);
-const pcols = new Set(["p","q","bonf","fisherP"]);
-let sortKey="p", sortDesc=false;
+// ── Manhattan ─────────────────────────────────────────────────────────
+function panelManhattan(){
+  const thr = pThreshold();
+  const yv = g => metric==="ratio" ? g.ratio : -Math.log10(Math.max(g.p,1e-300));
+  return {title:"Manhattan",
+    toolbar:`<button class="tog ${metric==='neglogp'?'on':''}" data-act="metric" data-v="neglogp">−log10(p)</button><button class="tog ${metric==='ratio'?'on':''}" data-act="metric" data-v="ratio">pN/pS</button>`,
+    legend:`<span><i style="background:var(--sig)"></i>significant</span><span><i style="background:var(--ns)"></i>not sig.</span>`,
+    svg: scatter({rows:genes.filter(g=> metric==="ratio"?(g.ratio!=null&&isFinite(g.ratio)&&g.total>0):(g.p!=null&&isFinite(g.p))),
+      W:900,x:g=>g.start,y:yv,xlabel:"genome position",ylabel:metric==="ratio"?"pN/pS":"−log10(p)",
+      xfmt:v=>Math.round(v),color:g=>isSig(g)?"var(--sig)":(metric==="ratio"?(g.ratio<1?"var(--accent)":"var(--pos)"):"var(--ns)"),
+      size:rSize,tip:baseTip,
+      refs: metric==="ratio"?[{y:1,label:"pN/pS = 1",c:"var(--pos)"}]:(thr!=null?[{y:-Math.log10(thr),label:(stringency==="q"?"BH":"Bonf")+" "+M.fdr,c:"var(--line)"}]:[])})};
+}
+// ── Volcano ───────────────────────────────────────────────────────────
+function panelVolcano(){
+  const thr=pThreshold();
+  return {title:"Volcano — effect vs significance",
+    legend:`<span><i style="background:var(--sig)"></i>significant</span><span><i style="background:var(--ns)"></i>not sig.</span>`,
+    svg: scatter({rows:genes.filter(g=>g.p!=null&&isFinite(g.p)&&g.ratio!=null),
+      x:g=>log2c(g.ratio,-6,6), y:g=>-Math.log10(Math.max(g.p,1e-300)),
+      xlabel:"log2(pN/pS)  ←purifying · positive→", ylabel:"−log10(p)",
+      color:sigColor,size:rSize,tip:baseTip,y0:true,
+      refs:[{x:0,label:"pN/pS=1",c:"var(--pos)"}].concat(thr!=null?[{y:-Math.log10(thr),label:(stringency==="q"?"BH":"Bonf"),c:"var(--line)"}]:[])})};
+}
+// ── Power funnel ──────────────────────────────────────────────────────
+function panelFunnel(){
+  return {title:"Power funnel — pN/pS vs SNP count",
+    legend:`<span>y = pN/pS · x = SNPs (log) · low-count genes scatter widely</span>`,
+    svg: scatter({rows:genes.filter(g=>g.total>0&&g.ratio!=null&&isFinite(g.ratio)),
+      x:g=>Math.log10(g.total),y:g=>g.ratio,xlabel:"total SNPs (log10)",ylabel:"pN/pS",
+      xfmt:v=>Math.round(Math.pow(10,v)),color:g=>isSig(g)?"var(--sig)":(g.ratio<1?"var(--accent)":"var(--pos)"),size:rSize,tip:baseTip,y0:true,
+      refs:[{y:1,label:"pN/pS=1",c:"var(--pos)"},{y:S.gwRatio,label:"pooled",c:"var(--line)"}].concat(M.minSnps>1?[{x:Math.log10(M.minSnps),label:"min-snps",c:"var(--muted)"}]:[])})};
+}
+// ── Observed vs expected nonsyn fraction ──────────────────────────────
+function panelObsExp(){
+  return {title:"Observed vs expected N-fraction",
+    legend:`<span>above the line → diversifying · below → purifying</span>`,
+    svg: scatter({rows:genes.filter(g=>g.total>0&&g.expN!=null&&isFinite(g.expN)),
+      x:g=>g.expN,y:g=>g.nonsyn/g.total,xlabel:"expected N-fraction  N/(N+S)",ylabel:"observed nonsyn / total",
+      color:g=>{ if(!isSig(g))return"var(--ns)"; return (g.nonsyn/g.total)>g.expN?"var(--pos)":"var(--accent)"; },
+      size:rSize,tip:g=>baseTip(g)+`<br>exp N-frac ${fmt(g.expN,3)} · obs ${fmt(g.nonsyn/g.total,3)}`,
+      refs:[{diag:true,label:"neutral",c:"var(--pos)"}]})};
+}
+// ── MK volcano (if --mk) ──────────────────────────────────────────────
+function panelMK(){
+  return {title:"McDonald-Kreitman — α vs significance",
+    legend:`<span><i style="background:var(--pos)"></i>adaptive (α&gt;0)</span><span><i style="background:var(--accent)"></i>constrained (α&lt;0)</span>`,
+    svg: scatter({rows:genes.filter(g=>g.alpha!=null&&isFinite(g.alpha)&&g.fisherP!=null&&isFinite(g.fisherP)),
+      x:g=>g.alpha,y:g=>-Math.log10(Math.max(g.fisherP,1e-300)),xlabel:"α (proportion adaptive)",ylabel:"−log10(Fisher p)",
+      color:g=>g.alpha>0?"var(--pos)":"var(--accent)",size:g=>Math.min(9,Math.max(2.6,Math.sqrt((g.dn+g.ds+g.pnMk+g.psMk)||1)*1.3)),
+      tip:g=>`<b>${g.name}</b><br>Dn ${g.dn} Ds ${g.ds} · Pn ${g.pnMk} Ps ${g.psMk}<br>NI ${fmt(g.ni,3)} · α ${fmt(g.alpha,3)} · Fisher p ${fmtP(g.fisherP)}`,y0:true,
+      refs:[{x:0,label:"α=0",c:"var(--line)"}]})};
+}
+// ── pN/pS distribution ────────────────────────────────────────────────
+function panelDist(){
+  const vals=genes.map(g=>g.ratio).filter(v=>v!=null&&isFinite(v));
+  if(!vals.length) return null;
+  const edges=[0,0.2,0.4,0.6,0.8,1.0,1.5,2.0,1e9], labels=["<.2",".2-.4",".4-.6",".6-.8",".8-1","1-1.5","1.5-2","≥2"];
+  const counts=labels.map((_,k)=>vals.filter(v=>v>=edges[k]&&v<edges[k+1]).length);
+  const cmax=Math.max(1,...counts),W=520,H=300,ml=54,mr=18,mt=16,mb=54,pw=W-ml-mr,ph=H-mt-mb,bw=pw/counts.length;
+  let s=`<svg viewBox="0 0 ${W} ${H}">`;
+  for(let i=0;i<=4;i++){ const v=cmax*i/4,y=mt+ph*(1-i/4); s+=`<line x1="${ml}" y1="${y}" x2="${ml+pw}" y2="${y}" stroke="var(--grid)" stroke-width="0.5"/><text x="${ml-8}" y="${y}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${Math.round(v)}</text>`; }
+  counts.forEach((c,i)=>{ const x=ml+i*bw+3,bh=ph*c/cmax,y=mt+ph-bh,col=edges[i]>=1?"var(--pos)":"var(--accent)";
+    s+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-6).toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${col}" opacity="0.85"/>`;
+    s+=`<text x="${(x+(bw-6)/2).toFixed(1)}" y="${mt+ph+16}" font-size="9" fill="var(--muted)" text-anchor="middle">${labels[i]}</text>`; });
+  s+=`<text x="${ml+pw/2}" y="${H-6}" font-size="11" fill="var(--muted)" text-anchor="middle">pN/pS</text></svg>`;
+  return {title:"pN/pS distribution", legend:"", svg:s};
+}
 
-$("#tbl thead").innerHTML = "<tr>"+cols.map(c=>`<th data-k="${c[0]}">${c[1]}</th>`).join("")+"</tr>";
+// ── Render all panels ─────────────────────────────────────────────────
+function renderPanels(){
+  const P=[panelManhattan(),panelVolcano()];
+  if(M.mk) P.push(panelMK());
+  P.push(panelFunnel(),panelObsExp());
+  const d=panelDist(); if(d) P.push(d);
+  $("#panels").innerHTML = P.map(p=>`<section class="panel"><h2>${p.title}</h2>${p.toolbar?`<div class="toolbar">${p.toolbar}</div>`:""}<div>${p.svg}</div>${p.legend?`<div class="legend">${p.legend}</div>`:""}</section>`).join("");
+}
+// Manhattan is wide → make its panel span the grid.
+function fixSpans(){ const first=$("#panels").firstElementChild; if(first) first.style.gridColumn="1 / -1"; }
+
+// ── Interaction: hover tooltip + click-to-select (delegated) ──────────
+$("#panels").addEventListener("mousemove", e=>{ const t=e.target;
+  if(t.classList&&t.classList.contains("mark")){ tip.innerHTML=t.dataset.tip; tip.style.opacity=1; tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY+12)+"px"; } else tip.style.opacity=0; });
+$("#panels").addEventListener("mouseleave", ()=>tip.style.opacity=0);
+$("#panels").addEventListener("click", e=>{ const t=e.target; if(t.classList&&t.classList.contains("mark")) selectGene(+t.dataset.i); });
+
+function selectGene(i){ selected = (selected===i)?null:i; renderPanels(); fixSpans(); renderTable();
+  if(selected!=null){ const row=document.querySelector(`#tbl tbody tr[data-i="${selected}"]`); if(row) row.scrollIntoView({block:"nearest"}); } }
+
+// ── Table ─────────────────────────────────────────────────────────────
+let cols=[["name","Gene"],["chrom","Chrom"],["start","Start"],["strand","±"],["length_bp","Len"],
+  ["pn","pN"],["ps","pS"],["ratio",M.ratioName],["dir","dir"],["nonsyn","N"],["syn","S"],["total","SNPs"],
+  ["expN","ExpN"],["p","p"],["q","q(BH)"],["bonf","p(Bonf)"]];
+if(M.mk) cols=cols.concat([["dn","Dn"],["ds","Ds"],["pnMk","Pn"],["psMk","Ps"],["ni","NI"],["alpha","α"],["fisherP","Fisher"]]);
+const pcols=new Set(["p","q","bonf","fisherP"]); const icols=new Set(["start","length_bp","nonsyn","syn","total","dn","ds","pnMk","psMk"]);
+let sortKey="p",sortDesc=false;
+$("#tbl thead").innerHTML="<tr>"+cols.map(c=>`<th data-k="${c[0]}">${c[1]}</th>`).join("")+"</tr>";
+function cellText(g,k){
+  if(k==="dir"){ return g.ratio==null||!isFinite(g.ratio)?"·":(g.ratio>1?"▲":(g.ratio<1?"▼":"·")); }
+  let v=g[k]; if(typeof v==="string") return k==="name"?v+(quar(g)?'<span class="badge">rep</span>':""):v;
+  if(icols.has(k)) return v==null?"NA":v;
+  return pcols.has(k)?fmtP(v):fmt(v,(k==="ratio"||k==="ni"||k==="alpha"||k==="pn"||k==="ps"||k==="expN")?4:2);
+}
 function renderTable(){
-  const f = $("#filter").value.toLowerCase();
-  let rows = genes.filter(g => !f || g.name.toLowerCase().includes(f) || (g.chrom||"").toLowerCase().includes(f));
-  rows.sort((a,b)=>{ let x=a[sortKey], y=b[sortKey];
-    const xn=(x==null||(typeof x==="number"&&!isFinite(x))), yn=(y==null||(typeof y==="number"&&!isFinite(y)));
-    if(xn&&yn) return 0; if(xn) return 1; if(yn) return -1;
-    if(typeof x==="string") return sortDesc ? y.localeCompare(x) : x.localeCompare(y);
-    return sortDesc ? y-x : x-y; });
-  $("#tbl tbody").innerHTML = rows.map(g=>"<tr"+(isSig(g)?' class="sig"':"")+">"+cols.map(c=>{
-    let v=g[c[0]];
-    let txt = typeof v==="string" ? v : (c[0]==="start"||["nonsyn","syn","total","dn","ds","pnMk","psMk"].includes(c[0]) ? (v==null?"NA":v) : (pcols.has(c[0])?fmtP(v):fmt(v, c[0]==="ratio"||c[0]==="ni"||c[0]==="alpha"?4:2)));
-    return `<td>${txt}</td>`;
-  }).join("")+"</tr>").join("");
-  document.querySelectorAll("#tbl thead th").forEach(th=>{
-    th.classList.toggle("sorted", th.dataset.k===sortKey);
-    th.classList.toggle("desc", th.dataset.k===sortKey && sortDesc); });
-  $("#tableCount").textContent = `${rows.length} / ${genes.length} genes`;
+  const f=($("#search").value||"").toLowerCase();
+  let rows=genes.filter(g=>!f||g.name.toLowerCase().includes(f)||(g.chrom||"").toLowerCase().includes(f));
+  rows.sort((a,b)=>{ let x=a[sortKey],y=b[sortKey]; const xn=(x==null||(typeof x==="number"&&!isFinite(x))),yn=(y==null||(typeof y==="number"&&!isFinite(y)));
+    if(xn&&yn)return 0; if(xn)return 1; if(yn)return -1;
+    if(typeof x==="string")return sortDesc?y.localeCompare(x):x.localeCompare(y); return sortDesc?y-x:x-y; });
+  $("#tbl tbody").innerHTML=rows.map(g=>`<tr data-i="${g._i}" class="${isSig(g)?'sig ':''}${g._i===selected?'sel':''}">`+cols.map(c=>{
+    const col = c[0]==="dir" ? (g.ratio>1?"var(--pos)":"var(--accent)") : null;
+    return `<td${col?` style="color:${col}"`:""}>${cellText(g,c[0])}</td>`; }).join("")+"</tr>").join("");
+  document.querySelectorAll("#tbl thead th").forEach(th=>{ th.classList.toggle("sorted",th.dataset.k===sortKey); th.classList.toggle("desc",th.dataset.k===sortKey&&sortDesc); });
+  $("#tableCount").textContent=`${rows.length} / ${genes.length} genes`;
 }
-$("#tbl thead").addEventListener("click", e=>{ const th=e.target.closest("th"); if(!th)return;
-  const k=th.dataset.k; if(k===sortKey) sortDesc=!sortDesc; else {sortKey=k; sortDesc=false;} renderTable(); });
-$("#filter").addEventListener("input", renderTable);
+$("#tbl thead").addEventListener("click",e=>{ const th=e.target.closest("th"); if(!th)return; const k=th.dataset.k; if(k===sortKey)sortDesc=!sortDesc; else{sortKey=k;sortDesc=false;} renderTable(); });
+$("#tbl tbody").addEventListener("click",e=>{ const tr=e.target.closest("tr"); if(tr) selectGene(+tr.dataset.i); });
+$("#search").addEventListener("input", renderTable);
 
-drawPlot(); renderTable();
+// ── Panel toolbar (metric toggle) via delegation ──────────────────────
+$("#panels").addEventListener("click", e=>{ const b=e.target.closest("button.tog"); if(!b)return;
+  if(b.dataset.act==="metric"){ metric=b.dataset.v; renderPanels(); fixSpans(); } });
+
+// ── Stringency toggle ─────────────────────────────────────────────────
+$("#strTog").addEventListener("click", ()=>{ stringency = stringency==="q"?"bonf":"q";
+  $("#strTog").textContent = stringency==="q"?"FDR (BH)":"Bonferroni"; renderCards(); renderPanels(); fixSpans(); renderTable(); });
+
+// ── Theme toggle ──────────────────────────────────────────────────────
+$("#themeTog").addEventListener("click", ()=>{ const r=document.documentElement;
+  const cur=r.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light");
+  r.setAttribute("data-theme", cur==="dark"?"light":"dark"); });
+
+// ── Export CSV / JSON of the filtered view ────────────────────────────
+function filtered(){ const f=($("#search").value||"").toLowerCase(); return genes.filter(g=>!f||g.name.toLowerCase().includes(f)||(g.chrom||"").toLowerCase().includes(f)); }
+function dl(name,txt,type){ const b=new Blob([txt],{type}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href); }
+$("#expCsv").addEventListener("click", ()=>{ const keys=cols.map(c=>c[0]).filter(k=>k!=="dir");
+  const head=keys.join(","); const body=filtered().map(g=>keys.map(k=>{const v=g[k];return v==null||(typeof v==="number"&&!isFinite(v))?"NA":v;}).join(",")).join("\n");
+  dl("eskaks_genes.csv", head+"\n"+body, "text/csv"); });
+$("#expJson").addEventListener("click", ()=>{ dl("eskaks_genes.json", JSON.stringify(filtered().map(g=>{const o={...g};delete o._i;return o;}),null,1), "application/json"); });
+
+renderCards(); renderPanels(); fixSpans(); renderTable();
 "##;
 
 /// Write the interactive HTML report for a FASTA (dN/dS) run: summary cards,
