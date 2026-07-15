@@ -10,6 +10,13 @@ All notable changes to this project will be documented in this file.
   (`pN = Σ nonsyn / Σ N_sites`, `pS = Σ syn / Σ S_sites`) rather than averaging
   per-gene ratios. Respects `--af-weighted` (reported as πN/πS) and includes a
   coarse selection label (purifying / near-neutral / diversifying).
+- **`--kappa` mutation-spectrum-aware site counting** for `eskaks vcf`: a
+  transition/transversion rate ratio that weights synonymous vs nonsynonymous
+  site counting (modified Nei-Gojobori). Corrects the equal-rates bias that
+  understates pN/pS under transition-skewed spectra (e.g. *M. tuberculosis*):
+  `kappa > 1` raises S and lowers N, moving a 2-fold synonymous site from `1/3`
+  to `kappa/(kappa+2)` while leaving 4-fold sites and the observed-SNP numerators
+  unchanged. `--kappa 1` (default) reproduces the classic equal-rates counting.
 
 ## [1.4.0] - 2026-03-29
 
