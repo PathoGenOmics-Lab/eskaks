@@ -72,6 +72,7 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--seed <INT>` | Seed for reproducible bootstrap resampling | `42` |
 | `--workers <INT>` | Parallel threads for the per-gene computation | `4` |
 | `--plot` | Generate Manhattan-style SVG plot (significant genes outlined) | off |
+| `--report` | Write an [interactive HTML report](#interactive-html-report) (`<prefix>_report.html`) | off |
 
 ## Output
 
@@ -122,6 +123,25 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 > highly clonal or strongly linked bacterial populations this is violated and the
 > p-values are anti-conservative — treat them as a ranking aid, and lean on the FDR
 > column rather than raw p-values.
+
+## Interactive HTML report
+
+`--report` writes `<prefix>_report.html`: a single **self-contained** file (all
+CSS/JS inlined, no CDN or internet needed — it works on air-gapped HPC nodes and
+opens straight in a browser). It contains:
+
+- **summary cards** — genes analyzed, genome-wide pooled pN/pS with its bootstrap
+  CI (if `--bootstrap` was used), the selection call, and the significant-gene count;
+- an **interactive Manhattan plot** that toggles between −log10(p) and pN/pS, draws
+  the Benjamini-Hochberg / neutral (`pN/pS = 1`) line, and shows per-gene tooltips on hover;
+- a **sortable, filterable per-gene table** (click a header to sort, type to filter),
+  including the McDonald-Kreitman columns when `--mk` is also set.
+
+```bash
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
+  --genetic-code 11 --kappa 2 --bootstrap 1000 --mk --report -o mtb_scan
+# → open mtb_scan_report.html in any browser
+```
 
 ## McDonald-Kreitman test
 
