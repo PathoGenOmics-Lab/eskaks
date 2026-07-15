@@ -82,6 +82,42 @@ File: `<prefix>_pnps.tsv` (or `.csv` / `.json`)
 | Syn_SNPs | Count of synonymous SNPs in this gene |
 | Total_SNPs | Total SNPs falling in this gene |
 
+## Genome-wide (pooled) pN/pS
+
+After writing the per-gene table, eskaks prints a summary to stderr that ends
+with a **genome-wide** estimate pooled across every analyzed gene:
+
+```
+── pN/pS Summary ──────────────────────────
+  Genes analyzed:      2
+  Genes with SNPs:     2
+  Total synonymous:    2.00
+  Total nonsynonymous: 1.00
+  ── Genome-wide (pooled) ──────────────────
+  N / S sites:         36.6 / 11.4
+  Overall pN / pS:     0.027335 / 0.175182
+  Overall pN/pS:       0.156036
+  Selection:           purifying selection (pN/pS < 1)
+───────────────────────────────────────────
+```
+
+The pooled ratio sums counts and sites over all genes **before** dividing:
+
+```
+pN = Σ nonsyn_SNPs / Σ N_sites
+pS = Σ syn_SNPs    / Σ S_sites
+```
+
+This is deliberately *not* the mean of the per-gene pN/pS column. Averaging
+ratios gives a single noisy gene (few sites, extreme ratio) the same weight as
+a whole chromosome; pooling weights each gene by its number of sites, which is
+the standard way to report an overall signal of selection. Under `--af-weighted`
+the pooled figure is πN/πS.
+
+The `Selection:` line is a coarse convenience label (`< 0.9` purifying, `0.9–1.1`
+near-neutral, `> 1.1` diversifying), not a statistical test — formal inference
+needs an explicit null model.
+
 ## pN/pS vs πN/πS
 
 | Mode | Flag | How SNPs count | Best for |
@@ -145,7 +181,7 @@ eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
 ## Caveats
 
 1. **pN/pS ≠ dN/dS**: pN/pS does not correct for multiple substitutions (no Jukes-Cantor or Kimura). It measures raw polymorphism proportions, not evolutionary rates.
-2. **Low SNP counts**: Genes with very few SNPs produce unreliable pN/pS estimates. Consider filtering genes with < 5 total SNPs.
+2. **Low SNP counts**: Genes with very few SNPs produce unreliable per-gene pN/pS estimates. Consider filtering genes with < 5 total SNPs, or rely on the [genome-wide pooled estimate](#genome-wide-pooled-pnps) for the overall signal.
 3. **Overlapping genes**: Each SNP is assigned to all genes whose CDS regions overlap its position. Overlapping genes on opposite strands will classify the same SNP differently.
 4. **Fixed variants**: By default, fixed variants (AF=1.0) are included. Use `--max-af 0.99` to exclude them and analyze only segregating polymorphisms.
 5. **pN/pS vs πN/πS**: Without `--af-weighted`, all SNPs count equally (pN/pS). With `--af-weighted`, rare variants contribute less than common ones (πN/πS). Choose based on your question.

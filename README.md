@@ -30,13 +30,13 @@ eskaks is a Rust tool for evolutionary rate analysis. It computes **pairwise dN/
 | Mode | Command | Input | Output |
 |---|---|---|---|
 | **dN/dS** | `eskaks fasta` | Codon-aligned FASTA | Pairwise dN, dS, dN/dS |
-| **pN/pS** | `eskaks vcf` | VCF + reference + GFF3 | Per-gene pN, pS, pN/pS |
+| **pN/pS** | `eskaks vcf` | VCF + reference + GFF3 | Per-gene + genome-wide pN, pS, pN/pS |
 
 **Key features:**
 - 🧬 **Two models** — [Nei-Gojobori (1986) + Li (1993)/LPB93](docs/models.md)
 - ⚡ **Fast** — Precomputed lookup tables + Rayon parallelism (~100 ms for 124,750 pairs)
 - 🔬 **[20 genetic codes](docs/genetic-codes.md)** — All NCBI translation tables (standard, mitochondrial, plastid, etc.)
-- 🧪 **[VCF analysis](docs/vcf-analysis.md)** — pN/pS per gene from population variants (VCF + GFF3)
+- 🧪 **[VCF analysis](docs/vcf-analysis.md)** — pN/pS per gene (plus a pooled genome-wide estimate) from population variants (VCF + GFF3)
 - 📊 **Multiple outputs** — Pairwise, lineage summary, group average, sliding window, per-gene
 - 📁 **[Flexible formats](docs/output-formats.md)** — TSV, CSV, JSON (`null` for NaN/Infinity)
 - 🖼️ **SVG plots** — Histograms, window plots, group bar charts, Manhattan plots
@@ -89,6 +89,10 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
 # Single multi-sample VCF also works
 eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf population.vcf -o results
 ```
+
+Alongside the per-gene table, the run prints a **genome-wide (pooled) pN/pS** to
+stderr — counts and sites summed across all genes — as an overall signal of
+selection. See [docs/vcf-analysis.md](docs/vcf-analysis.md#genome-wide-pooled-pnps).
 
 > [!TIP]
 > If your sequences are not codon-aligned, use [MAFFT](https://mafft.cbrc.jp/) + [PAL2NAL](http://www.bork.embl.de/pal2nal/) or [MACSE](https://bioweb.supagro.inra.fr/macse/) first.
