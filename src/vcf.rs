@@ -4,7 +4,7 @@
 //! skipping indels and structural variants. Supports allele frequency
 //! extraction from INFO/AF or calculation from GT fields.
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 use log::warn;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -149,8 +149,11 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
         });
     }
 
+    // An empty VCF is not fatal on its own: in a multi-sample merge one
+    // over-filtered or variant-free isolate must not abort the whole run.
+    // Callers decide whether zero total SNPs is an error.
     if snps.is_empty() {
-        bail!("No SNPs found in VCF file: {}", path.display());
+        warn!("No SNPs found in VCF file: {}", path.display());
     }
 
     Ok(snps)
@@ -266,6 +269,9 @@ pub fn merge_vcfs(
         let snps = parse_vcf(std::path::Path::new(path))?;
         let snps = filter_snps(snps, pass_only, None, None, min_depth);
         log::info!("  Sample {}/{}: {} — {} SNPs", i + 1, vcf_paths.len(), path, snps.len());
+        if snps.is_empty() {
+            warn!("Sample {} contributed 0 SNPs (empty or fully filtered); skipping", path);
+        }
 
         for snp in snps {
             ref_alleles

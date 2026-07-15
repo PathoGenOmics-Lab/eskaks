@@ -13,7 +13,7 @@ mod vcf_analysis;
 
 use anyhow::{bail, Context};
 use clap::Parser;
-use log::{info, LevelFilter};
+use log::{info, warn, LevelFilter};
 
 use std::collections::HashSet;
 
@@ -232,6 +232,16 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         vcf::filter_snps(merged, false, args.min_af, args.max_af, None)
     };
     info!("{} SNPs after filtering", snps.len());
+
+    if snps.is_empty() {
+        // Not fatal (0 SNPs is a valid, if uninformative, result), but make it
+        // loud so it is never mistaken for a silently-empty output file.
+        warn!(
+            "0 SNPs remain after parsing and filtering — every gene will report \
+             0 SNPs and undefined pN/pS. Check the VCF and the --pass-only / \
+             --min-af / --max-af / --min-depth filters if this is unexpected."
+        );
+    }
 
     // Fail early if no VCF contig matches any annotated gene — otherwise every
     // SNP lands outside every gene and pN/pS is NaN everywhere with no signal.
