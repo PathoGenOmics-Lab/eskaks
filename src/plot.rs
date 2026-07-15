@@ -263,6 +263,7 @@ pub fn window_plot_svg(window_stats: &WindowStats, path: &str, window_size: usiz
 }
 
 /// Data for group average bar chart.
+#[derive(Clone)]
 pub struct GroupPlotData {
     pub label: String,
     pub mean: f64,

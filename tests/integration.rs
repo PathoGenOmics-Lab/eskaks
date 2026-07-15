@@ -499,3 +499,22 @@ fn bootstrap_writes_pairwise_cis() {
     fs::remove_file(format!("{}_pairwise_bootstrap.tsv", out_prefix)).ok();
     fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
 }
+
+#[test]
+fn fasta_report_writes_lineage_scatter() {
+    let out_prefix = "/tmp/eskaks_test_fasta_report";
+    let status = Command::new(binary_path())
+        .args(["fasta", FASTA_GROUPED, "-o", out_prefix, "--model", "nei", "--lineage", "--report"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let html = fs::read_to_string(format!("{}_report.html", out_prefix)).expect("report html");
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    assert!(html.contains("const DATA ="));
+    assert!(html.contains("\"lineage\":["), "lineage data embedded");
+    assert!(html.contains("by lineage"), "lineage scatter section");
+    // Self-contained: no external assets.
+    assert!(!html.contains("http://") && !html.contains("https://") && !html.contains("cdn"));
+    fs::remove_file(format!("{}_report.html", out_prefix)).ok();
+    fs::remove_file(format!("{}_lineage_summary.tsv", out_prefix)).ok();
+}

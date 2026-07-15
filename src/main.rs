@@ -102,8 +102,8 @@ fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
     // Build compute engine
     let engine = ComputeEngine::new(args.model, gc);
 
-    // Summary stats (only when --summary or --plot)
-    let summary_stats = if args.summary || args.plot {
+    // Summary stats (needed for --summary, --plot, and the --report histogram)
+    let summary_stats = if args.summary || args.plot || args.report {
         Some(SummaryStats::new())
     } else {
         None
@@ -129,7 +129,23 @@ fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
         };
 
     // Dispatch to the appropriate output mode
-    dispatch_output(&args, &data, &out_cfg, compute_pair, compute_pair_slices)?;
+    let report_data = dispatch_output(&args, &data, &out_cfg, compute_pair, compute_pair_slices)?;
+
+    // Interactive HTML report with the dynamic visualizations for this run.
+    if args.report {
+        let model_name = match args.model {
+            models::Model::Nei => "Nei-Gojobori",
+            models::Model::Li => "Li / LPB93",
+        };
+        let path = report::write_fasta_report(
+            &args.output,
+            model_name,
+            summary_stats.as_ref(),
+            report_data.lineage.as_deref(),
+            report_data.group.as_deref(),
+        )?;
+        info!("Report saved to {}", path);
+    }
 
     // Optional per-pair Nei-Gojobori neutrality test (variance + Z-test).
     if args.neutrality {
@@ -437,8 +453,9 @@ fn dispatch_output(
     cfg: &OutputConfig,
     compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
     compute_pair_slices: impl Fn(&[u8], &[u8]) -> DsDn + Sync,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<report::FastaReportData> {
     let ext = cfg.ext;
+    let mut rd = report::FastaReportData::default();
 
     if args.group_average {
         if args.window_size.is_some() {
@@ -454,6 +471,9 @@ fn dispatch_output(
         )?;
         info!("Results saved to {}_group_avg_dn_ds.{}", args.output, ext);
 
+        if args.report {
+            rd.group = Some(plot_data.clone());
+        }
         if args.plot && !plot_data.is_empty() {
             let plot_path = format!("{}_group_dnds.svg", args.output);
             plot::group_bar_svg(&plot_data, &plot_path)?;
@@ -492,6 +512,9 @@ fn dispatch_output(
             args.output, ext
         );
 
+        if args.report {
+            rd.lineage = Some(plot_data.clone());
+        }
         if args.plot && !plot_data.is_empty() {
             let lineage_plot_data: Vec<plot::LineagePlotData> = plot_data
                 .into_iter()
@@ -529,7 +552,7 @@ fn dispatch_output(
             }
         }
     }
-    Ok(())
+    Ok(rd)
 }
 
 /// Window mode dispatch with validation.

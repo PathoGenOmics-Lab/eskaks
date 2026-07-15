@@ -104,6 +104,12 @@ pub struct FastaArgs {
     #[arg(long)]
     pub plot: bool,
 
+    /// Write a self-contained interactive HTML report (<output>_report.html)
+    /// with the dynamic visualizations for whichever mode was run (pairwise
+    /// distribution, lineage/group scatter with per-group means). No CDN needed.
+    #[arg(long)]
+    pub report: bool,
+
     /// NCBI genetic code table number (default: 1 = Standard).
     /// Use --list-codes to see all available tables.
     /// Common alternatives: 2 (Vertebrate Mito), 4 (Mycoplasma), 11 (Bacterial)
