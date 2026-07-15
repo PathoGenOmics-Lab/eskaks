@@ -326,6 +326,61 @@ fn vcf_missing_vcf_fails() {
     assert!(!output.status.success());
 }
 
+// ─── Genome-wide (pooled) summary ────────────────────────────────────────────
+
+/// Extract the float following a `label` on its line in captured stderr.
+fn stderr_value_after(stderr: &str, label: &str) -> f64 {
+    let line = stderr
+        .lines()
+        .find(|l| l.contains(label))
+        .unwrap_or_else(|| panic!("no line containing {:?} in:\n{}", label, stderr));
+    line.rsplit(':')
+        .next()
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap_or_else(|e| panic!("cannot parse value from {:?}: {}", line, e))
+}
+
+#[test]
+fn vcf_summary_reports_genome_wide_pnps() {
+    let out_prefix = "/tmp/eskaks_test_vcf_gw";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", REF_FASTA,
+            "--gff", GFF3,
+            "--vcf", VCF,
+            "-o", out_prefix,
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Genome-wide (pooled)"), "missing genome-wide block:\n{}", stderr);
+
+    // The pooled ratio printed in the summary must equal the ratio recomputed
+    // by pooling the per-gene TSV columns (N_sites, S_sites, Nonsyn, Syn).
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
+    let (mut n_sites, mut s_sites, mut nonsyn, mut syn) = (0.0, 0.0, 0.0, 0.0);
+    for row in &rows[1..] {
+        n_sites += row[2].parse::<f64>().unwrap();
+        s_sites += row[3].parse::<f64>().unwrap();
+        nonsyn += row[7].parse::<f64>().unwrap();
+        syn += row[8].parse::<f64>().unwrap();
+    }
+    let expected = (nonsyn / n_sites) / (syn / s_sites);
+    let reported = stderr_value_after(&stderr, "Overall pN/pS:");
+    assert!(
+        (reported - expected).abs() < EPSILON,
+        "genome-wide pN/pS mismatch: summary={}, recomputed={}",
+        reported, expected
+    );
+    // geneA (1N,1S) + geneB (0N,1S): purifying overall.
+    assert!(stderr.contains("purifying"), "expected purifying call:\n{}", stderr);
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
 // ─── FASTA subcommand still works ───────────────────────────────────────────
 
 #[test]
