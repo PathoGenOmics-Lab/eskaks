@@ -110,6 +110,23 @@ All notable changes to this project will be documented in this file.
   `merge_vcfs` parses per-sample VCFs in parallel — both byte-identical output.
 
 ### Fixed
+- **Consistency & robustness (third audit):**
+  - A stray internal space/tab in a FASTA sequence line used to occupy a codon slot
+    and frameshift every codon after it; internal whitespace is now stripped (gaps
+    `-`/`.` are kept) before framing.
+  - Under `--exclude-repetitive`, the genome-wide point estimate is core-only but the
+    bootstrap 95% CI resampled **all** genes, so the CI need not bound the estimate;
+    the CI now resamples the same core-only set.
+  - The report's "Genes analyzed"/"With SNPs" cards were computed from the
+    post-`--min-snps` slice while the pooled estimate used all genes, so the report
+    disagreed with the CLI summary; the report now uses the pre-filter counts.
+  - "Genes tested" now counts the actual multiple-testing family (finite q), and the
+    CLI "Significant" count uses the GC-corrected q under `--genomic-control`, so the
+    CLI and the HTML report agree.
+  - GFF3 attribute URL-decoding reassembles multi-byte UTF-8 escapes (`%C3%A9` → `é`)
+    instead of emitting Latin-1 bytes; the GT index is read per-record (VCF allows the
+    FORMAT order to vary); `merge_vcfs` drops an ALT equal to the merged REF; and
+    `--divergence` warns when `--report` is not given.
 - **Robustness / escaping (second audit):**
   - A GFF3 CDS with `end < start` underflowed `end - start` (panic in debug, a
     capacity-overflow panic in release, aborting the whole run); such lines are now

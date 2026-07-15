@@ -220,24 +220,27 @@ fn extract_attribute(attributes: &str, key: &str) -> Option<String> {
     None
 }
 
-/// Simple URL decoding for GFF3 attribute values.
+/// URL-decode a GFF3 attribute value. Decoded bytes are accumulated and converted
+/// as UTF-8 at the end, so a multi-byte escape such as `%C3%A9` reassembles to `é`
+/// instead of the two Latin-1 characters `Ã©` a per-byte `byte as char` would give.
 fn url_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
+    let mut bytes: Vec<u8> = Vec::with_capacity(s.len());
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
             if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                result.push(byte as char);
+                bytes.push(byte);
             } else {
-                result.push('%');
-                result.push_str(&hex);
+                bytes.push(b'%');
+                bytes.extend_from_slice(hex.as_bytes());
             }
         } else {
-            result.push(c);
+            let mut buf = [0u8; 4];
+            bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
         }
     }
-    result
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 #[cfg(test)]
@@ -303,5 +306,15 @@ chr1\t.\tCDS\t100\t200\t.\t-\t0\tParent=gene1;gene=geneA\n";
         let f = write_temp_gff(gff);
         let genes = parse_gff3(f.path()).unwrap();
         assert_eq!(genes[0].strand, Strand::Minus);
+    }
+
+    #[test]
+    fn url_decode_reassembles_utf8() {
+        // Regression: %C3%A9 is the two-byte UTF-8 for 'é' and must decode to 'é',
+        // not the two Latin-1 chars 'Ã©' a per-byte `byte as char` would produce.
+        assert_eq!(url_decode("caf%C3%A9"), "café");
+        assert_eq!(url_decode("a%20b"), "a b");
+        assert_eq!(url_decode("plain"), "plain");
+        assert_eq!(url_decode("bad%ZZ"), "bad%ZZ"); // invalid escape kept literally
     }
 }

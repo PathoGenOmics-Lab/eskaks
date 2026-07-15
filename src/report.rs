@@ -42,6 +42,10 @@ pub struct ReportMeta<'a> {
     pub vcf_file: &'a str,
     pub ref_file: &'a str,
     pub gff_file: &'a str,
+    /// Gene counts BEFORE the --min-snps filter (so "Genes analyzed"/"With SNPs"
+    /// match the CLI summary and the all-genes pooled estimate, not the filtered slice).
+    pub total_genes: usize,
+    pub genes_with_snps: usize,
 }
 
 /// JSON-escape a string for embedding in the report. `<` and `>` are escaped as
@@ -90,12 +94,19 @@ pub fn write_html_report(
 ) -> anyhow::Result<String> {
     let output_path = format!("{}_report.html", prefix);
 
-    let total_genes = results.len();
-    let genes_with_snps = results.iter().filter(|r| r.total_snps > 0.0).count();
-    let n_tested = results.iter().filter(|r| r.p_value.is_finite()).count();
+    // Use the PRE-filter counts (from meta) so "Genes analyzed"/"With SNPs" match the
+    // CLI summary and the all-genes pooled estimate rather than the --min-snps subset.
+    let total_genes = meta.total_genes;
+    let genes_with_snps = meta.genes_with_snps;
+    // "Tested" = the multiple-testing family (finite q); significance uses the
+    // GC-corrected q under --genomic-control, matching the report's own panels.
+    let n_tested = results.iter().filter(|r| r.q_value.is_finite()).count();
     let n_sig = results
         .iter()
-        .filter(|r| r.q_value.is_finite() && r.q_value < meta.fdr)
+        .filter(|r| {
+            let q = if meta.genomic_control { r.q_gc } else { r.q_value };
+            q.is_finite() && q < meta.fdr
+        })
         .count();
     // Genome-wide SFS: sum the per-gene AF-binned counts.
     let mut sfs_n = [0u64; crate::vcf_analysis::SFS_NBINS];

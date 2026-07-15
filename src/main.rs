@@ -374,7 +374,14 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         vcf_analysis::genome_wide_pn_ps(&results)
     };
     let gw_ci = if args.bootstrap > 0 {
-        vcf_analysis::bootstrap_genome_wide_ci(&results, args.bootstrap, args.seed, 0.95)
+        // Resample the SAME gene set as the point estimate — core-only under
+        // --exclude-repetitive — so the CI actually bounds the reported ratio.
+        if args.exclude_repetitive {
+            let core: Vec<_> = results.iter().filter(|r| !r.repetitive).cloned().collect();
+            vcf_analysis::bootstrap_genome_wide_ci(&core, args.bootstrap, args.seed, 0.95)
+        } else {
+            vcf_analysis::bootstrap_genome_wide_ci(&results, args.bootstrap, args.seed, 0.95)
+        }
     } else {
         None
     };
@@ -443,6 +450,8 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             vcf_file: &vcf_file,
             ref_file: &args.reference,
             gff_file: &args.gff,
+            total_genes,
+            genes_with_snps,
         };
         let divergence = match &args.divergence {
             Some(p) => Some(parse_divergence(p)?),
@@ -453,6 +462,9 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             &rmeta, divergence.as_ref(), &args.output,
         )?;
         info!("Report saved to {}", report_path);
+    }
+    if args.divergence.is_some() && !args.report {
+        warn!("--divergence is only used by the interactive report; add --report or the file is ignored.");
     }
 
     // Print summary statistics
@@ -483,15 +495,22 @@ fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             eprintln!("  95% CI ({} boot):    [{:.6}, {:.6}]", args.bootstrap, lo, hi);
         }
     }
-    let n_tested = results.iter().filter(|r| r.p_value.is_finite()).count();
+    // "Tested" = the multiple-testing family (finite q), not merely genes with a raw
+    // p — under --exclude-repetitive the repetitive genes are dropped from the family.
+    let n_tested = results.iter().filter(|r| r.q_value.is_finite()).count();
     if n_tested > 0 {
+        // Significance uses the GC-corrected q under --genomic-control, matching the report.
         let n_sig = results
             .iter()
-            .filter(|r| r.q_value.is_finite() && r.q_value < args.fdr)
+            .filter(|r| {
+                let q = if args.genomic_control { r.q_gc } else { r.q_value };
+                q.is_finite() && q < args.fdr
+            })
             .count();
+        let corr = if args.genomic_control { "BH-FDR·GC" } else { "BH-FDR" };
         eprintln!("  ── Neutrality test (pN/pS = 1) ───────────");
         eprintln!("  Genes tested:        {}", n_tested);
-        eprintln!("  Significant genes:   {}  (BH-FDR < {})", n_sig, args.fdr);
+        eprintln!("  Significant genes:   {}  ({} < {})", n_sig, corr, args.fdr);
     } else if args.af_weighted {
         eprintln!("  (per-gene neutrality test skipped under --af-weighted)");
     }

@@ -41,7 +41,6 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
     let reader = BufReader::new(file);
     let mut snps = Vec::new();
     let mut sample_count = 0usize;
-    let mut gt_field_idx: Option<usize> = None;
 
     for (line_no, line) in reader.lines().enumerate() {
         let line = line.with_context(|| format!("Failed to read line {} of VCF", line_no + 1))?;
@@ -123,15 +122,10 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
                 .map(|&i| all_afs.get(i).copied().flatten().unwrap_or(0.0))
                 .collect()
         } else if sample_count > 0 && fields.len() > 9 {
-            // Calculate from GT fields
-            if gt_field_idx.is_none() {
-                if let Some(format_field) = fields.get(8) {
-                    gt_field_idx = format_field
-                        .split(':')
-                        .position(|f| f == "GT");
-                }
-            }
-            if let Some(gt_idx) = gt_field_idx {
+            // The GT position is read from THIS record's FORMAT column — VCF allows the
+            // FORMAT order to differ between records, so it must not be cached file-wide.
+            let gt_idx = fields.get(8).and_then(|f| f.split(':').position(|k| k == "GT"));
+            if let Some(gt_idx) = gt_idx {
                 calculate_af_from_gt(&fields[9..], gt_idx, alt_alleles_raw.len(), &valid_alt_indices)
             } else {
                 vec![1.0; alt_alleles.len()]
@@ -324,7 +318,7 @@ pub fn merge_vcfs(
 
     let mut merged: Vec<VcfSnp> = pos_map
         .into_iter()
-        .map(|((chrom, pos), alts)| {
+        .filter_map(|((chrom, pos), alts)| {
             let ref_base = ref_alleles
                 .get(&(chrom.clone(), pos))
                 .copied()
@@ -332,8 +326,14 @@ pub fn merge_vcfs(
             let avg_depth = depth_sums.get(&(chrom.clone(), pos)).map(|(sum, cnt)| {
                 if *cnt > 0 { sum / cnt } else { 0 }
             });
-            let (alt_alleles, alt_freqs): (Vec<u8>, Vec<f64>) = alts.into_iter().unzip();
-            VcfSnp {
+            // Samples can disagree on REF; drop any ALT that equals the merged REF (it
+            // is not a variant against it) and skip a position left with no real ALT.
+            let (alt_alleles, alt_freqs): (Vec<u8>, Vec<f64>) =
+                alts.into_iter().filter(|(alt, _)| *alt != ref_base).unzip();
+            if alt_alleles.is_empty() {
+                return None;
+            }
+            Some(VcfSnp {
                 chrom,
                 pos,
                 ref_allele: ref_base,
@@ -341,7 +341,7 @@ pub fn merge_vcfs(
                 alt_freqs,
                 filter: "PASS".to_string(),
                 depth: avg_depth,
-            }
+            })
         })
         .collect();
 

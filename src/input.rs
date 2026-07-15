@@ -61,13 +61,23 @@ pub fn load_sequences(
         };
         while let Some(record) = reader.next() {
             let rec = record?;
-            let seq = rec.seq();
+            // needletail strips only \r\n; a stray internal space/tab would occupy a
+            // codon slot and frameshift every codon after it. Remove all whitespace
+            // (gaps '-'/'.' are kept — they are meaningful alignment columns).
+            let raw = rec.seq();
+            let seq: std::borrow::Cow<[u8]> = if raw.iter().any(u8::is_ascii_whitespace) {
+                warn!("Sequence '{}' has internal whitespace; stripping it before framing.",
+                    String::from_utf8_lossy(rec.id()));
+                std::borrow::Cow::Owned(raw.iter().copied().filter(|b| !b.is_ascii_whitespace()).collect())
+            } else {
+                raw
+            };
             let gaps = codon::count_gaps(&seq);
             if gaps > 0 {
                 seqs_with_gaps += 1;
                 gap_count_total += gaps;
             }
-            if seq.len() % 3 != 0 {
+            if !seq.len().is_multiple_of(3) {
                 warn!(
                     "Sequence '{}' length {} is not divisible by 3; {} trailing base(s) ignored.",
                     String::from_utf8_lossy(rec.id()),
@@ -263,6 +273,19 @@ mod tests {
         let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
         assert_eq!(data.ids.len(), 2);
         assert_eq!(data.n_unique, 1, "identical seqs should deduplicate to 1");
+        assert_eq!(data.uidx_by_id[0], data.uidx_by_id[1]);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn internal_whitespace_is_stripped_not_frameshifted() {
+        // Regression: a stray space inside a sequence line used to occupy a codon slot
+        // and frameshift everything after it. After stripping, "ATG GCTGCT" must equal
+        // "ATGGCTGCT" (so the two records deduplicate to one unique sequence).
+        let path = write_temp_fasta("ws", ">s1\nATGGCTGCT\n>s2\nATG GCTGCT\n");
+        let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
+        assert_eq!(data.ids.len(), 2);
+        assert_eq!(data.n_unique, 1, "the space must be stripped so both frame identically");
         assert_eq!(data.uidx_by_id[0], data.uidx_by_id[1]);
         fs::remove_file(&path).ok();
     }
