@@ -59,8 +59,11 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
             DsDn { dn, ds }
         };
 
-    // Dispatch to the appropriate output mode
-    let report_data = dispatch_output(&args, &data, &out_cfg, compute_pair, compute_pair_slices)?;
+    // Dispatch to the appropriate output mode, collecting every file written so the
+    // run can confirm the output paths to the user (a plain run was otherwise silent).
+    let mut written: Vec<String> = Vec::new();
+    let report_data =
+        dispatch_output(&args, &data, &out_cfg, compute_pair, compute_pair_slices, &mut written)?;
 
     // Interactive HTML report: a multi-panel dashboard. Always includes the
     // dN-vs-dS scatter and the dN/dS distribution (from a dedicated pairwise
@@ -82,6 +85,7 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
             Some(&window),
         )?;
         info!("Report saved to {}", path);
+        written.push(path);
     }
 
     // Optional per-pair Nei-Gojobori neutrality test (variance + Z-test).
@@ -94,6 +98,7 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
             &data.ids, &data.uidx_by_id, stats, &args.output, sep, ext,
         )?;
         info!("Neutrality test saved to {}", path);
+        written.push(path);
     }
 
     // Optional per-pair bootstrap CIs (model-agnostic; resamples codons).
@@ -117,6 +122,7 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
             &data.ids, &data.uidx_by_id, boot, &args.output, sep, ext,
         )?;
         info!("Bootstrap CIs saved to {}", path);
+        written.push(path);
     }
 
     // Print summary
@@ -124,6 +130,31 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
         if args.summary {
             stats.print_summary();
         }
+    }
+
+    // Always confirm what was done and where the output went (unless silenced): a plain
+    // `eskaks fasta in.fasta` previously finished with no terminal output at all.
+    // `--quiet` drops the level to Error, so the Warn check doubles as the quiet gate.
+    if log::log_enabled!(log::Level::Warn) {
+        let model_name = match args.model {
+            models::Model::Nei => "Nei-Gojobori",
+            models::Model::Li => "Li / LPB93",
+        };
+        eprintln!("\n── Done ───────────────────────────────────");
+        eprintln!(
+            "  Sequences:  {} ({} unique) from {}",
+            data.ids.len(), data.n_unique, args.input_file
+        );
+        eprintln!("  Model:      {}", model_name);
+        if written.is_empty() {
+            eprintln!("  Output:     (none)");
+        } else {
+            eprintln!("  Output:");
+            for p in &written {
+                eprintln!("    {}", p);
+            }
+        }
+        eprintln!("────────────────────────────────────────────");
     }
 
     info!("All processes completed successfully.");
@@ -241,13 +272,15 @@ fn collect_window_profile(data: &input::SequenceData, engine: &ComputeEngine) ->
     profile
 }
 
-/// Dispatch to the correct output mode based on CLI flags.
+/// Dispatch to the correct output mode based on CLI flags. Every file written is
+/// pushed onto `written` so the caller can confirm the output paths to the user.
 fn dispatch_output(
     args: &cli::FastaArgs,
     data: &input::SequenceData,
     cfg: &OutputConfig,
     compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
     compute_pair_slices: impl Fn(&[u8], &[u8]) -> DsDn + Sync,
+    written: &mut Vec<String>,
 ) -> anyhow::Result<report::FastaReportData> {
     let ext = cfg.ext;
     let mut rd = report::FastaReportData::default();
@@ -264,7 +297,9 @@ fn dispatch_output(
             args.first_letter_lineage,
             cfg,
         )?;
-        info!("Results saved to {}_group_avg_dn_ds.{}", args.output, ext);
+        let out = format!("{}_group_avg_dn_ds.{}", args.output, ext);
+        info!("Results saved to {}", out);
+        written.push(out);
 
         if args.report {
             rd.group = Some(plot_data.clone());
@@ -273,6 +308,7 @@ fn dispatch_output(
             let plot_path = format!("{}_group_dnds.svg", args.output);
             plot::group_bar_svg(&plot_data, &plot_path)?;
             info!("Plot saved to {}", plot_path);
+            written.push(plot_path);
         }
     } else if args.lineage {
         if args.window_size.is_some() {
@@ -302,10 +338,9 @@ fn dispatch_output(
             &lineage_names,
             cfg,
         )?;
-        info!(
-            "Lineage summary saved to {}_lineage_summary.{}",
-            args.output, ext
-        );
+        let out = format!("{}_lineage_summary.{}", args.output, ext);
+        info!("Lineage summary saved to {}", out);
+        written.push(out);
 
         if args.report {
             rd.lineage = Some(plot_data.clone());
@@ -322,9 +357,10 @@ fn dispatch_output(
             let plot_path = format!("{}_lineage_dnds.svg", args.output);
             plot::lineage_bar_svg(&lineage_plot_data, &plot_path)?;
             info!("Plot saved to {}", plot_path);
+            written.push(plot_path);
         }
     } else if let Some(win_size) = args.window_size {
-        dispatch_window(args, data, cfg, compute_pair_slices, win_size)?;
+        dispatch_window(args, data, cfg, compute_pair_slices, win_size, written)?;
     } else {
         info!("Generating pairwise results...");
         output::write_pairwise(
@@ -334,16 +370,16 @@ fn dispatch_output(
             compute_pair,
             cfg,
         )?;
-        info!(
-            "Results saved to {}_pairwise_results.{}",
-            args.output, ext
-        );
+        let out = format!("{}_pairwise_results.{}", args.output, ext);
+        info!("Results saved to {}", out);
+        written.push(out);
 
         if args.plot {
             if let Some(stats) = cfg.summary {
                 let plot_path = format!("{}_dnds_histogram.svg", args.output);
                 plot::histogram_svg(stats, &plot_path)?;
                 info!("Plot saved to {}", plot_path);
+                written.push(plot_path);
             }
         }
     }
@@ -357,6 +393,7 @@ fn dispatch_window(
     cfg: &OutputConfig,
     compute_pair_slices: impl Fn(&[u8], &[u8]) -> DsDn + Sync,
     win_size: usize,
+    written: &mut Vec<String>,
 ) -> anyhow::Result<()> {
     let seq_len = data
         .unique_codon_indices
@@ -402,15 +439,15 @@ fn dispatch_window(
         window_stats.as_ref(),
         cfg,
     )?;
-    info!(
-        "Results saved to {}_pairwise_windows.{}",
-        args.output, cfg.ext
-    );
+    let out = format!("{}_pairwise_windows.{}", args.output, cfg.ext);
+    info!("Results saved to {}", out);
+    written.push(out);
 
     if let Some(ws) = &window_stats {
         let plot_path = format!("{}_window_plot.svg", args.output);
         plot::window_plot_svg(ws, &plot_path, win_size, args.window_step)?;
         info!("Plot saved to {}", plot_path);
+        written.push(plot_path);
     }
     Ok(())
 }

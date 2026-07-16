@@ -15,7 +15,7 @@ mod vcf_analysis;
 mod run_fasta;
 mod run_vcf;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use log::LevelFilter;
 use cli::{Args, SubCmd};
 
@@ -34,10 +34,39 @@ fn main() -> anyhow::Result<()> {
             _ => LevelFilter::Debug,
         }
     };
+    // Clean, cargo-style log lines ("warning: ...", "error: ...") instead of
+    // env_logger's default "[<ISO timestamp> LEVEL module::path] ..." — the timestamp
+    // and module path are noise for an interactive scientific CLI. Colour is applied
+    // only when stderr is a terminal (env_logger's auto write-style). Info-level lines
+    // (the -v narration) print unadorned. RUST_LOG still overrides the level.
     env_logger::Builder::new()
         .filter_level(level)
+        .format(|buf, record| {
+            use std::io::Write;
+            let lvl = record.level();
+            let label = match lvl {
+                log::Level::Error => "error",
+                log::Level::Warn => "warning",
+                log::Level::Info => "",
+                log::Level::Debug => "debug",
+                log::Level::Trace => "trace",
+            };
+            if label.is_empty() {
+                writeln!(buf, "{}", record.args())
+            } else {
+                let style = buf.default_level_style(lvl);
+                writeln!(buf, "{}: {}", style.value(label), record.args())
+            }
+        })
         .parse_default_env()
         .init();
+
+    // Generate a shell completion script and exit (top-level flag, no subcommand needed).
+    if let Some(shell) = args.completions {
+        let mut cmd = Args::command();
+        clap_complete::generate(shell, &mut cmd, "eskaks", &mut std::io::stdout());
+        return Ok(());
+    }
 
     // Handle --list-codes (top-level flag)
     if args.list_codes {
@@ -53,7 +82,6 @@ fn main() -> anyhow::Result<()> {
         Some(SubCmd::Vcf(vcf_args)) => run_vcf::run_vcf(vcf_args),
         None => {
             // No subcommand: print help
-            use clap::CommandFactory;
             Args::command().print_help()?;
             println!();
             Ok(())

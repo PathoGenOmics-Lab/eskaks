@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **User-experience polish across the CLI:**
+  - **`eskaks fasta` now prints a "Done" confirmation** (sequence count, model, and the
+    list of files written). Previously a plain `eskaks fasta in.fasta` finished with no
+    terminal output at all, leaving the user unsure it had worked or where the results
+    went. Suppressed by `--quiet`.
+  - **Clean, cargo-style log lines** (`warning: …`, `error: …`, coloured only on a
+    terminal) instead of env_logger's default `[<ISO timestamp> LEVEL module::path] …`.
+    `-v`/`-vv` and `RUST_LOG` still work.
+  - **`--help` for each subcommand now groups flags into sections** (Output / Analysis /
+    Statistics / Filtering / Input) and ends with concrete usage **examples**.
+  - **Shell completions**: `eskaks --completions bash|zsh|fish|…` prints a completion
+    script (via `clap_complete`).
 - **Much clearer failure diagnostics**, so an empty or garbage result is never
   mistaken for a clean run:
   - `eskaks vcf` summary now accounts for the SNPs (`SNPs used (in CDS): X of Y`),
