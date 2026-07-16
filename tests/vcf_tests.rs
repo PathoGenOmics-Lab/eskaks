@@ -604,9 +604,11 @@ fn vcf_report_writes_self_contained_html() {
                    "buildToc", "class=\"toc\"", "updateTocActive"] {
         assert!(html.contains(needle), "report missing '{}'", needle);
     }
-    // Self-contained: no external network assets.
-    assert!(!html.contains("http://") && !html.contains("https://") && !html.contains("cdn"),
-        "report must not reference external assets");
+    // Self-contained: no external ASSET is loaded (scripts, styles, images, fonts). The
+    // GitHub hyperlink in the header is a navigation link, not a loaded resource.
+    assert!(!html.contains("src=\"http"), "no external resource src");
+    assert!(!html.contains("@import"), "no CSS @import");
+    assert!(!html.contains("cdn"), "no CDN reference");
     fs::remove_file(format!("{}_report.html", out_prefix)).ok();
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
     fs::remove_file(format!("{}_mk.tsv", out_prefix)).ok();

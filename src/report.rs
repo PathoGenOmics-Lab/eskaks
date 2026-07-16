@@ -242,7 +242,11 @@ pub fn write_html_report(
     // ── Assemble the HTML ──────────────────────────────────────────────────
     let mut html = String::with_capacity(HEAD.len() + BODY.len() + SCRIPT.len() + data.len() + 256);
     html.push_str(HEAD);
-    html.push_str(&BODY.replace("__ESKAKS_LOGO__", &logo_data_uri()));
+    html.push_str(
+        &BODY
+            .replace("__ESKAKS_LOGO__", &logo_data_uri())
+            .replace("__ESKAKS_VERSION__", env!("CARGO_PKG_VERSION")),
+    );
     html.push_str("<script>\nconst DATA = ");
     html.push_str(&data);
     html.push_str(";\n");
@@ -377,7 +381,11 @@ pub fn write_fasta_report(
 
     let mut html = String::with_capacity(HEAD.len() + FASTA_BODY.len() + FASTA_SCRIPT.len() + data.len());
     html.push_str(HEAD);
-    html.push_str(&FASTA_BODY.replace("__ESKAKS_LOGO__", &logo_data_uri()));
+    html.push_str(
+        &FASTA_BODY
+            .replace("__ESKAKS_LOGO__", &logo_data_uri())
+            .replace("__ESKAKS_VERSION__", env!("CARGO_PKG_VERSION")),
+    );
     html.push_str("<script>\nconst DATA = ");
     html.push_str(&data);
     html.push_str(";\n");

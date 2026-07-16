@@ -21,6 +21,8 @@ All notable changes to this project will be documented in this file.
   - **`--demo`**: runs a full `eskaks fasta` analysis (summary + interactive report) on a
     bundled example alignment embedded in the binary, so a new user can see a real,
     successful run with zero input files, then points at the commands for their own data.
+  - The interactive HTML report header now shows the **eskaks version** and a link to the
+    **project on GitHub** (both fasta and vcf reports).
 - **Much clearer failure diagnostics**, so an empty or garbage result is never
   mistaken for a clean run:
   - `eskaks vcf` summary now accounts for the SNPs (`SNPs used (in CDS): X of Y`),

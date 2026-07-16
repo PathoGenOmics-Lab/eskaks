@@ -517,8 +517,11 @@ fn fasta_report_writes_lineage_scatter() {
     assert!(html.contains("\"dnds\":["), "dN-vs-dS scatter data embedded");
     assert!(html.contains("dN vs dS"), "dN-vs-dS scatter section");
     assert!(html.contains("distribution"), "distribution section");
-    // Self-contained: no external assets.
-    assert!(!html.contains("http://") && !html.contains("https://") && !html.contains("cdn"));
+    // Self-contained: no external ASSET is loaded (scripts, styles, images, fonts). The
+    // GitHub hyperlink in the header is a navigation link, not a loaded resource.
+    assert!(!html.contains("src=\"http"), "no external resource src");
+    assert!(!html.contains("@import"), "no CSS @import");
+    assert!(!html.contains("cdn"), "no CDN reference");
     fs::remove_file(format!("{}_report.html", out_prefix)).ok();
     fs::remove_file(format!("{}_lineage_summary.tsv", out_prefix)).ok();
 }
