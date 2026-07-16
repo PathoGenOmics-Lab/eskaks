@@ -75,7 +75,39 @@ back (`dN` is low). A value above 1 would have flagged positive selection.
 > multiples of 3). Align them with [MAFFT](https://mafft.cbrc.jp/) +
 > [PAL2NAL](http://www.bork.embl.de/pal2nal/) or [MACSE](https://bioweb.supagro.inra.fr/macse/).
 
-## 2. Per-gene pN/pS from a VCF
+## 2. Compare groups, not just pairs
+
+When your sequences fall into groups (lineages, clades, treatment arms), you usually
+want the mean dN/dS *between* groups rather than one row per pair.
+`examples/lineages.fasta` holds the same gene from six isolates named by lineage
+(`Lineage2`, `Lineage4`, `Bovis`, two isolates each):
+
+```bash
+eskaks fasta examples/lineages.fasta -o lineages --group-average
+```
+
+`lineages_group_avg_dn_ds.tsv` has one row per pair of groups (plus each group
+against itself). The between-lineage rows are the interesting ones:
+
+```text
+Group1    Group2    NumComparisons  Mean_dN/dS
+Lineage2  Lineage4  4               0.608113
+Lineage2  Bovis     4               0.700671
+Lineage4  Bovis     4               1.207500
+```
+
+eskaks reads the group from the part of each ID before the first `_`. To group by the
+first letter of the ID instead (so `Lineage2` and `Lineage4` merge into a single `L`
+group and `Bovis` becomes `B`), add `--first-letter-lineage`:
+
+```bash
+eskaks fasta examples/lineages.fasta -o lineages_fl --group-average --first-letter-lineage
+```
+
+For a per-genome view (each isolate's mean dN/dS against every lineage), swap
+`--group-average` for `--lineage`.
+
+## 3. Per-gene pN/pS from a VCF
 
 `examples/toy_genome/` is a miniature genome with three files — the three inputs
 `eskaks vcf` always needs:
@@ -117,7 +149,7 @@ eskaks prints a summary to the screen:
 The **genome-wide** pN/pS is 0.45 — the genome as a whole is under purifying
 selection, and 7 of 12 genes reject the "no selection" null.
 
-## 3. Read the per-gene table
+## 4. Read the per-gene table
 
 Open `toy_scan_pnps.tsv` (a plain table — Excel, R, pandas, or `column -t` all work):
 
@@ -139,7 +171,7 @@ gene05     0.8884    19      7    26    0.94      ...
 > ⚠️ A **non-significant** gene is usually just **underpowered** (too few SNPs) —
 > it is *not* proof of neutrality.
 
-## 4. Explore the interactive report
+## 5. Explore the interactive report
 
 Open `toy_scan_report.html` in any browser (it is fully self-contained — no
 internet needed). Use the **table of contents on the left** to jump between panels,
@@ -154,7 +186,7 @@ Things to try:
   (light/dark) button in the top bar.
 - Export the filtered table with **⤓ CSV** / **⤓ JSON**, or **🖶 Print** to PDF.
 
-## 5. Now use your own data
+## 6. Now use your own data
 
 You need the same three inputs, with **matching contig names** across all of them:
 

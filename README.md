@@ -28,23 +28,23 @@ __and Mireia Coscolla<sup>1</sup>__
 
 > [!TIP]
 > **New here?** The [**getting-started tutorial**](docs/tutorial.md) walks you from
-> install to a finished analysis using example data that ships with the tool — no
+> install to a finished analysis using example data that ships with the tool, no
 > background assumed. Unfamiliar with a term? See the [glossary](docs/glossary.md).
 
 **In plain terms:** genes are read in **codons** (DNA triplets). A mutation is
-either *synonymous* (silent — the protein is unchanged) or *nonsynonymous* (it
+either *synonymous* (silent: the protein is unchanged) or *nonsynonymous* (it
 changes the protein). Natural selection acts on the protein, so comparing the two
 rates tells you what selection is doing: a ratio **below 1** means harmful changes
 are being removed (*purifying selection*, the normal state of a working gene), and a
-ratio **above 1** means changes are being favoured (*positive selection* — drug
+ratio **above 1** means changes are being favoured (*positive selection*: drug
 targets, antigens, immune genes).
 
 eskaks measures the strength and direction of that selection on protein-coding
 genes. It runs in two modes:
 
-- **`eskaks fasta`** — **pairwise dN/dS** (Ka/Ks) from codon-aligned sequences,
+- **`eskaks fasta`**: **pairwise dN/dS** (Ka/Ks) from codon-aligned sequences,
   using the Nei-Gojobori (1986) or Li (1993)/LPB93 model.
-- **`eskaks vcf`** — **per-gene pN/pS** from population variants (VCF + reference
+- **`eskaks vcf`**: **per-gene pN/pS** from population variants (VCF + reference
   FASTA + GFF3), with a genome-wide scan for selection and a full interactive
   report.
 
@@ -58,7 +58,7 @@ The tool takes:
 - **Variants**: one or more VCFs + a reference FASTA + a GFF3 annotation (`vcf` mode)
 
 It writes tables (TSV/CSV/JSON), SVG plots, and a self-contained interactive HTML
-report — no internet, no CDN, works offline on an HPC login node.
+report: no internet, no CDN, works offline on an HPC login node.
 
 > [!NOTE]
 > `eskaks vcf` estimates pN/pS from **within-population polymorphism** (variants
@@ -180,14 +180,14 @@ Run `eskaks fasta --help` or `eskaks vcf --help` for the complete list of option
 
 | Argument | What it does | Default |
 |---|---|---|
-| `--ref <FILE>` | Reference FASTA. Contig names must match the VCF and GFF. | — |
-| `--gff <FILE>` | Gene annotation (GFF3). | — |
-| `--vcf <FILE>` | Variant file; repeat for one VCF per sample. | — |
-| `--vcf-list <FILE>` | A text file listing VCF paths, one per line. | — |
+| `--ref <FILE>` | Reference FASTA. Contig names must match the VCF and GFF. | - |
+| `--gff <FILE>` | Gene annotation (GFF3). | - |
+| `--vcf <FILE>` | Variant file; repeat for one VCF per sample. | - |
+| `--vcf-list <FILE>` | A text file listing VCF paths, one per line. | - |
 | `--genetic-code <N>` | NCBI translation table (`11` for bacteria). | `1` |
 | `--kappa <F>` | ts/tv rate ratio for spectrum-aware site counting. | `1.0` |
 | `--af-weighted` | Weight SNPs by allele frequency (reports πN/πS). | off |
-| `--min-af / --max-af / --min-depth` | Variant filters. | — |
+| `--min-af / --max-af / --min-depth` | Variant filters. | - |
 | `--pass-only` | Keep only `FILTER=PASS` records. | off |
 | `--min-snps <N>` | Drop genes with fewer than N SNPs from the table, plot, and test. | `0` |
 | `--fdr <F>` | Benjamini-Hochberg threshold for calling genes significant. | `0.05` |
@@ -195,7 +195,7 @@ Run `eskaks fasta --help` or `eskaks vcf --help` for the complete list of option
 | `--bootstrap <N>` / `--seed <N>` | Replicates for the genome-wide 95% CI; RNG seed. | `0` / `42` |
 | `--genomic-control` | Divide each χ² by the inflation factor λ and re-test. | off |
 | `--exclude-repetitive` | Drop PE/PPE/PGRS/IS genes from the pooled estimate and test. | off |
-| `--divergence <FILE>` | Per-gene dN/dS table for the report's polymorphism-vs-divergence panel. | — |
+| `--divergence <FILE>` | Per-gene dN/dS table for the report's polymorphism-vs-divergence panel. | - |
 | `--report` | Write a self-contained interactive HTML report. | off |
 | `--plot` | Write SVG Manhattan / p-value plots. | off |
 | `--format <tsv\|csv\|json>` | Table output format. | `tsv` |
@@ -234,7 +234,7 @@ With `--mk`, extra columns report `Dn`, `Ds`, `Pn`, `Ps`, the Neutrality Index,
 
 ## Interactive HTML report
 
-`--report` writes a single, self-contained `.html` file — no network, no CDN — that
+`--report` writes a single, self-contained `.html` file (no network, no CDN) that
 turns the per-gene table into a linked, explorable dashboard with a **sticky table
 of contents** down the left side. Every panel and summary card carries a small
 **“i”** button that explains how to read it.
@@ -250,10 +250,10 @@ of contents** down the left side. Every panel and summary card carries a small
   **allele-frequency spectrum**, and the **pN/pS distribution**
 - Click any point or row to highlight that gene across **every** panel; **↑/↓** step
   through genes; a global **FDR ↔ Bonferroni** toggle repaints everything
-- **🎨 Colour-blind mode** — a toggle swaps to a validated Okabe-Ito palette and adds
+- **🎨 Colour-blind mode**: a toggle swaps to a validated Okabe-Ito palette and adds
   direction shapes (▲ diversifying / ▼ purifying / ● not significant) so meaning
   never depends on colour alone; light/dark theme toggle; CSV/JSON export; Print/PDF
-- **Scales to whole genomes** — scatter panels switch to canvas rendering and the
+- **Scales to whole genomes**: scatter panels switch to canvas rendering and the
   table is virtualized above ~1200 genes, so a full genome stays responsive
 
 The report uses the PathoGenOmics-Lab **mycolorsTB** palette. `eskaks fasta --report`
@@ -283,7 +283,7 @@ selection (conserved, essential genes); a non-significant gene is usually just
 |---|---|---|---|---|---|
 | 20 seq × 300 bp | 2 ms | 34 ms | 8 ms | 610 ms | 17× |
 | 100 seq × 3 kb | 6 ms | 7,703 ms | 697 ms | 111,619 ms | **1,280×** |
-| 500 seq × 3 kb | 74 ms | 195,456 ms | — | — | **2,641×** |
+| 500 seq × 3 kb | 74 ms | 195,456 ms | - | - | **2,641×** |
 
 Li model achieves **R² = 1.0** vs KaKs_Calculator LPB. Full accuracy data and
 methodology in [benchmarks/](benchmarks/).
@@ -306,10 +306,10 @@ methodology in [benchmarks/](benchmarks/).
 
 | Document | Description |
 |---|---|
-| [**Tutorial**](docs/tutorial.md) | **Start here** — a hands-on walkthrough with example data |
+| [**Tutorial**](docs/tutorial.md) | **Start here**: a hands-on walkthrough with example data |
 | [Glossary](docs/glossary.md) | Plain-language definitions of every term |
 | [VCF Analysis (pN/pS)](docs/vcf-analysis.md) | pN/pS per gene, neutrality test, MK, genomic control, SFS, the report |
-| [Models](docs/models.md) | Nei-Gojobori vs Li — formulas, differences, when to use each |
+| [Models](docs/models.md) | Nei-Gojobori vs Li: formulas, differences, when to use each |
 | [Genetic Codes](docs/genetic-codes.md) | 20 NCBI translation tables with examples |
 | [Interpreting Results](docs/interpreting-results.md) | What dN/dS and pN/pS mean, common pitfalls |
 | [Output Formats](docs/output-formats.md) | TSV, CSV, JSON and SVG plots |
@@ -351,7 +351,7 @@ src/
 - `eskaks vcf` uses **SNPs only**; indels and multi-nucleotide variants are not
   codon-annotated (see [get_MNV](https://github.com/PathoGenOmics-Lab/get_MNV) for MNVs).
 - pN/pS is estimated from **within-sample polymorphism**, so many genes are
-  **underpowered** in low-diversity organisms — a non-significant result is not
+  **underpowered** in low-diversity organisms; a non-significant result is not
   evidence of neutrality.
 - The per-gene neutrality test assumes independent SNPs. In **clonal** organisms
   (e.g. *M. tuberculosis*) genome-wide linkage inflates significance; `--genomic-
