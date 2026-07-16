@@ -2,6 +2,23 @@
 
 use super::*;
 
+/// Number of sample (genotype) columns in a VCF: the fields after the fixed
+/// 9 (CHROM..FORMAT) on the `#CHROM` header line. Returns 0 for an AF-only VCF
+/// with no per-sample columns (so a caller can tell "sample size unknown").
+pub fn sample_count(path: &Path) -> anyhow::Result<usize> {
+    let reader = crate::input::open_text(path, "VCF file")?;
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with("#CHROM") {
+            return Ok(line.split('\t').count().saturating_sub(9));
+        }
+        if !line.starts_with('#') {
+            break; // reached data with no #CHROM header
+        }
+    }
+    Ok(0)
+}
+
 /// Parse a VCF file and return all SNP records.
 ///
 /// Skips header lines, indels, and multi-base variants.

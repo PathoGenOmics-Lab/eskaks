@@ -18,7 +18,7 @@ mod tests;
 
 pub use filter::filter_snps;
 pub use merge::merge_vcfs;
-pub use parse::parse_vcf;
+pub use parse::{parse_vcf, sample_count};
 
 /// A single SNP record parsed from a VCF file.
 #[derive(Debug, Clone)]

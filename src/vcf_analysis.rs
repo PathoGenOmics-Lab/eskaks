@@ -22,7 +22,10 @@ mod tests;
 
 // Public API (re-exported so callers keep using `vcf_analysis::…`).
 pub use neutrality::{apply_genomic_control, apply_multiple_testing, genomic_inflation_lambda};
-pub use output::{write_mk_results, write_results, write_variants};
+pub use output::{
+    genome_wide_diversity, write_diversity, write_mk_results, write_results, write_variants,
+    GenomeDiversity,
+};
 pub use plots::{write_pnps_plot, write_pvalue_manhattan};
 pub use pnps::{
     bootstrap_genome_wide_ci, compute_pn_ps, genome_wide_core_repetitive, genome_wide_pn_ps,

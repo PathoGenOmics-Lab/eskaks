@@ -163,16 +163,27 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     let n_samples = vcf_paths.len();
     info!("Loading {} VCF file(s)...", n_samples);
 
-    let snps = if n_samples == 1 {
+    // n_effective is the number of sampled alleles for the diversity statistics:
+    // the header sample-column count for a single multi-sample VCF, or the number
+    // of files when merging one VCF per sample. 0 means "unknown" (AF-only input).
+    let (snps, n_effective) = if n_samples == 1 {
         // Single VCF: use AF as-is (could be multi-sample VCF)
-        let snps = vcf::parse_vcf(std::path::Path::new(&vcf_paths[0]))?;
+        let path = std::path::Path::new(&vcf_paths[0]);
+        let snps = vcf::parse_vcf(path)?;
         info!("Found {} SNP records", snps.len());
-        vcf::filter_snps(snps, args.pass_only, args.min_af, args.max_af, args.min_depth)
+        let n_eff = vcf::sample_count(path)?;
+        (
+            vcf::filter_snps(snps, args.pass_only, args.min_af, args.max_af, args.min_depth),
+            n_eff,
+        )
     } else {
         // Multiple single-sample VCFs: merge and compute AF as fraction of samples
         let merged = vcf::merge_vcfs(&vcf_paths, args.pass_only, args.min_depth)?;
         info!("Merged {} unique SNP positions from {} samples", merged.len(), n_samples);
-        vcf::filter_snps(merged, false, args.min_af, args.max_af, None)
+        (
+            vcf::filter_snps(merged, false, args.min_af, args.max_af, None),
+            n_samples,
+        )
     };
     info!("{} SNPs after filtering", snps.len());
 
@@ -320,6 +331,33 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         let var_path = vcf_analysis::write_variants(&results, &args.output, &args.format)?;
         info!("Per-variant table saved to {}", var_path);
         written.push(var_path);
+    }
+
+    // Population-diversity statistics (optional): π, Watterson θ, Tajima's D.
+    if args.diversity {
+        if n_effective >= 2 {
+            let div_path =
+                vcf_analysis::write_diversity(&results, n_effective, &args.output, &args.format)?;
+            info!("Diversity table saved to {}", div_path);
+            written.push(div_path);
+            let gw: Option<vcf_analysis::GenomeDiversity> =
+                vcf_analysis::genome_wide_diversity(&results, n_effective);
+            if let Some(gw) = gw {
+                // Explicitly requested via --diversity, so show the headline numbers.
+                eprintln!("\n── Genome-wide diversity (n={}) ───────────", gw.n);
+                eprintln!("  Segregating coding SNPs: {}", gw.s_seg);
+                eprintln!("  piN / piS (per site):    {:.3e} / {:.3e}", gw.pi_n, gw.pi_s);
+                eprintln!("  piN/piS:                 {:.4}", gw.pi_n_pi_s);
+                eprintln!("  Watterson theta (site):  {:.3e}", gw.theta_w_per_site);
+                eprintln!("  Tajima's D:              {:.4}", gw.tajima_d);
+            }
+        } else {
+            warn!(
+                "--diversity needs the sample size (a multi-sample VCF or several \
+                 single-sample VCFs via --vcf-list); this input has no per-sample \
+                 genotype columns, so π / θ_W / Tajima's D were skipped"
+            );
+        }
     }
 
     // Generate plots if requested. Each writer returns None when it has no data to plot

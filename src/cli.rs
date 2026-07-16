@@ -287,6 +287,13 @@ pub struct VcfArgs {
     #[arg(long, help_heading = "Output options")]
     pub variants: bool,
 
+    /// Write per-gene population-diversity statistics (<output>_diversity.<ext>):
+    /// per-site πN and πS (nucleotide diversity) and their ratio, Watterson's θ,
+    /// and Tajima's D (the SFS neutrality test). Needs the sample size, so it
+    /// requires a multi-sample VCF or several single-sample VCFs (--vcf-list).
+    #[arg(long, help_heading = "Statistics options")]
+    pub diversity: bool,
+
     /// Allele frequency at/above which a variant is treated as "fixed"
     /// (divergence) rather than polymorphic in the McDonald-Kreitman test.
     #[arg(long, default_value_t = 0.99, help_heading = "Statistics options")]

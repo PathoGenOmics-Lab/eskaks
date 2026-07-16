@@ -805,6 +805,68 @@ fn vcf_variants_table_lists_each_coding_snp() {
     fs::remove_file(format!("{}_variants.tsv", out)).ok();
 }
 
+/// --diversity computes π, Watterson θ and Tajima's D, validated end-to-end
+/// against the same hand-derived n=4 case that the pure stats unit test pins.
+#[test]
+fn vcf_diversity_matches_hand_derived_pi_theta_tajima() {
+    // Multi-sample VCF, n=4 haploid samples, gene gval (GCT-TTT-TGG):
+    //   syn derived counts = [2] (pos3, 2/4);  missense = [1,1] (pos4 & pos9, 1/4 each)
+    //   piS = θπ(4,[2])/S_sites   = (2·2·2/12)/(4/3)          = 0.500000
+    //   piN = θπ(4,[1,1])/N_sites = (2·(2·1·3/12))/(23/3)     = 0.130435
+    //   piN/piS = 0.260870 ; S_seg = 3 ; θ_W/site = (3/(11/6))/9 = 0.181818
+    //   Tajima's D = tajimas_d(4, 3, θπ(4,[2,1,1])=20/12)     = 0.16766
+    let out = "/tmp/eskaks_test_diversity";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_multisample.vcf",
+            "--genetic-code", "11", "--diversity", "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    let rows = parse_tsv(&format!("{}_diversity.tsv", out));
+    assert_eq!(
+        rows[0],
+        ["Gene", "Chrom", "N_samples", "S_seg", "piN", "piS", "piN/piS", "Theta_W", "Tajima_D"]
+    );
+    let g = rows.iter().find(|r| r[0] == "gval").expect("gene gval");
+    let num = |s: &str| s.parse::<f64>().unwrap();
+    assert_eq!(g[2], "4", "n samples");
+    assert_eq!(g[3], "3", "segregating coding SNPs");
+    assert!((num(&g[4]) - 0.130435).abs() < 1e-5, "piN {}", g[4]);
+    assert!((num(&g[5]) - 0.500000).abs() < 1e-5, "piS {}", g[5]);
+    assert!((num(&g[6]) - 0.260870).abs() < 1e-5, "piN/piS {}", g[6]);
+    assert!((num(&g[7]) - 0.181818).abs() < 1e-5, "Theta_W {}", g[7]);
+    assert!((num(&g[8]) - 0.16766).abs() < 5e-4, "Tajima_D {}", g[8]);
+    fs::remove_file(format!("{}_diversity.tsv", out)).ok();
+}
+
+/// An AF-only VCF (no genotype columns) has an unknown sample size, so --diversity
+/// must skip the statistics with a clear warning and write no diversity file.
+#[test]
+fn vcf_diversity_skipped_without_sample_columns() {
+    let out = "/tmp/eskaks_test_diversity_af";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_hand.vcf",
+            "--genetic-code", "11", "--diversity", "-o", out,
+        ])
+        .output()
+        .expect("spawn");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("sample size"), "should warn about missing sample size: {stderr}");
+    assert!(
+        !std::path::Path::new(&format!("{}_diversity.tsv", out)).exists(),
+        "no diversity file should be written for AF-only input"
+    );
+    fs::remove_file(format!("{}_pnps.tsv", out)).ok();
+}
+
 /// A nonsense (stop-gain) SNP must appear in the variants table (it is a
 /// loss-of-function a resistance analyst needs) yet be EXCLUDED from the pN/pS
 /// counts (the Nei-Gojobori exclude-nonsense convention).
