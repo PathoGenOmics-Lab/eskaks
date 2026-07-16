@@ -43,11 +43,16 @@ pub fn write_lineage(
         );
     }
     let output_path = format!("{}_lineage_summary.{}", output_prefix, ext);
+    let is_json = ext == "json";
 
-    let (tx, writer_thread) = spawn_ordered_writer(
-        output_path.clone(),
-        format!("Genome{s}Against_Lineage{s}Mean_dN{s}Mean_dS{s}dN/dS_Ratio\n", s = sep),
-    )?;
+    let (tx, writer_thread) = if is_json {
+        spawn_ordered_json_writer(output_path.clone())?
+    } else {
+        spawn_ordered_writer(
+            output_path.clone(),
+            format!("Genome{s}Against_Lineage{s}Mean_dN{s}Mean_dS{s}dN/dS_Ratio\n", s = sep),
+        )?
+    };
     let (plot_tx, plot_rx) = if summary.is_some() {
         let (t, r) = unbounded::<(String, String, f64)>();
         (Some(t), Some(r))
@@ -110,9 +115,16 @@ pub fn write_lineage(
                     } else {
                         mean_dn / mean_ds
                     };
-                    let _ = writeln!(block, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
-                        delim_field(&ids[i], sep), delim_field(&lineage_names[lin_idx], sep),
-                        norm_zero(mean_dn), norm_zero(mean_ds), norm_zero(ratio), s = sep);
+                    if is_json {
+                        let _ = writeln!(block,
+                            "{{\"genome\":\"{}\",\"against_lineage\":\"{}\",\"mean_dN\":{},\"mean_dS\":{},\"dN_dS\":{}}}",
+                            json_escape(&ids[i]), json_escape(&lineage_names[lin_idx]),
+                            format_json_f64(mean_dn), format_json_f64(mean_ds), format_json_f64(ratio));
+                    } else {
+                        let _ = writeln!(block, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
+                            delim_field(&ids[i], sep), delim_field(&lineage_names[lin_idx], sep),
+                            norm_zero(mean_dn), norm_zero(mean_ds), norm_zero(ratio), s = sep);
+                    }
 
                     if let Some(stats) = summary {
                         stats.record_pair_atomic(mean_dn, mean_ds, ratio);
@@ -204,11 +216,16 @@ pub fn write_group_average(
     );
 
     let output_path = format!("{}_group_avg_dn_ds.{}", output_prefix, ext);
+    let is_json = ext == "json";
 
-    let (tx, writer_thread) = spawn_ordered_writer(
-        output_path.clone(),
-        format!("Group1{s}Group2{s}NumSeqs1{s}NumSeqs2{s}NumComparisons{s}Mean_dN/dS{s}StdError{s}95%CI\n", s = sep),
-    )?;
+    let (tx, writer_thread) = if is_json {
+        spawn_ordered_json_writer(output_path.clone())?
+    } else {
+        spawn_ordered_writer(
+            output_path.clone(),
+            format!("Group1{s}Group2{s}NumSeqs1{s}NumSeqs2{s}NumComparisons{s}Mean_dN/dS{s}StdError{s}95%CI\n", s = sep),
+        )?
+    };
     let (plot_tx, plot_rx) = if summary.is_some() {
         let (t, r) = unbounded::<GroupPlotData>();
         (Some(t), Some(r))
@@ -241,39 +258,51 @@ pub fn write_group_average(
             }
         }
 
-        let (line, plot_data) = if pair_dn_ds_ratios.is_empty() {
-            (format!("{}{s}{}{s}{}{s}{}{s}0{s}NaN{s}NaN{s}{}\n",
-                &group_names[g1], &group_names[g2],
-                members1.len(), members2.len(), ci_field(f64::NAN, f64::NAN, sep), s = sep),
-             GroupPlotData {
-                 label: format!("{} vs {}", &group_names[g1], &group_names[g2]),
-                 mean: f64::NAN, ci_low: f64::NAN, ci_high: f64::NAN,
-             })
+        // Emit as a JSON object (NaN / N/A → null) or a delimited row. `mean`, `se`,
+        // `ci_lo`, `ci_hi` are NaN where the corresponding column is N/A so the JSON and
+        // plot paths share one source of truth.
+        let g1n = &group_names[g1];
+        let g2n = &group_names[g2];
+        let (n_comp, mean, se, ci_lo, ci_hi) = if pair_dn_ds_ratios.is_empty() {
+            (0usize, f64::NAN, f64::NAN, f64::NAN, f64::NAN)
         } else {
             let n = pair_dn_ds_ratios.len();
             let mean: f64 = pair_dn_ds_ratios.iter().sum::<f64>() / n as f64;
             if n == 1 {
-                (format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}N/A{s}N/A\n",
-                    delim_field(&group_names[g1], sep), delim_field(&group_names[g2], sep),
-                    members1.len(), members2.len(), n, mean, s = sep),
-                 GroupPlotData {
-                     label: format!("{} vs {}", &group_names[g1], &group_names[g2]),
-                     mean, ci_low: mean, ci_high: mean,
-                 })
+                (n, mean, f64::NAN, f64::NAN, f64::NAN)
             } else {
                 let variance: f64 =
                     pair_dn_ds_ratios.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
                 let se = (variance / n as f64).sqrt();
                 let ci_hw = Z_95_CONFIDENCE * se;
-                (format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{}\n",
-                    delim_field(&group_names[g1], sep), delim_field(&group_names[g2], sep),
-                    members1.len(), members2.len(), n,
-                    mean, se, ci_field(mean - ci_hw, mean + ci_hw, sep), s = sep),
-                 GroupPlotData {
-                     label: format!("{} vs {}", &group_names[g1], &group_names[g2]),
-                     mean, ci_low: mean - ci_hw, ci_high: mean + ci_hw,
-                 })
+                (n, mean, se, mean - ci_hw, mean + ci_hw)
             }
+        };
+        let plot_data = GroupPlotData {
+            label: format!("{} vs {}", g1n, g2n),
+            mean,
+            ci_low: if n_comp == 1 { mean } else { ci_lo },
+            ci_high: if n_comp == 1 { mean } else { ci_hi },
+        };
+        let line = if is_json {
+            format!(
+                "{{\"group1\":\"{}\",\"group2\":\"{}\",\"num_seqs1\":{},\"num_seqs2\":{},\"num_comparisons\":{},\"mean_dN_dS\":{},\"std_error\":{},\"ci_low\":{},\"ci_high\":{}}}\n",
+                json_escape(g1n), json_escape(g2n), members1.len(), members2.len(), n_comp,
+                format_json_f64(mean), format_json_f64(se), format_json_f64(ci_lo), format_json_f64(ci_hi)
+            )
+        } else if n_comp == 0 {
+            format!("{}{s}{}{s}{}{s}{}{s}0{s}NaN{s}NaN{s}{}\n",
+                delim_field(g1n, sep), delim_field(g2n, sep),
+                members1.len(), members2.len(), ci_field(f64::NAN, f64::NAN, sep), s = sep)
+        } else if n_comp == 1 {
+            format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}N/A{s}N/A\n",
+                delim_field(g1n, sep), delim_field(g2n, sep),
+                members1.len(), members2.len(), n_comp, mean, s = sep)
+        } else {
+            format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{}\n",
+                delim_field(g1n, sep), delim_field(g2n, sep),
+                members1.len(), members2.len(), n_comp,
+                mean, se, ci_field(ci_lo, ci_hi, sep), s = sep)
         };
 
         if let Some(stats) = summary {

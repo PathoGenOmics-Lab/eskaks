@@ -96,3 +96,48 @@ fn spawn_ordered_writer(path: String, header: String) -> anyhow::Result<OrderedW
     Ok((tx, handle))
 }
 
+/// Like [`spawn_ordered_writer`] but assembles a JSON array: opens with `[`, joins
+/// every non-empty line across the index-ordered blocks with `,\n`, and closes with
+/// `]`. Each non-empty block line must be one complete JSON object; empty blocks (rows
+/// that produced no object) are allowed so the index still advances deterministically.
+fn spawn_ordered_json_writer(path: String) -> anyhow::Result<OrderedWriter> {
+    let mut out = BufWriter::new(
+        File::create(&path)
+            .map_err(|e| anyhow::anyhow!("Cannot create '{}': {}", path, e))?,
+    );
+    out.write_all(b"[\n")?;
+    let (tx, rx) = unbounded::<(usize, String)>();
+    let handle = thread::spawn(move || -> Result<(), std::io::Error> {
+        let mut pending: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+        let mut next = 0usize;
+        let mut first = true;
+        for (i, block) in rx {
+            pending.insert(i, block);
+            while let Some(b) = pending.remove(&next) {
+                for line in b.lines().filter(|l| !l.is_empty()) {
+                    if !first {
+                        out.write_all(b",\n")?;
+                    }
+                    out.write_all(line.as_bytes())?;
+                    first = false;
+                }
+                next += 1;
+            }
+        }
+        while let Some(b) = pending.remove(&next) {
+            for line in b.lines().filter(|l| !l.is_empty()) {
+                if !first {
+                    out.write_all(b",\n")?;
+                }
+                out.write_all(line.as_bytes())?;
+                first = false;
+            }
+            next += 1;
+        }
+        out.write_all(b"\n]\n")?;
+        out.flush()?;
+        Ok(())
+    });
+    Ok((tx, handle))
+}
+

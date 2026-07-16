@@ -32,12 +32,17 @@ pub fn write_pairwise_windows(
         .progress_chars("#>-"));
 
     let nan_count = AtomicUsize::new(0);
+    let is_json = ext == "json";
     let header = match model {
         Model::Li => format!("Seq1{s}Seq2{s}Window_Start{s}Window_End{s}dN(Ka){s}dS(Ks){s}dN/dS\n", s = sep),
         Model::Nei => format!("Seq1{s}Seq2{s}Window_Start{s}Window_End{s}dN{s}dS{s}dN/dS\n", s = sep),
     };
-    let (tx, writer_thread) =
-        spawn_ordered_writer(format!("{}_pairwise_windows.{}", output_prefix, ext), header)?;
+    let path = format!("{}_pairwise_windows.{}", output_prefix, ext);
+    let (tx, writer_thread) = if is_json {
+        spawn_ordered_json_writer(path)?
+    } else {
+        spawn_ordered_writer(path, header)?
+    };
 
     (0..ids.len()).into_par_iter().for_each_init(
         || {
@@ -92,9 +97,16 @@ pub fn write_pairwise_windows(
                         ws.record(w, ratio);
                     }
 
-                    let _ = writeln!(local_buffer, "{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
-                        delim_field(&ids[i], sep), delim_field(&ids[j], sep), start + 1, end,
-                        norm_zero(result.dn), norm_zero(result.ds), norm_zero(ratio), s = sep);
+                    if is_json {
+                        let _ = writeln!(local_buffer,
+                            "{{\"seq1\":\"{}\",\"seq2\":\"{}\",\"window_start\":{},\"window_end\":{},\"dN\":{},\"dS\":{},\"dN_dS\":{}}}",
+                            json_escape(&ids[i]), json_escape(&ids[j]), start + 1, end,
+                            format_json_f64(result.dn), format_json_f64(result.ds), format_json_f64(ratio));
+                    } else {
+                        let _ = writeln!(local_buffer, "{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
+                            delim_field(&ids[i], sep), delim_field(&ids[j], sep), start + 1, end,
+                            norm_zero(result.dn), norm_zero(result.ds), norm_zero(ratio), s = sep);
+                    }
                 }
                 pb.inc(num_windows as u64);
             }

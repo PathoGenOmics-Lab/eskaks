@@ -203,6 +203,14 @@ All notable changes to this project will be documented in this file.
     table** (the AF filter runs before the fixed/polymorphic split); it now warns.
   - Delimited writers no longer emit a nonsensical `-0.000000` (normalised to `0`,
     matching the JSON formatter).
+  - **`--format json` was silently ignored in `--lineage`, `--group-average`, and
+    `--window` modes** (they wrote CSV into a `.json` file). All three now emit a real
+    JSON array of objects (NaN/Infinity → `null`), consistent with pairwise mode.
+  - **The HTML report's headline cards (Pairs, Valid pairs, Pooled, Mean) and the
+    dN/dS distribution were computed over de-duplicated unique pairs**, so for a clonal
+    dataset (many identical sequences) they contradicted the terminal `--summary` and
+    the `_pairwise_results` table. The report now aggregates over all id-pairs
+    (weighted by sequence multiplicity), matching them.
 - **All-N / all-gap pairs reported dN/dS = 0.0 instead of undefined.** A sequence
   with no comparable codons (entirely `N`, ambiguous, or gap) was rendered as a
   perfect `0.0` self-comparison, which reads as extreme purifying selection rather

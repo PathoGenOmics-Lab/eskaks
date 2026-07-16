@@ -448,6 +448,26 @@ fn cov_write_lineage_no_summary_yields_empty_plot() {
     assert_eq!(lines.len(), 1 + 5, "header + 5 lineage rows");
 }
 
+#[test]
+fn cov_write_lineage_json_is_valid_array() {
+    // Regression: --format json must emit a real JSON array for lineage mode.
+    let dir = cov_tmp();
+    let prefix = cov_prefix(&dir);
+    let ids = cov_ids(3);
+    let uidx: Vec<usize> = (0..3).collect();
+    let lineage_indices: Vec<usize> = vec![0, 1, 1];
+    let lineage_names: Vec<String> = vec!["A".to_string(), "B".to_string()];
+    let cfg = OutputConfig {
+        prefix: prefix.as_str(), sep: ',', ext: "json", model: Model::Nei, summary: None,
+    };
+    // Same shape as cov_write_lineage_no_summary_yields_empty_plot: 5 emitted rows.
+    write_lineage(&ids, &uidx, 3, cov_finite_pair, &lineage_indices, &lineage_names, &cfg)
+        .expect("write lineage json");
+    let content = std::fs::read_to_string(format!("{}_lineage_summary.json", prefix)).unwrap();
+    cov_assert_json_array(&content, 5);
+    assert!(content.contains("\"against_lineage\":"), "has against_lineage field");
+}
+
 // ─── write_group_average ───────────────────────────────────
 
 #[test]
@@ -510,6 +530,26 @@ fn cov_write_group_average_branches_header_and_determinism() {
         .expect("write group avg 2");
     let second = std::fs::read_to_string(&out_path).unwrap();
     assert_eq!(first, second, "output must be deterministic");
+}
+
+#[test]
+fn cov_write_group_average_json_is_valid_array() {
+    // Regression: --format json must emit a real JSON array for group-average mode, with
+    // N/A std_error / CI rendered as null.
+    let dir = cov_tmp();
+    let prefix = cov_prefix(&dir);
+    let ids: Vec<String> =
+        vec!["G1_a".to_string(), "G1_b".to_string(), "G2_x".to_string()];
+    let uidx: Vec<usize> = (0..3).collect();
+    let cfg = OutputConfig {
+        prefix: prefix.as_str(), sep: ',', ext: "json", model: Model::Nei, summary: None,
+    };
+    // 2 groups -> 3 group-pairs -> 3 JSON objects (including the 0-comparison one).
+    write_group_average(&ids, &uidx, cov_finite_pair, false, &cfg).expect("write group json");
+    let content = std::fs::read_to_string(format!("{}_group_avg_dn_ds.json", prefix)).unwrap();
+    cov_assert_json_array(&content, 3);
+    assert!(content.contains("\"num_comparisons\":"), "has num_comparisons field");
+    assert!(content.contains("null"), "N/A std_error / CI render as null");
 }
 
 // ─── write_pairwise_windows ────────────────────────────────
@@ -591,6 +631,26 @@ fn cov_write_pairwise_windows_all_invalid_identical_is_nan_not_zero() {
         assert_eq!(f[5], "NaN", "dS must be NaN");
         assert_eq!(f[6], "NaN", "dN/dS must be NaN");
     }
+}
+
+#[test]
+fn cov_write_pairwise_windows_json_is_valid_array() {
+    // Regression: --format json must emit a real JSON array for window mode, not CSV in
+    // a .json file.
+    let dir = cov_tmp();
+    let prefix = cov_prefix(&dir);
+    let ids = cov_ids(2);
+    let uidx: Vec<usize> = (0..2).collect();
+    let seqs: Vec<Vec<u8>> = vec![vec![1u8, 2, 3, 4], vec![5u8, 6, 7, 8]];
+    let cfg = OutputConfig {
+        prefix: prefix.as_str(), sep: ',', ext: "json", model: Model::Nei, summary: None,
+    };
+    // 2 windows, 1 pair -> 2 JSON objects.
+    write_pairwise_windows(&ids, &uidx, &seqs, cov_win_finite, 2, 2, None, &cfg)
+        .expect("write windows json");
+    let content = std::fs::read_to_string(format!("{}_pairwise_windows.json", prefix)).unwrap();
+    cov_assert_json_array(&content, 2);
+    assert!(content.contains("\"window_start\":"), "has window_start field");
 }
 
 #[test]

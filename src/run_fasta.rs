@@ -130,27 +130,43 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Collect a fresh dN/dS distribution plus a capped `(dN, dS)` sample over
-/// unique sequence pairs, for the report's always-present dN-vs-dS scatter and
-/// histogram — independent of the primary output mode.
+/// Collect a fresh dN/dS distribution plus a capped `(dN, dS)` sample for the
+/// report's always-present dN-vs-dS scatter and histogram — independent of the
+/// primary output mode.
+///
+/// Iterates over ALL id-pairs (weighted by sequence multiplicity), not just unique
+/// sequence pairs, so the report's Pairs / Valid pairs / Pooled / Mean cards match
+/// the terminal `--summary` and the `_pairwise_results` table. Compute is still O(U)
+/// per row via a per-row unique-index cache (mirroring `write_pairwise`), so duplicate
+/// sequences — common in clonal datasets — are counted without recomputing.
 fn collect_report_pairwise(
     data: &input::SequenceData,
     engine: &ComputeEngine,
     scatter_cap: usize,
 ) -> (SummaryStats, Vec<(f64, f64)>) {
     let summary = SummaryStats::new();
-    let n = data.n_unique;
-    let total_pairs = n.saturating_sub(1) * n / 2;
+    let n_ids = data.ids.len();
+    let n_u = data.n_unique;
+    let total_pairs = n_ids.saturating_sub(1) * n_ids / 2;
     let stride = (total_pairs / scatter_cap.max(1)).max(1);
     let mut scatter = Vec::new();
     let mut local = stats::FloatAccum::new();
     let mut k = 0usize;
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let (dn, ds) = engine.compute_slices(
-                &data.unique_codon_indices[i],
-                &data.unique_codon_indices[j],
-            );
+    let mut row_cache = vec![DsDn { dn: 0.0, ds: 0.0 }; n_u];
+    let mut gen_map = vec![0u32; n_u];
+    let mut cur_gen = 0u32;
+    for i in 0..n_ids {
+        cur_gen = cur_gen.wrapping_add(1);
+        let u_i = data.uidx_by_id[i];
+        row_cache[u_i] = engine.compute_pair(data, u_i, u_i);
+        gen_map[u_i] = cur_gen;
+        for j in (i + 1)..n_ids {
+            let u_j = data.uidx_by_id[j];
+            if gen_map[u_j] != cur_gen {
+                row_cache[u_j] = engine.compute_pair(data, u_i, u_j);
+                gen_map[u_j] = cur_gen;
+            }
+            let DsDn { dn, ds } = row_cache[u_j];
             let ratio = if ds > 0.0 {
                 dn / ds
             } else if dn > 0.0 {
@@ -397,4 +413,35 @@ fn dispatch_window(
         info!("Plot saved to {}", plot_path);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::SequenceData;
+    use crate::models::Model;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn report_pairwise_counts_all_id_pairs_not_unique() {
+        // 4 ids but only 2 unique sequences (A, A, B, B). The report summary must count
+        // all 4*3/2 = 6 id-pairs (weighted by sequence multiplicity), matching the
+        // terminal --summary and the main table — not the single unique-sequence pair.
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let a = crate::codon::fasta_to_codon_indices(b"ATGGCTGCT", Model::Nei);
+        let b = crate::codon::fasta_to_codon_indices(b"ATGATTGCT", Model::Nei);
+        let data = SequenceData {
+            ids: vec!["A0".into(), "A1".into(), "B0".into(), "B1".into()],
+            uidx_by_id: vec![0, 0, 1, 1],
+            unique_codon_indices: vec![a, b],
+            n_unique: 2,
+        };
+        let (summary, _scatter) = collect_report_pairwise(&data, &engine, 8000);
+        assert_eq!(
+            summary.total_count.load(Ordering::Relaxed),
+            6,
+            "report must count all id-pairs (4*3/2 = 6), not unique-sequence pairs"
+        );
+    }
 }
