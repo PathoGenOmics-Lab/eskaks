@@ -36,6 +36,17 @@ on protein-coding genes. Two modes:
 Pure Rust, no C dependencies, up to **2,641× faster** than KaKs_Calculator (R² = 1.0
 on the Li model). New here? Start with the **[hands-on tutorial](docs/tutorial.md)**.
 
+## Features
+
+| Feature | Description |
+|---|---|
+| 🧬 Two dN/dS models | Nei-Gojobori (1986) and Li (1993)/LPB93, via precomputed lookup tables |
+| 🔬 Per-gene selection scan | pN/pS per gene with an exact-binomial neutrality test, FDR, and Bonferroni |
+| 📐 Spectrum-aware sites | `--kappa` ts/tv weighting for transition-biased genomes (e.g. *M. tuberculosis*) |
+| 🧮 Population genetics | McDonald-Kreitman test, bootstrap CIs, and a `--genomic-control` λ correction |
+| 🖥️ Interactive report | One self-contained HTML dashboard: colour-blind mode, scales to whole genomes |
+| ⚡ Fast & flexible | Parallel and deterministic; TSV/CSV/JSON/SVG output; 20 NCBI genetic codes |
+
 ## Get started
 
 Requires [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70.
