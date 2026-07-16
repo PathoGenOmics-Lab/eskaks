@@ -7,8 +7,7 @@
 use anyhow::Context;
 use log::warn;
 use rayon::prelude::*;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::path::Path;
 
 mod filter;

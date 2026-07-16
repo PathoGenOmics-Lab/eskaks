@@ -7,8 +7,7 @@
 use anyhow::Context;
 use log::warn;
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::path::Path;
 
 /// Strand orientation of a genomic feature.
@@ -56,9 +55,7 @@ pub struct Gene {
 /// Groups CDS entries by their Parent or gene_id attribute.
 /// Returns genes sorted by chromosome and start position.
 pub fn parse_gff3(path: &Path) -> anyhow::Result<Vec<Gene>> {
-    let file = File::open(path)
-        .with_context(|| format!("Failed to open GFF3 file: {}", path.display()))?;
-    let reader = BufReader::new(file);
+    let reader = crate::input::open_text(path, "GFF3 file")?;
 
     // Map: (seqid, gene_id) -> (name, seqid, strand, Vec<CdsExon>). Keying on the pair,
     // not the id alone, keeps two genes that (against the GFF3 spec) reuse an id on

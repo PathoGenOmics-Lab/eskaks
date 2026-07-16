@@ -7,9 +7,7 @@ use super::*;
 /// Skips header lines, indels, and multi-base variants.
 /// Extracts allele frequencies from INFO/AF or calculates from GT fields.
 pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
-    let file = File::open(path)
-        .with_context(|| format!("Failed to open VCF file: {}", path.display()))?;
-    let reader = BufReader::new(file);
+    let reader = crate::input::open_text(path, "VCF file")?;
     let mut snps = Vec::new();
     let mut sample_count = 0usize;
     // Format diagnostics: distinguish "valid VCF, no SNPs" from "this isn't a VCF".

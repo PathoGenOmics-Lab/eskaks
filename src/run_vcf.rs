@@ -112,11 +112,12 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     let ref_path = std::path::Path::new(&args.reference);
     let gff_path = std::path::Path::new(&args.gff);
 
-    // Fail fast with a clear message on gzip-compressed inputs (common footgun).
-    input::ensure_not_gzipped(&args.reference)?;
-    input::ensure_not_gzipped(&args.gff)?;
+    // The reference/GFF/VCF readers decompress gzip/bgzip transparently; guard
+    // only against a directory path here for a clear early error.
+    input::ensure_not_directory(&args.reference)?;
+    input::ensure_not_directory(&args.gff)?;
     for v in &args.vcf {
-        input::ensure_not_gzipped(v)?;
+        input::ensure_not_directory(v)?;
     }
 
     info!("Loading reference FASTA: {}", args.reference);

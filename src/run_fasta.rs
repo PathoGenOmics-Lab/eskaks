@@ -36,8 +36,9 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
         );
     }
 
-    // Load, validate, filter, and deduplicate sequences
-    input::ensure_not_gzipped(&args.input_file)?;
+    // Load, validate, filter, and deduplicate sequences. needletail decompresses
+    // a gzipped FASTA transparently; we only guard against a directory here.
+    input::ensure_not_directory(&args.input_file)?;
     let stop_indices = genetic_code::stop_codon_indices(gc, args.model);
     let data = input::load_sequences(&args.input_file, args.model, args.min_codons, Some(&stop_indices))?;
 

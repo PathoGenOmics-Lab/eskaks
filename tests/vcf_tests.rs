@@ -50,6 +50,47 @@ fn vcf_exits_ok() {
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
 }
 
+fn gzip_to(src: &str, dst: &std::path::Path) {
+    use std::io::{Read, Write};
+    let mut data = Vec::new();
+    fs::File::open(src).unwrap().read_to_end(&mut data).unwrap();
+    let mut enc =
+        flate2::write::GzEncoder::new(fs::File::create(dst).unwrap(), flate2::Compression::default());
+    enc.write_all(&data).unwrap();
+    enc.finish().unwrap();
+}
+
+/// gzip-compressed reference/GFF/VCF must produce byte-identical output to the
+/// plain inputs (the readers decompress transparently). Guards the reader wiring.
+#[test]
+fn vcf_reads_gzipped_inputs_identically() {
+    let d = std::env::temp_dir();
+    let (rg, gg, vg) = (
+        d.join("eskaks_gz_ref.fasta.gz"),
+        d.join("eskaks_gz_ann.gff3.gz"),
+        d.join("eskaks_gz_var.vcf.gz"),
+    );
+    gzip_to(REF_FASTA, &rg);
+    gzip_to(GFF3, &gg);
+    gzip_to(VCF, &vg);
+
+    let run = |ref_p: &str, gff_p: &str, vcf_p: &str, out: &str| {
+        Command::new(binary_path())
+            .args(["vcf", "--ref", ref_p, "--gff", gff_p, "--vcf", vcf_p, "-o", out])
+            .status()
+            .expect("spawn");
+        fs::read_to_string(format!("{}_pnps.tsv", out)).expect("read output")
+    };
+
+    let plain = run(REF_FASTA, GFF3, VCF, "/tmp/eskaks_test_gz_plain");
+    let gz = run(rg.to_str().unwrap(), gg.to_str().unwrap(), vg.to_str().unwrap(), "/tmp/eskaks_test_gz_comp");
+    assert_eq!(plain, gz, "gzipped inputs must yield the same pN/pS output as plain");
+
+    for f in [&rg, &gg, &vg] { fs::remove_file(f).ok(); }
+    fs::remove_file("/tmp/eskaks_test_gz_plain_pnps.tsv").ok();
+    fs::remove_file("/tmp/eskaks_test_gz_comp_pnps.tsv").ok();
+}
+
 #[test]
 fn vcf_produces_correct_header() {
     let out_prefix = "/tmp/eskaks_test_vcf_header";

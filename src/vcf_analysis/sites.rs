@@ -293,13 +293,9 @@ pub(crate) fn reverse_complement(seq: &[u8]) -> Vec<u8> {
 /// Parse a reference FASTA file into a map of sequence_name -> sequence.
 /// Uses simple manual parsing (no needletail dependency for this).
 pub fn parse_reference_fasta(path: &std::path::Path) -> anyhow::Result<HashMap<String, Vec<u8>>> {
-    use anyhow::Context;
-    use std::fs::File;
-    use std::io::{BufRead, BufReader};
+    use std::io::BufRead;
 
-    let file = File::open(path)
-        .with_context(|| format!("Failed to open reference FASTA: {}", path.display()))?;
-    let reader = BufReader::new(file);
+    let reader = crate::input::open_text(path, "reference FASTA")?;
     let mut seqs: HashMap<String, Vec<u8>> = HashMap::new();
     let mut current_name: Option<String> = None;
     let mut current_seq: Vec<u8> = Vec::new();

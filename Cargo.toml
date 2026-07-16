@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 
 needletail = "0.6"
+# gzip/bgzip decompression for the VCF/GFF/reference readers (needletail already
+# decompresses FASTA transparently). flate2 is pulled in via needletail anyway.
+flate2 = "1"
 
 env_logger = "0.9"
 rayon = "1.5"
@@ -27,3 +30,4 @@ strip          = true
 [dev-dependencies]
 proptest = "1.11.0"
 tempfile = "3"
+flate2 = "1"

@@ -25,26 +25,43 @@ fn is_stdin(path: &str) -> bool {
     path == "-" || path == "/dev/stdin"
 }
 
-/// Bail with a clear message if `path` looks gzip-compressed. eskaks reads plain
-/// text, and a `.gz` otherwise fails deep in a parser with a cryptic UTF-8 error.
-pub fn ensure_not_gzipped(path: &str) -> anyhow::Result<()> {
-    use std::io::Read;
+/// Bail with a clear message if `path` is a directory. A directory otherwise
+/// fails deep in a parser (or reads as empty) with a confusing error.
+pub fn ensure_not_directory(path: &str) -> anyhow::Result<()> {
     if is_stdin(path) {
         return Ok(());
     }
     if std::path::Path::new(path).is_dir() {
-        bail!("'{path}' is a directory, not a FASTA file.");
-    }
-    if let Ok(mut f) = std::fs::File::open(path) {
-        let mut magic = [0u8; 2];
-        if f.read_exact(&mut magic).is_ok() && magic == [0x1f, 0x8b] {
-            bail!(
-                "'{path}' appears to be gzip-compressed, but eskaks reads plain text. \
-                 Decompress it first (e.g. `gunzip -k {path}` or pipe through `zcat`)."
-            );
-        }
+        bail!("'{path}' is a directory, not a file.");
     }
     Ok(())
+}
+
+/// Open a text file as a buffered line reader, transparently decompressing gzip
+/// (and bgzip/BGZF, whose concatenated gzip members `MultiGzDecoder` reads in
+/// full) when the file starts with the gzip magic `1f 8b`. Used by the VCF, GFF
+/// and reference-FASTA readers; the `eskaks fasta` path decompresses via needletail.
+/// `role` names the file in error messages, e.g. "VCF file" or "reference FASTA".
+pub fn open_text(path: &std::path::Path, role: &str) -> anyhow::Result<Box<dyn std::io::BufRead>> {
+    use std::io::BufRead;
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("Failed to open {}: {}", role, path.display()))?;
+    let mut reader = std::io::BufReader::new(file);
+    // fill_buf peeks without consuming, so a plain file is handed on unchanged and
+    // a gzip member is still read from byte 0 by the decoder.
+    let gz = {
+        let head = reader
+            .fill_buf()
+            .with_context(|| format!("Failed to read {}: {}", role, path.display()))?;
+        head.len() >= 2 && head[0] == 0x1f && head[1] == 0x8b
+    };
+    if gz {
+        Ok(Box::new(std::io::BufReader::new(
+            flate2::read::MultiGzDecoder::new(reader),
+        )))
+    } else {
+        Ok(Box::new(reader))
+    }
 }
 
 /// Read FASTA, validate, filter, and deduplicate.
@@ -83,7 +100,7 @@ pub fn load_sequences(
             parse_fastx_file(input_file).with_context(|| {
                 format!(
                     "Could not read '{}' as FASTA — check the path exists and the file is a \
-                     valid, uncompressed FASTA",
+                     valid FASTA (plain or gzip-compressed)",
                     input_file
                 )
             })?
@@ -518,14 +535,44 @@ mod tests {
     }
 
     #[test]
-    fn ensure_not_gzipped_rejects_gzip_magic() {
-        let p = write_temp_fasta("gzmagic", "");
-        std::fs::write(&p, [0x1fu8, 0x8b, 0x08, 0x00]).unwrap(); // gzip magic
-        let err = ensure_not_gzipped(&p).unwrap_err().to_string();
-        assert!(err.contains("gzip"), "err: {}", err);
-        // A plain-text file passes.
-        let p2 = write_temp_fasta("plain_ok", ">s\nATG\n");
-        assert!(ensure_not_gzipped(&p2).is_ok());
-        std::fs::remove_file(&p).ok(); std::fs::remove_file(&p2).ok();
+    fn ensure_not_directory_rejects_dir_but_accepts_gzip_file() {
+        // A directory is rejected with a clear message.
+        let dir = std::env::temp_dir();
+        let err = ensure_not_directory(dir.to_str().unwrap()).unwrap_err().to_string();
+        assert!(err.contains("directory"), "err: {}", err);
+        // A gzip-magic file is now ACCEPTED (readers decompress it); no longer a footgun.
+        let p = write_temp_fasta("gz_now_ok", "");
+        std::fs::write(&p, [0x1fu8, 0x8b, 0x08, 0x00]).unwrap();
+        assert!(ensure_not_directory(&p).is_ok());
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn open_text_reads_plain_and_gzip_identically() {
+        use std::io::{BufRead, Write};
+        let content = ">chr1\nACGTACGT\n>chr2\nTTTT\n";
+        let want = vec![">chr1", "ACGTACGT", ">chr2", "TTTT"];
+
+        let plain = write_temp_fasta("ot_plain", content);
+        let plain_lines: Vec<String> = open_text(std::path::Path::new(&plain), "test")
+            .unwrap().lines().collect::<Result<_, _>>().unwrap();
+        assert_eq!(plain_lines, want);
+
+        // Same content, gzip-compressed → must read back identically.
+        let gz = write_temp_fasta("ot_gz", "");
+        {
+            let mut enc = flate2::write::GzEncoder::new(
+                std::fs::File::create(&gz).unwrap(),
+                flate2::Compression::default(),
+            );
+            enc.write_all(content.as_bytes()).unwrap();
+            enc.finish().unwrap();
+        }
+        let gz_lines: Vec<String> = open_text(std::path::Path::new(&gz), "test")
+            .unwrap().lines().collect::<Result<_, _>>().unwrap();
+        assert_eq!(gz_lines, want, "gzip content must decode to the same lines as plain");
+
+        std::fs::remove_file(&plain).ok();
+        std::fs::remove_file(&gz).ok();
     }
 }
