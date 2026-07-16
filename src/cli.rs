@@ -185,6 +185,11 @@ pub struct VcfArgs {
     #[arg(long, value_enum, default_value_t = OutputFormat::Tsv, help_heading = "Output options")]
     pub format: OutputFormat,
 
+    /// Print the pN/pS summary even under --quiet. The summary is shown by default;
+    /// this flag is accepted for symmetry with `eskaks fasta` and forces it when quiet.
+    #[arg(long, help_heading = "Output options")]
+    pub summary: bool,
+
     /// NCBI genetic code table number (default: 1 = Standard).
     /// Use --list-codes to see all available tables.
     /// Common alternatives: 2 (Vertebrate Mito), 4 (Mycoplasma), 11 (Bacterial)

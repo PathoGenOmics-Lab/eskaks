@@ -185,6 +185,16 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **UX consistency & safety (from a hands-on UX evaluation):**
+  - **`eskaks fasta` now errors on unequal-length (unaligned) input** instead of warning
+    and returning a number computed over the truncated overlap — pairwise dN/dS requires
+    a codon alignment, and a trustable-but-meaningless result was the most dangerous
+    failure mode. The error names the offending sequence and points at aligners. (Window
+    mode already required equal lengths; every mode is now consistent.)
+  - **`eskaks vcf` now honors `--quiet`** (it previously printed its whole pN/pS summary
+    regardless), and **accepts `--summary`** (which used to be a hard "unexpected
+    argument" error) — `--summary` forces the summary even under `--quiet`, symmetric
+    with `eskaks fasta`.
 - **Follow-up sweep (adversarial round 4, over the code added earlier in this cycle):**
   - **The HTML report's dN/dS histogram mis-binned identical (zero-divergence) pairs.**
     After the report started aggregating over all id-pairs, `collect_report_pairwise`

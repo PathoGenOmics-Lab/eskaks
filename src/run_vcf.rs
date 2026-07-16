@@ -359,100 +359,103 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         warn!("--divergence is only used by the interactive report; add --report or the file is ignored.");
     }
 
-    // Print summary statistics
-    let gw_totals = genome_wide.as_ref().map(|gw| (gw.syn_snps, gw.nonsyn_snps));
-    let mode = if args.af_weighted { "πN/πS (AF-weighted)" } else { "pN/pS" };
-    let ratio_name = if args.af_weighted { "πN/πS" } else { "pN/pS" };
-    eprintln!("\n── {} Summary ──────────────────────────", mode);
-    if args.kappa != 1.0 {
-        eprintln!("  Site model:          ts/tv-weighted (kappa = {})", args.kappa);
-    }
-    eprintln!("  Genes analyzed:      {}", total_genes);
-    eprintln!("  Genes with SNPs:     {}", genes_with_snps);
-    eprintln!("  SNPs used (in CDS):  {} of {} parsed", diag.snps_in_cds, snps.len());
-    if diag.ref_mismatch > 0 {
-        eprintln!("  SNPs skipped (REF≠ref): {}", diag.ref_mismatch);
-    }
-    if args.min_snps > 0 {
-        eprintln!("  Genes kept (>= {} SNPs): {}  ({} dropped)", args.min_snps, results.len(), dropped);
-    }
-    // Under --exclude-repetitive the pooled totals are core-only while the gene
-    // counts above are over all genes; flag the scope so the block is self-consistent.
-    let core_note = if args.exclude_repetitive { "   (core genes only)" } else { "" };
-    match gw_totals {
-        Some((total_syn, total_nonsyn)) => {
-            eprintln!("  Total synonymous:    {:.2}{}", total_syn, core_note);
-            eprintln!("  Total nonsynonymous: {:.2}{}", total_nonsyn, core_note);
+    // Print the pN/pS summary: shown by default, hidden by --quiet, and forced by
+    // --summary even under --quiet (symmetric with `eskaks fasta`).
+    if args.summary || log::log_enabled!(log::Level::Warn) {
+        let gw_totals = genome_wide.as_ref().map(|gw| (gw.syn_snps, gw.nonsyn_snps));
+        let mode = if args.af_weighted { "πN/πS (AF-weighted)" } else { "pN/pS" };
+        let ratio_name = if args.af_weighted { "πN/πS" } else { "pN/pS" };
+        eprintln!("\n── {} Summary ──────────────────────────", mode);
+        if args.kappa != 1.0 {
+            eprintln!("  Site model:          ts/tv-weighted (kappa = {})", args.kappa);
         }
-        None => {
-            // No pooled estimate: report n/a for the totals, consistent with the pooled
-            // ratio line below, rather than a misleading 0.00 that reads as "zero coding
-            // SNPs" when in fact every contributing gene was filtered out.
-            let why = if args.exclude_repetitive {
-                "   (all genes excluded as repetitive)"
-            } else {
-                "   (no gene contributed a coding SNP)"
-            };
-            eprintln!("  Total synonymous:    n/a{}", why);
-            eprintln!("  Total nonsynonymous: n/a{}", why);
+        eprintln!("  Genes analyzed:      {}", total_genes);
+        eprintln!("  Genes with SNPs:     {}", genes_with_snps);
+        eprintln!("  SNPs used (in CDS):  {} of {} parsed", diag.snps_in_cds, snps.len());
+        if diag.ref_mismatch > 0 {
+            eprintln!("  SNPs skipped (REF≠ref): {}", diag.ref_mismatch);
         }
-    }
-    if let Some(gw) = &genome_wide {
-        eprintln!("  ── Genome-wide (pooled) ──────────────────");
-        eprintln!("  N / S sites:         {:.1} / {:.1}", gw.n_sites, gw.s_sites);
-        eprintln!("  Overall pN / pS:     {:.6} / {:.6}", gw.pn, gw.ps);
-        eprintln!("  Overall {}:       {}", ratio_name, vcf_analysis::format_ratio(gw.pn_ps));
-        eprintln!("  Selection:           {}", vcf_analysis::selection_label(gw.pn_ps));
-        if let Some((lo, hi)) = gw_ci {
-            eprintln!("  95% CI ({} boot):    [{:.6}, {:.6}]", args.bootstrap, lo, hi);
+        if args.min_snps > 0 {
+            eprintln!("  Genes kept (>= {} SNPs): {}  ({} dropped)", args.min_snps, results.len(), dropped);
         }
-    } else {
-        // No pooled estimate: say so explicitly rather than leaving a silent gap.
-        eprintln!("  ── Genome-wide (pooled) ──────────────────");
-        let why = if args.exclude_repetitive {
-            " (all genes were excluded as repetitive — drop --exclude-repetitive?)"
+        // Under --exclude-repetitive the pooled totals are core-only while the gene
+        // counts above are over all genes; flag the scope so the block is self-consistent.
+        let core_note = if args.exclude_repetitive { "   (core genes only)" } else { "" };
+        match gw_totals {
+            Some((total_syn, total_nonsyn)) => {
+                eprintln!("  Total synonymous:    {:.2}{}", total_syn, core_note);
+                eprintln!("  Total nonsynonymous: {:.2}{}", total_nonsyn, core_note);
+            }
+            None => {
+                // No pooled estimate: report n/a for the totals, consistent with the pooled
+                // ratio line below, rather than a misleading 0.00 that reads as "zero coding
+                // SNPs" when in fact every contributing gene was filtered out.
+                let why = if args.exclude_repetitive {
+                    "   (all genes excluded as repetitive)"
+                } else {
+                    "   (no gene contributed a coding SNP)"
+                };
+                eprintln!("  Total synonymous:    n/a{}", why);
+                eprintln!("  Total nonsynonymous: n/a{}", why);
+            }
+        }
+        if let Some(gw) = &genome_wide {
+            eprintln!("  ── Genome-wide (pooled) ──────────────────");
+            eprintln!("  N / S sites:         {:.1} / {:.1}", gw.n_sites, gw.s_sites);
+            eprintln!("  Overall pN / pS:     {:.6} / {:.6}", gw.pn, gw.ps);
+            eprintln!("  Overall {}:       {}", ratio_name, vcf_analysis::format_ratio(gw.pn_ps));
+            eprintln!("  Selection:           {}", vcf_analysis::selection_label(gw.pn_ps));
+            if let Some((lo, hi)) = gw_ci {
+                eprintln!("  95% CI ({} boot):    [{:.6}, {:.6}]", args.bootstrap, lo, hi);
+            }
         } else {
-            " (no gene contributed any coding SNP)"
-        };
-        eprintln!("  Overall {}:       n/a{}", ratio_name, why);
+            // No pooled estimate: say so explicitly rather than leaving a silent gap.
+            eprintln!("  ── Genome-wide (pooled) ──────────────────");
+            let why = if args.exclude_repetitive {
+                " (all genes were excluded as repetitive — drop --exclude-repetitive?)"
+            } else {
+                " (no gene contributed any coding SNP)"
+            };
+            eprintln!("  Overall {}:       n/a{}", ratio_name, why);
+        }
+        // "Tested" = the multiple-testing family (finite q), not merely genes with a raw
+        // p — under --exclude-repetitive the repetitive genes are dropped from the family.
+        let n_tested = results.iter().filter(|r| r.q_value.is_finite()).count();
+        if n_tested > 0 {
+            // Significance uses the GC-corrected q under --genomic-control, matching the report.
+            let n_sig = results
+                .iter()
+                .filter(|r| {
+                    let q = if args.genomic_control { r.q_gc } else { r.q_value };
+                    q.is_finite() && q < args.fdr
+                })
+                .count();
+            let corr = if args.genomic_control { "BH-FDR·GC" } else { "BH-FDR" };
+            eprintln!("  ── Neutrality test (pN/pS = 1) ───────────");
+            eprintln!("  Genes tested:        {}", n_tested);
+            eprintln!("  Significant genes:   {}  ({} < {})", n_sig, corr, args.fdr);
+        } else if args.af_weighted {
+            eprintln!("  (per-gene neutrality test skipped under --af-weighted)");
+        }
+        if args.mk {
+            let with_data = results
+                .iter()
+                .filter(|r| r.mk_dn + r.mk_ds + r.mk_pn + r.mk_ps > 0)
+                .count();
+            let total_dn: u32 = results.iter().map(|r| r.mk_dn).sum();
+            let total_ds: u32 = results.iter().map(|r| r.mk_ds).sum();
+            let total_pn: u32 = results.iter().map(|r| r.mk_pn).sum();
+            let total_ps: u32 = results.iter().map(|r| r.mk_ps).sum();
+            eprintln!("  ── McDonald-Kreitman (fixed AF >= {}) ──", args.mk_fixed_af);
+            eprintln!("  Genes with MK data:  {}", with_data);
+            eprintln!("  Totals Dn/Ds/Pn/Ps:  {}/{}/{}/{}", total_dn, total_ds, total_pn, total_ps);
+        }
+        eprintln!("───────────────────────────────────────────");
+        // Tell the user where the output went (info-level "saved to" lines are hidden at
+        // the default log level).
+        eprintln!("  Output: {}", written.join(", "));
+        eprintln!("───────────────────────────────────────────");
     }
-    // "Tested" = the multiple-testing family (finite q), not merely genes with a raw
-    // p — under --exclude-repetitive the repetitive genes are dropped from the family.
-    let n_tested = results.iter().filter(|r| r.q_value.is_finite()).count();
-    if n_tested > 0 {
-        // Significance uses the GC-corrected q under --genomic-control, matching the report.
-        let n_sig = results
-            .iter()
-            .filter(|r| {
-                let q = if args.genomic_control { r.q_gc } else { r.q_value };
-                q.is_finite() && q < args.fdr
-            })
-            .count();
-        let corr = if args.genomic_control { "BH-FDR·GC" } else { "BH-FDR" };
-        eprintln!("  ── Neutrality test (pN/pS = 1) ───────────");
-        eprintln!("  Genes tested:        {}", n_tested);
-        eprintln!("  Significant genes:   {}  ({} < {})", n_sig, corr, args.fdr);
-    } else if args.af_weighted {
-        eprintln!("  (per-gene neutrality test skipped under --af-weighted)");
-    }
-    if args.mk {
-        let with_data = results
-            .iter()
-            .filter(|r| r.mk_dn + r.mk_ds + r.mk_pn + r.mk_ps > 0)
-            .count();
-        let total_dn: u32 = results.iter().map(|r| r.mk_dn).sum();
-        let total_ds: u32 = results.iter().map(|r| r.mk_ds).sum();
-        let total_pn: u32 = results.iter().map(|r| r.mk_pn).sum();
-        let total_ps: u32 = results.iter().map(|r| r.mk_ps).sum();
-        eprintln!("  ── McDonald-Kreitman (fixed AF >= {}) ──", args.mk_fixed_af);
-        eprintln!("  Genes with MK data:  {}", with_data);
-        eprintln!("  Totals Dn/Ds/Pn/Ps:  {}/{}/{}/{}", total_dn, total_ds, total_pn, total_ps);
-    }
-    eprintln!("───────────────────────────────────────────");
-    // Always tell the user where the output went (info-level "saved to" lines are
-    // hidden at the default log level).
-    eprintln!("  Output: {}", written.join(", "));
-    eprintln!("───────────────────────────────────────────");
 
     info!("VCF analysis completed successfully.");
     Ok(())

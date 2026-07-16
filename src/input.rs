@@ -200,14 +200,24 @@ pub fn load_sequences(
         }
     }
     if let Some(first_len) = all_codon_indices.first().map(|v| v.len()) {
-        let mismatched = all_codon_indices
+        // Pairwise dN/dS is only meaningful on a codon ALIGNMENT, where every sequence is
+        // the same length. Unequal lengths mean the input is not aligned, so bail rather
+        // than silently comparing a truncated overlap and returning a number the user
+        // would trust. (Window mode already required equal lengths; this makes every mode
+        // consistent.)
+        if let Some((idx, v)) = all_codon_indices
             .iter()
-            .filter(|v| v.len() != first_len)
-            .count();
-        if mismatched > 0 {
-            warn!(
-                "{} sequence(s) have different codon lengths than the first ({} codons). Sequences may not be aligned.",
-                mismatched, first_len
+            .enumerate()
+            .find(|(_, v)| v.len() != first_len)
+        {
+            bail!(
+                "Sequences are not the same length: '{}' is {} codons but the first sequence \
+                 ('{}') is {} codons. Pairwise dN/dS requires a codon alignment — align the \
+                 sequences first (e.g. MAFFT + PAL2NAL, or MACSE), then rerun.",
+                ids[idx],
+                v.len(),
+                ids[0],
+                first_len
             );
         }
         info!(
