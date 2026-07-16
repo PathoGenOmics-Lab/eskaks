@@ -1,0 +1,18 @@
+##fileformat=VCFv4.2
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Depth">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency">
+##FILTER=<ID=PASS,Description="All filters passed">
+##FILTER=<ID=LowQual,Description="Low quality call">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	6	.	C	G	60	PASS	DP=38;AF=0.13
+chr1	12	.	G	A	60	PASS	DP=87;AF=0.145
+chr1	14	.	C	T	60	LowQual	DP=25;AF=0.995
+chr1	17	.	T	C	60	PASS	DP=39;AF=0.225
+chr1	27	.	G	C	60	LowQual	DP=25;AF=0.538
+chr1	63	.	T	C	60	PASS	DP=90;AF=0.119
+chr1	67	.	G	C	60	PASS	DP=89;AF=0.556
+chr1	74	.	G	T	60	LowQual	DP=70;AF=0.405
+chr1	86	.	T	C	60	PASS	DP=66;AF=0.281
+chr1	93	.	A	T	60	PASS	DP=62;AF=0.106
+chr1	99	.	T	C	60	LowQual	DP=78;AF=0.953
+chr1	108	.	T	C	60	PASS	DP=24;AF=0.489

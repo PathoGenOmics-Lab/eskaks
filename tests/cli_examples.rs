@@ -91,6 +91,18 @@ fn find_pair<'a>(rows: &'a [Vec<String>], a: &str, b: &str) -> &'a Vec<String> {
         .unwrap_or_else(|| panic!("pair {a}/{b} not found"))
 }
 
+/// Find a group-average row by its two group labels, in either column order.
+fn find_group<'a>(rows: &'a [Vec<String>], a: &str, b: &str) -> &'a Vec<String> {
+    rows.iter()
+        .find(|r| r.len() >= 2 && ((r[0] == a && r[1] == b) || (r[0] == b && r[1] == a)))
+        .unwrap_or_else(|| panic!("group pair {a}/{b} not found"))
+}
+
+/// Distinct group labels appearing in a group-average table (columns 0 and 1).
+fn group_labels(rows: &[Vec<String>]) -> std::collections::BTreeSet<String> {
+    rows[1..].iter().flat_map(|r| [r[0].clone(), r[1].clone()]).collect()
+}
+
 fn f(cell: &str) -> f64 {
     cell.parse::<f64>()
         .unwrap_or_else(|_| panic!("not a float: {cell:?}"))
@@ -572,6 +584,100 @@ fn vcf_examples_divergence_without_report_warns() {
         err.contains("only used by the interactive report"),
         "expected a warning that --divergence needs --report:\n{err}"
     );
+}
+
+// ─────────────── multi-lineage fasta (examples/lineages.fasta) ───────────────
+
+const LINEAGES: &str = "examples/lineages.fasta";
+const GROUP_AVG_HEADER: [&str; 8] = [
+    "Group1", "Group2", "NumSeqs1", "NumSeqs2", "NumComparisons", "Mean_dN/dS", "StdError", "95%CI",
+];
+
+#[test]
+fn fasta_lineages_group_average_default_split() {
+    // IDs split on '_' into three lineages (Lineage2 / Lineage4 / Bovis), 2 isolates each.
+    let r = new_run();
+    run_ok(&["fasta", LINEAGES, "-o", &r.prefix, "--group-average"]);
+    let rows = tsv(&format!("{}_group_avg_dn_ds.tsv", r.prefix));
+    assert_eq!(rows[0], GROUP_AVG_HEADER);
+    // 3 groups => 3 within-group + 3 between-group rows.
+    assert_eq!(rows.len() - 1, 6, "3 groups -> 6 rows");
+    assert_eq!(
+        group_labels(&rows),
+        ["Bovis", "Lineage2", "Lineage4"].iter().map(|s| s.to_string()).collect()
+    );
+    // Between-group comparison: 2 x 2 isolates = 4 pairwise comparisons.
+    let l2_l4 = find_group(&rows, "Lineage2", "Lineage4");
+    assert_eq!(l2_l4[4], "4", "NumComparisons for a between-lineage cell");
+    assert!((f(&l2_l4[5]) - 0.608113).abs() < EPS, "Lineage2-Lineage4 mean {}", l2_l4[5]);
+    // Within-lineage cell: C(2,2) = 1 comparison, SE reported as N/A.
+    let bovis = find_group(&rows, "Bovis", "Bovis");
+    assert_eq!(bovis[4], "1");
+    assert_eq!(bovis[6], "N/A");
+}
+
+#[test]
+fn fasta_lineages_first_letter_changes_grouping() {
+    // --first-letter-lineage groups by the first character, so the two "Lineage*"
+    // lineages merge into "L" while "Bovis" becomes "B": a genuinely different
+    // partition than the default '_' split (3 groups -> 2 groups).
+    let def = new_run();
+    run_ok(&["fasta", LINEAGES, "-o", &def.prefix, "--group-average"]);
+    let default_rows = tsv(&format!("{}_group_avg_dn_ds.tsv", def.prefix));
+
+    let fl = new_run();
+    run_ok(&["fasta", LINEAGES, "-o", &fl.prefix, "--group-average", "--first-letter-lineage"]);
+    let rows = tsv(&format!("{}_group_avg_dn_ds.tsv", fl.prefix));
+
+    assert_eq!(rows[0], GROUP_AVG_HEADER);
+    // 2 groups => 2 within + 1 between = 3 rows (vs 6 for the default split).
+    assert_eq!(rows.len() - 1, 3, "first-letter grouping should collapse to 3 rows");
+    assert_ne!(rows.len(), default_rows.len(), "flag must change the grouping");
+    assert_eq!(
+        group_labels(&rows),
+        ["B", "L"].iter().map(|s| s.to_string()).collect()
+    );
+    // "L" merges the 4 Lineage2+Lineage4 isolates: C(4,2)=6 within, 4x2=8 between.
+    let ll = find_group(&rows, "L", "L");
+    assert_eq!((ll[2].as_str(), ll[4].as_str()), ("4", "6"), "L within: 4 seqs, 6 comparisons");
+    let lb = find_group(&rows, "L", "B");
+    assert_eq!(lb[4], "8", "L-B: 4x2 = 8 comparisons");
+}
+
+#[test]
+fn fasta_lineages_lineage_mode() {
+    let r = new_run();
+    run_ok(&["fasta", LINEAGES, "-o", &r.prefix, "--lineage"]);
+    let rows = tsv(&format!("{}_lineage_summary.tsv", r.prefix));
+    assert_eq!(
+        rows[0],
+        ["Genome", "Against_Lineage", "Mean_dN", "Mean_dS", "dN/dS_Ratio"]
+    );
+    // 6 genomes x 3 lineages each = 18 rows.
+    assert_eq!(rows.len() - 1, 18, "6 genomes vs 3 lineages");
+    let genomes: std::collections::BTreeSet<&str> = rows[1..].iter().map(|r| r[0].as_str()).collect();
+    assert_eq!(genomes.len(), 6, "one block per genome");
+}
+
+// ─────────────── pass-only filter (examples/toy_genome/variants_mixed.vcf) ───────────────
+
+#[test]
+fn vcf_pass_only_drops_lowqual_variants() {
+    // variants_mixed.vcf carries 12 gene01 SNPs: 8 PASS + 4 LowQual.
+    const MIXED: &str = "examples/toy_genome/variants_mixed.vcf";
+    let all = new_run();
+    run_ok(&[
+        "vcf", "--ref", REF, "--gff", GFF, "--vcf", MIXED, "--genetic-code", "11", "-o", &all.prefix,
+    ]);
+    let pass = new_run();
+    run_ok(&[
+        "vcf", "--ref", REF, "--gff", GFF, "--vcf", MIXED, "--genetic-code", "11",
+        "--pass-only", "-o", &pass.prefix,
+    ]);
+    let g_all = f(&row(&tsv(&format!("{}_pnps.tsv", all.prefix)), "gene01")[9]);
+    let g_pass = f(&row(&tsv(&format!("{}_pnps.tsv", pass.prefix)), "gene01")[9]);
+    assert_eq!(g_all, 12.0, "all 12 SNPs counted without --pass-only");
+    assert_eq!(g_pass, 8.0, "--pass-only keeps only the 8 PASS SNPs");
 }
 
 // ─────────────────────────── error handling ───────────────────────────
