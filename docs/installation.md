@@ -1,6 +1,18 @@
 # Installation
 
-## From source (recommended)
+## Conda (bioconda)
+
+```bash
+conda install -c bioconda eskaks
+```
+
+Or with mamba:
+
+```bash
+mamba install -c bioconda eskaks
+```
+
+## From source
 
 ```bash
 git clone https://github.com/PathoGenOmics-Lab/eskaks.git

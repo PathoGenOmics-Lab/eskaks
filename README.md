@@ -6,7 +6,8 @@
 
 [![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-%23dea584?style=flat-square)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-1.4.0-%23149389?style=flat-square)](https://github.com/PathoGenOmics-Lab/eskaks/releases)
+[![Version](https://img.shields.io/badge/version-0.1.0-%23149389?style=flat-square)](https://github.com/PathoGenOmics-Lab/eskaks/releases)
+[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-%233EB049?style=flat-square)](https://bioconda.github.io/recipes/eskaks/README.html)
 [![CI](https://github.com/PathoGenOmics-Lab/eskaks/actions/workflows/ci.yml/badge.svg)](https://github.com/PathoGenOmics-Lab/eskaks/actions/workflows/ci.yml)
 [![PGO](https://img.shields.io/badge/PathoGenOmics-lab-%23E52421?style=flat-square)](https://github.com/PathoGenOmics-Lab)
 
@@ -49,7 +50,13 @@ on the Li model). New here? Start with the **[hands-on tutorial](docs/tutorial.m
 
 ## Get started
 
-Requires [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70.
+Install with conda:
+
+```bash
+conda install -c bioconda eskaks
+```
+
+Or build from source (requires [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70):
 
 ```bash
 git clone https://github.com/PathoGenOmics-Lab/eskaks.git
@@ -91,7 +98,7 @@ If you use eskaks in your research, please cite:
   author  = {Ruiz-Rodriguez, Paula and Coscoll{\'a}, Mireia},
   year    = {2026},
   url     = {https://github.com/PathoGenOmics-Lab/eskaks},
-  version = {1.4.0},
+  version = {0.1.0},
   license = {GPL-3.0}
 }
 ```

@@ -345,5 +345,5 @@ fn version_flag_shows_current_version() {
         .expect("spawn");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("1.4.0"), "version should be 1.4.0: {}", stdout);
+    assert!(stdout.contains("0.1.0"), "version should be 0.1.0: {}", stdout);
 }
