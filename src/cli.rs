@@ -37,7 +37,8 @@ EXAMPLES:
   eskaks fasta alignment.fasta -o results          # pairwise dN/dS from a codon alignment
   eskaks vcf --ref g.fa --gff g.gff3 --vcf v.vcf   # per-gene pN/pS from variants
 
-Run `eskaks help fasta` or `eskaks help vcf` for all options and more examples.";
+Run `eskaks help fasta` or `eskaks help vcf` for all options and more examples.
+Docs & guide: https://github.com/PathoGenOmics-Lab/eskaks";
 
 /// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
 #[derive(Parser, Debug)]
@@ -80,7 +81,7 @@ pub struct FastaArgs {
     /// Input file with aligned sequences in FASTA format
     pub input_file: String,
 
-    /// Number of parallel threads
+    /// Number of parallel threads (0 = use all available cores)
     #[arg(short, long, default_value_t = 4)]
     pub workers: usize,
 
@@ -153,14 +154,14 @@ pub struct FastaArgs {
     #[arg(long, default_value_t = 0, help_heading = "Statistics options")]
     pub bootstrap: usize,
 
-    /// Seed for reproducible bootstrap resampling.
+    /// Seed for reproducible bootstrap resampling (only used with --bootstrap).
     #[arg(long, default_value_t = 42, help_heading = "Statistics options")]
     pub seed: u64,
 }
 
 /// Arguments for the VCF subcommand.
 #[derive(Parser, Debug)]
-#[command(after_help = VCF_AFTER_HELP)]
+#[command(after_help = VCF_AFTER_HELP, allow_negative_numbers = true)]
 pub struct VcfArgs {
     /// Reference FASTA file
     #[arg(long = "ref", help_heading = "Input options")]
@@ -180,7 +181,7 @@ pub struct VcfArgs {
     #[arg(long, help_heading = "Input options")]
     pub vcf_list: Option<String>,
 
-    /// Number of parallel threads for the per-gene pN/pS computation
+    /// Number of parallel threads for the per-gene pN/pS computation (0 = all cores)
     #[arg(short, long, default_value_t = 4)]
     pub workers: usize,
 
@@ -266,11 +267,11 @@ pub struct VcfArgs {
     #[arg(long, default_value_t = 0, help_heading = "Statistics options")]
     pub bootstrap: usize,
 
-    /// Seed for the bootstrap resampling (for reproducible CIs).
+    /// Seed for the bootstrap resampling, for reproducible CIs (only used with --bootstrap).
     #[arg(long, default_value_t = 42, help_heading = "Statistics options")]
     pub seed: u64,
 
-    /// Also run a per-gene McDonald-Kreitman test (writes <prefix>_mk.<ext>):
+    /// Also run a per-gene McDonald-Kreitman test (writes <output>_mk.<ext>):
     /// 2x2 fixed/polymorphic table, Neutrality Index, alpha, and Fisher exact p.
     #[arg(long, help_heading = "Statistics options")]
     pub mk: bool,
@@ -284,7 +285,7 @@ pub struct VcfArgs {
     #[arg(long, help_heading = "Output options")]
     pub plot: bool,
 
-    /// Write a self-contained interactive HTML report (<prefix>_report.html)
+    /// Write a self-contained interactive HTML report (<output>_report.html)
     /// with summary cards, an interactive Manhattan plot, and a sortable,
     /// filterable per-gene table. No internet/CDN needed.
     #[arg(long, help_heading = "Output options")]

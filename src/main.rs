@@ -97,6 +97,7 @@ fn main() -> anyhow::Result<()> {
         for (id, name) in genetic_code::list_tables() {
             eprintln!("  {:>2}  {}", id, name);
         }
+        eprintln!("\nApply one with --genetic-code <N>, e.g. `eskaks fasta aln.fasta --genetic-code 11`.");
         return Ok(());
     }
 

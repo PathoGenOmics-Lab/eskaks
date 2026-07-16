@@ -203,6 +203,12 @@ All notable changes to this project will be documented in this file.
     `--bootstrap`** (< 100) **warns** the CI is unreliable; `eskaks vcf` shows a **per-gene
     progress bar** on genome-scale runs; and its end-of-run **output list matches the
     `fasta` "Done" block** (one file per line).
+  - Small polish: `--list-codes` now says how to apply a code; `--help` links the docs;
+    `--min-af -0.5` gives the tool's clear range error instead of a cryptic clap one; a
+    content-error is reported as "could not read as FASTA" rather than "failed to open";
+    **duplicate sequence ids** warn; passing a **directory** as input errors clearly; the
+    help documents `--workers 0` (= all cores) and that `--seed` only applies with
+    `--bootstrap`; and `vcf` help uses `<output>` consistently (was `<prefix>`).
 - **Follow-up sweep (adversarial round 4, over the code added earlier in this cycle):**
   - **The HTML report's dN/dS histogram mis-binned identical (zero-divergence) pairs.**
     After the report started aggregating over all id-pairs, `collect_report_pairwise`

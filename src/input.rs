@@ -32,6 +32,9 @@ pub fn ensure_not_gzipped(path: &str) -> anyhow::Result<()> {
     if is_stdin(path) {
         return Ok(());
     }
+    if std::path::Path::new(path).is_dir() {
+        bail!("'{path}' is a directory, not a FASTA file.");
+    }
     if let Ok(mut f) = std::fs::File::open(path) {
         let mut magic = [0u8; 2];
         if f.read_exact(&mut magic).is_ok() && magic == [0x1f, 0x8b] {
@@ -77,8 +80,13 @@ pub fn load_sequences(
             parse_fastx_reader(&stdin_buf[..])
                 .context("Failed to parse FASTA from stdin")?
         } else {
-            parse_fastx_file(input_file)
-                .with_context(|| format!("Failed to open input file '{}'", input_file))?
+            parse_fastx_file(input_file).with_context(|| {
+                format!(
+                    "Could not read '{}' as FASTA — check the path exists and the file is a \
+                     valid, uncompressed FASTA",
+                    input_file
+                )
+            })?
         };
         while let Some(record) = reader.next() {
             let rec = record?;
@@ -163,6 +171,32 @@ pub fn load_sequences(
         );
     }
     info!("Found {} total sequences.", ids.len());
+
+    // Duplicate ids usually mean a data-prep slip; they also make the output rows
+    // ambiguous (two rows share the same Seq1/Seq2 label), so flag them.
+    {
+        let mut seen = std::collections::HashSet::new();
+        let mut dups: Vec<&str> = ids
+            .iter()
+            .filter(|id| !seen.insert(id.as_str()))
+            .map(|s| s.as_str())
+            .collect();
+        if !dups.is_empty() {
+            dups.sort_unstable();
+            dups.dedup();
+            let shown = if dups.len() <= 5 {
+                dups.join(", ")
+            } else {
+                format!("{}, ... and {} more", dups[..5].join(", "), dups.len() - 5)
+            };
+            warn!(
+                "{} duplicate sequence id(s) ({}); output rows for them will be ambiguous. \
+                 Use unique ids.",
+                dups.len(),
+                shown
+            );
+        }
+    }
 
     // Warn about sequences with no valid codons
     let empty_seqs: Vec<&str> = ids
