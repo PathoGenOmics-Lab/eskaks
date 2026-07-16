@@ -69,6 +69,70 @@ pub fn write_results(
     Ok(output_path)
 }
 
+/// Write the per-coding-SNP variants table behind the pN/pS counts: one row per
+/// ALT allele located in a CDS, with its genomic position, base change, protein
+/// residue and amino-acid change (e.g. `S315T`), allele frequency, and effect
+/// (synonymous / missense / nonsense / stop_loss). This is the mutation-level key
+/// a user joins to the WHO catalogue or TB-Profiler; nonsense/stop-loss changes
+/// are included even though they are excluded from the pN/pS site & SNP counts.
+pub fn write_variants(
+    results: &[GenePnPs],
+    prefix: &str,
+    format: &crate::models::OutputFormat,
+) -> anyhow::Result<String> {
+    use std::fs::File;
+    use std::io::{BufWriter, Write};
+
+    let ext = format.extension();
+    let output_path = format!("{}_variants.{}", prefix, ext);
+    let mut file = BufWriter::new(File::create(&output_path)?);
+    let change = |v: &Variant| format!("{}{}{}", v.ref_aa as char, v.aa_pos, v.alt_aa as char);
+
+    match format {
+        crate::models::OutputFormat::Json => {
+            writeln!(file, "[")?;
+            let mut first = true;
+            for g in results {
+                for v in &g.variants {
+                    let comma = if first { "" } else { ",\n" };
+                    first = false;
+                    write!(
+                        file,
+                        "{comma}  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"pos\":{},\"strand\":\"{}\",\"ref\":\"{}\",\"alt\":\"{}\",\"aa_pos\":{},\"ref_aa\":\"{}\",\"alt_aa\":\"{}\",\"change\":\"{}\",\"af\":{},\"effect\":\"{}\"}}",
+                        json_escape(&g.name), json_escape(&g.chrom), v.pos, g.strand,
+                        v.ref_allele as char, v.alt_allele as char, v.aa_pos,
+                        v.ref_aa as char, v.alt_aa as char, change(v),
+                        format_json_num(v.af), v.effect.label()
+                    )?;
+                }
+            }
+            writeln!(file, "\n]")?;
+        }
+        _ => {
+            let sep = format.separator();
+            writeln!(
+                file,
+                "Gene{s}Chrom{s}Pos{s}Strand{s}Ref{s}Alt{s}AA_Pos{s}Ref_AA{s}Alt_AA{s}Change{s}AF{s}Effect",
+                s = sep
+            )?;
+            for g in results {
+                for v in &g.variants {
+                    writeln!(
+                        file,
+                        "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{:.4}{s}{}",
+                        delim_field(&g.name, sep), delim_field(&g.chrom, sep), v.pos, g.strand,
+                        v.ref_allele as char, v.alt_allele as char, v.aa_pos,
+                        v.ref_aa as char, v.alt_aa as char, change(v), v.af, v.effect.label(),
+                        s = sep
+                    )?;
+                }
+            }
+        }
+    }
+
+    Ok(output_path)
+}
+
 /// Write per-gene McDonald-Kreitman results: the 2×2 fixed/polymorphic table
 /// (Dn, Ds, Pn, Ps), Neutrality Index, alpha (proportion of adaptive
 /// substitutions), a two-sided Fisher exact p-value, and its BH-FDR q-value.

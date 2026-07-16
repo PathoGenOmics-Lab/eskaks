@@ -280,6 +280,13 @@ pub struct VcfArgs {
     #[arg(long, help_heading = "Statistics options")]
     pub mk: bool,
 
+    /// Write the per-variant table (<output>_variants.<ext>): one row per coding
+    /// SNP with genomic position, base and amino-acid change (e.g. S315T), allele
+    /// frequency, and effect (synonymous/missense/nonsense/stop_loss). The
+    /// mutation-level key for joining to a resistance catalogue.
+    #[arg(long, help_heading = "Output options")]
+    pub variants: bool,
+
     /// Allele frequency at/above which a variant is treated as "fixed"
     /// (divergence) rather than polymorphic in the McDonald-Kreitman test.
     #[arg(long, default_value_t = 0.99, help_heading = "Statistics options")]

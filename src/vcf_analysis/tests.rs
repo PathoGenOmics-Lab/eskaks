@@ -184,6 +184,7 @@ fn gene_result(n_sites: f64, s_sites: f64, nonsyn: f64, syn: f64) -> GenePnPs {
         repetitive: false,
         sfs_nonsyn: [0; SFS_NBINS],
         sfs_syn: [0; SFS_NBINS],
+        variants: Vec::new(),
     }
 }
 

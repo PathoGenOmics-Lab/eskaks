@@ -315,6 +315,13 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         written.push(mk_path);
     }
 
+    // Per-variant table (optional): the mutation-level detail behind each gene.
+    if args.variants {
+        let var_path = vcf_analysis::write_variants(&results, &args.output, &args.format)?;
+        info!("Per-variant table saved to {}", var_path);
+        written.push(var_path);
+    }
+
     // Generate plots if requested. Each writer returns None when it has no data to plot
     // (e.g. no coding SNPs), so we only list files that were actually written.
     if args.plot {

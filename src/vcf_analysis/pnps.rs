@@ -133,6 +133,9 @@ pub fn compute_pn_ps(
             // Site frequency spectrum: nonsyn/syn SNP counts per allele-frequency bin.
             let mut sfs_nonsyn = [0u32; SFS_NBINS];
             let mut sfs_syn = [0u32; SFS_NBINS];
+            // Per-coding-SNP records for the optional variants table (all effects,
+            // including nonsense/stop-loss that the pN/pS counts below exclude).
+            let mut variants: Vec<Variant> = Vec::new();
 
             if let Some(snps_list) = chrom_snps {
                 // SNPs are position-sorted, so binary-search the gene's genomic
@@ -196,30 +199,51 @@ pub fn compute_pn_ps(
                             };
                             alt_codon[pos_in_codon] = alt_in_cds;
 
-                            // Look up amino acids
-                            let ref_aa = codon_to_aa(&ref_codon, gc);
-                            let alt_aa = codon_to_aa(&alt_codon, gc);
+                            // Look up amino acids; an ambiguous codon (None) is skipped.
+                            let (Some(r), Some(a)) = (codon_to_aa(&ref_codon, gc), codon_to_aa(&alt_codon, gc))
+                            else {
+                                continue;
+                            };
+                            let af = snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0);
 
-                            match (ref_aa, alt_aa) {
-                                (Some(r), Some(a)) if r != b'*' && a != b'*' => {
-                                    // MK split uses this ALT's allele frequency,
-                                    // as raw counts (not AF-weighted).
-                                    let af = snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0);
-                                    let fixed = af >= mk_fixed_af;
-                                    let bin = sfs_bin(af);
-                                    n_snps_raw += 1;
-                                    if r == a {
-                                        syn_count += weight;
-                                        sfs_syn[bin] += 1;
-                                        if fixed { mk_ds += 1 } else { mk_ps += 1 }
-                                    } else {
-                                        nonsyn_count += weight;
-                                        sfs_nonsyn[bin] += 1;
-                                        if fixed { mk_dn += 1 } else { mk_pn += 1 }
-                                    }
+                            // Record the variant for the optional table, classifying every
+                            // coding effect — including nonsense/stop-loss.
+                            let effect = if r == a {
+                                SnpEffect::Synonymous
+                            } else if a == b'*' {
+                                SnpEffect::Nonsense
+                            } else if r == b'*' {
+                                SnpEffect::StopLoss
+                            } else {
+                                SnpEffect::Missense
+                            };
+                            variants.push(Variant {
+                                pos: snp.pos,
+                                ref_allele: snp.ref_allele,
+                                alt_allele: *alt_base,
+                                aa_pos: codon_idx + 1,
+                                ref_aa: r,
+                                alt_aa: a,
+                                af,
+                                effect,
+                            });
+
+                            // pN/pS + MK + SFS counting: synonymous and missense only
+                            // (changes to/from a stop are excluded, as before). Uses this
+                            // ALT's allele frequency as raw counts (not AF-weighted).
+                            if r != b'*' && a != b'*' {
+                                let fixed = af >= mk_fixed_af;
+                                let bin = sfs_bin(af);
+                                n_snps_raw += 1;
+                                if r == a {
+                                    syn_count += weight;
+                                    sfs_syn[bin] += 1;
+                                    if fixed { mk_ds += 1 } else { mk_ps += 1 }
+                                } else {
+                                    nonsyn_count += weight;
+                                    sfs_nonsyn[bin] += 1;
+                                    if fixed { mk_dn += 1 } else { mk_pn += 1 }
                                 }
-                                // Skip: ambiguous codons or mutations to/from stop
-                                _ => continue,
                             }
                         }
                     }
@@ -316,6 +340,7 @@ pub fn compute_pn_ps(
                 repetitive: is_repetitive(&gene.name),
                 sfs_nonsyn,
                 sfs_syn,
+                variants,
             })
         })
         .collect();

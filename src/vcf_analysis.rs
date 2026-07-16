@@ -22,7 +22,7 @@ mod tests;
 
 // Public API (re-exported so callers keep using `vcf_analysis::…`).
 pub use neutrality::{apply_genomic_control, apply_multiple_testing, genomic_inflation_lambda};
-pub use output::{write_mk_results, write_results};
+pub use output::{write_mk_results, write_results, write_variants};
 pub use plots::{write_pnps_plot, write_pvalue_manhattan};
 pub use pnps::{
     bootstrap_genome_wide_ci, compute_pn_ps, genome_wide_core_repetitive, genome_wide_pn_ps,
@@ -108,6 +108,53 @@ pub struct GenePnPs {
     /// panel; not written to the per-gene table.
     pub sfs_nonsyn: [u32; SFS_NBINS],
     pub sfs_syn: [u32; SFS_NBINS],
+    /// Per-coding-SNP records behind this gene's counts, in genomic order. Written
+    /// to `<output>_variants.tsv` under `--variants`. Includes nonsense/stop-loss
+    /// changes (excluded from the pN/pS counts but important for resistance triage).
+    pub variants: Vec<Variant>,
+}
+
+/// The coding effect of a single ALT allele on its codon.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnpEffect {
+    /// Same amino acid (counts toward pS).
+    Synonymous,
+    /// Different amino acid, neither a stop (counts toward pN).
+    Missense,
+    /// A coding codon → stop (excluded from pN/pS site & SNP counts).
+    Nonsense,
+    /// A reference stop → a coding amino acid (excluded from pN/pS counts).
+    StopLoss,
+}
+
+impl SnpEffect {
+    pub fn label(self) -> &'static str {
+        match self {
+            SnpEffect::Synonymous => "synonymous",
+            SnpEffect::Missense => "missense",
+            SnpEffect::Nonsense => "nonsense",
+            SnpEffect::StopLoss => "stop_loss",
+        }
+    }
+}
+
+/// One coding single-nucleotide variant located within a gene's CDS. Gene name,
+/// chromosome and strand come from the parent [`GenePnPs`], so this stays lean.
+#[derive(Debug, Clone)]
+pub struct Variant {
+    /// 1-based genomic position.
+    pub pos: usize,
+    /// Reference and alternate base on the genomic (VCF) strand.
+    pub ref_allele: u8,
+    pub alt_allele: u8,
+    /// 1-based residue (codon) number within the protein.
+    pub aa_pos: usize,
+    /// Reference and alternate amino acid (one-letter; `*` = stop).
+    pub ref_aa: u8,
+    pub alt_aa: u8,
+    /// Allele frequency of this ALT.
+    pub af: f64,
+    pub effect: SnpEffect,
 }
 
 /// Number of allele-frequency bins for the site-frequency-spectrum panel.

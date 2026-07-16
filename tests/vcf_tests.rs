@@ -774,3 +774,64 @@ fn list_codes_still_works_at_top_level() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Standard"), "should list Standard code");
 }
+
+/// --variants writes one row per coding SNP with its amino-acid change and effect.
+#[test]
+fn vcf_variants_table_lists_each_coding_snp() {
+    let out = "/tmp/eskaks_test_variants";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_hand.vcf",
+            "--genetic-code", "11", "--variants", "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    let rows = parse_tsv(&format!("{}_variants.tsv", out));
+    assert_eq!(
+        rows[0],
+        ["Gene", "Chrom", "Pos", "Strand", "Ref", "Alt", "AA_Pos", "Ref_AA", "Alt_AA", "Change", "AF", "Effect"]
+    );
+    assert_eq!(rows.len() - 1, 3, "3 coding SNPs on gene gval");
+    // gval = GCT-TTT-TGG: pos3 GCT→GCC A1A synonymous; pos4 TTT→GTT F2V missense;
+    // pos9 TGG→TGT W3C missense — the mutation-level key a resistance catalogue joins on.
+    let at = |p: &str| rows[1..].iter().find(|r| r[2] == p).unwrap_or_else(|| panic!("no SNP at {p}"));
+    let ce = |r: &Vec<String>| (r[9].as_str().to_string(), r[11].as_str().to_string());
+    assert_eq!(ce(at("3")), ("A1A".into(), "synonymous".into()));
+    assert_eq!(ce(at("4")), ("F2V".into(), "missense".into()));
+    assert_eq!(ce(at("9")), ("W3C".into(), "missense".into()));
+    fs::remove_file(format!("{}_variants.tsv", out)).ok();
+}
+
+/// A nonsense (stop-gain) SNP must appear in the variants table (it is a
+/// loss-of-function a resistance analyst needs) yet be EXCLUDED from the pN/pS
+/// counts (the Nei-Gojobori exclude-nonsense convention).
+#[test]
+fn vcf_variants_include_nonsense_but_pnps_excludes_it() {
+    let out = "/tmp/eskaks_test_variants_ns";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_nonsense.vcf",
+            "--genetic-code", "11", "--variants", "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    // The variant is recorded as a nonsense W3* change.
+    let vrows = parse_tsv(&format!("{}_variants.tsv", out));
+    assert_eq!(vrows.len() - 1, 1, "one coding SNP");
+    let v = &vrows[1];
+    assert_eq!(v[9], "W3*", "Trp→stop change");
+    assert_eq!(v[11], "nonsense");
+    // But it contributes nothing to the pN/pS counts (changes to stop are excluded).
+    let prows = parse_tsv(&format!("{}_pnps.tsv", out));
+    let g = prows.iter().find(|r| r[0] == "gval").expect("gene gval");
+    assert_eq!(g[7], "0.0000", "nonsyn count excludes the nonsense SNP");
+    assert_eq!(g[9], "0.0000", "total count excludes the nonsense SNP");
+    fs::remove_file(format!("{}_variants.tsv", out)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out)).ok();
+}
