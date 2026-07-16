@@ -200,7 +200,10 @@ pub fn write_pairwise(
             *cur_gen = cur_gen.wrapping_add(1);
             let gen = *cur_gen;
             let u_i = uidx_by_id[i];
-            row_cache[u_i] = DsDn { dn: 0.0, ds: 0.0 };
+            // Compute the self-comparison rather than hard-coding 0/0: an all-N /
+            // all-gap sequence has no comparable codons, so its dN/dS is NaN, not a
+            // spurious 0.0. compute_pair short-circuits the u==u case, so this is cheap.
+            row_cache[u_i] = compute_pair(u_i, u_i);
             gen_map[u_i] = gen;
 
             for j in (i + 1)..ids.len() {

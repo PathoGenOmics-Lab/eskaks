@@ -38,7 +38,18 @@ impl ComputeEngine {
     #[inline]
     pub fn compute_pair(&self, data: &SequenceData, u_i: usize, u_j: usize) -> DsDn {
         if u_i == u_j {
-            return DsDn { dn: 0.0, ds: 0.0 };
+            // A sequence versus itself has 0 divergence — but only if it has at least
+            // one valid codon. An all-N / all-gap sequence has no comparable codons, so
+            // its dN/dS is undefined (NaN), not a spurious 0.0 that reads as strong
+            // purifying selection.
+            return if data.unique_codon_indices[u_i]
+                .iter()
+                .all(|&c| c == crate::codon::INVALID_CODON)
+            {
+                DsDn { dn: f64::NAN, ds: f64::NAN }
+            } else {
+                DsDn { dn: 0.0, ds: 0.0 }
+            };
         }
         let (dn, ds) = self.compute_slices(
             &data.unique_codon_indices[u_i],
@@ -115,7 +126,15 @@ impl ComputeEngine {
     #[inline]
     pub fn compute_pair_stats(&self, data: &SequenceData, u_i: usize, u_j: usize) -> (f64, f64, f64, f64) {
         if u_i == u_j {
-            return (0.0, 0.0, 0.0, 0.0);
+            // See compute_pair: an all-invalid self-comparison is undefined, not 0.
+            return if data.unique_codon_indices[u_i]
+                .iter()
+                .all(|&c| c == crate::codon::INVALID_CODON)
+            {
+                (f64::NAN, f64::NAN, f64::NAN, f64::NAN)
+            } else {
+                (0.0, 0.0, 0.0, 0.0)
+            };
         }
         let s1 = &data.unique_codon_indices[u_i];
         let s2 = &data.unique_codon_indices[u_j];
@@ -165,6 +184,39 @@ mod tests {
         let result = engine.compute_pair(&data, 0, 0);
         assert_eq!(result.dn, 0.0);
         assert_eq!(result.ds, 0.0);
+    }
+
+    #[test]
+    fn all_invalid_self_pair_is_nan_not_zero() {
+        // A sequence with no comparable codons (all-N / all-gap) compared with
+        // itself carries no information: dN/dS must be NaN, not a spurious 0.0
+        // that would read as perfect purifying selection. Regression for all-N
+        // pairs rendering as 0.0.
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        for model in [Model::Nei, Model::Li] {
+            let engine = ComputeEngine::new(model, gc);
+            let data = make_data(&[b"NNNNNNNNN", b"---------"], model);
+            for u in [0usize, 1usize] {
+                let d = engine.compute_pair(&data, u, u);
+                assert!(d.dn.is_nan(), "{:?} all-invalid self dN should be NaN", model);
+                assert!(d.ds.is_nan(), "{:?} all-invalid self dS should be NaN", model);
+                let (dn, ds, vn, vs) = engine.compute_pair_stats(&data, u, u);
+                assert!(dn.is_nan() && ds.is_nan() && vn.is_nan() && vs.is_nan());
+            }
+        }
+    }
+
+    #[test]
+    fn identical_with_one_valid_codon_is_zero_not_nan() {
+        // A single comparable codon is enough information to report zero
+        // divergence; only truly all-invalid sequences collapse to NaN.
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let data = make_data(&[b"ATGNNNNNN", b"ATGNNNNNN"], Model::Nei);
+        let d = engine.compute_pair(&data, 0, 0);
+        assert_eq!(d.dn, 0.0);
+        assert_eq!(d.ds, 0.0);
+        assert_eq!(engine.compute_pair_stats(&data, 0, 0), (0.0, 0.0, 0.0, 0.0));
     }
 
     #[test]

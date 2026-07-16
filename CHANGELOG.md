@@ -173,6 +173,14 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **All-N / all-gap pairs reported dN/dS = 0.0 instead of undefined.** A sequence
+  with no comparable codons (entirely `N`, ambiguous, or gap) was rendered as a
+  perfect `0.0` self-comparison, which reads as extreme purifying selection rather
+  than "no data". The pairwise diagonal now runs through the compute engine, and
+  both `compute_pair` and `compute_pair_stats` return `NaN` for an all-invalid
+  self-comparison while an identical pair with at least one valid codon still
+  reports `0.0`. Sliding-window and group-average paths inherit the fix (all-N
+  windows are `NaN`; an all-N group contributes zero comparisons, not a spurious 0).
 - **Adversarial bug-hunt round, second batch:**
   - **`--min-snps` filtered on the AF-weighted fractional total under `--af-weighted`**,
     so it dropped genes that had far more than the threshold in real SNPs. It now
