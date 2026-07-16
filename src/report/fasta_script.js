@@ -10,11 +10,65 @@ const MYCOLORS = {A1:"#d1ae00",A2:"#8ef5c8",A3:"#73c2ff",A4:"#ff9cdb",L1:"#ff309
   L3:"#8a0bd2",L4:"#ff0000",L5:"#995200",L6:"#1eb040",L7:"#fbff00",L8:"#ff9d00",L9:"#37ff30",L10:"#8fbda1"};
 const SER = ["--s1","--s2","--s3","--s4","--s5","--s6","--s7","--s8"];
 
+// ── "i" interpretation help — same popover mechanism as the vcf report ──────────
+const HELP = {
+  pairs:{title:"Pairs & valid pairs",lead:"How many pairwise sequence comparisons were formed, and how many yielded a usable dN/dS.",x:"",y:"",
+    read:["Pairs: every sequence pair compared (n·(n−1)/2 for n aligned sequences).","Valid pairs: those with dS &gt; 0 and a finite dN/dS; a pair with no synonymous differences is undefined and excluded."],
+    watch:["A wide gap between pairs and valid pairs means many comparisons had zero synonymous substitutions — common for near-identical or very short sequences."]},
+  pooled:{title:"Pooled dN/dS",lead:"One overall ratio pooled across all valid pairs: Σ dN / Σ dS, so more-divergent pairs weigh more.",x:"",y:"",
+    read:["Below 1: purifying selection — nonsynonymous change is suppressed, the usual signal for conserved coding sequence.","Above 1: excess nonsynonymous divergence — candidate positive/diversifying selection.","This is a point estimate over pairs; the report reports no per-ratio significance test or CI."],
+    watch:["Pooling is dominated by the most divergent pairs; it summarises the set, not any single lineage.","dN/dS between very closely related sequences is unstable — read it alongside the per-pair scatter and the sliding window."]},
+  meandnds:{title:"Mean dN / dS",lead:"The mean of per-pair dN and of per-pair dS, reported separately (not the mean of the ratios).",x:"",y:"",
+    read:["Compare with the pooled ratio: if the two diverge, a few high-divergence pairs are driving the pooled value."],
+    watch:["Averaging dN and dS separately avoids the instability of averaging ratios when some pairs have tiny dS."]},
+  window:{title:"dN/dS along the alignment (sliding window)",lead:"Mean dN/dS in a window slid across codon positions, revealing where along the sequence selective pressure varies.",x:"Codon position along the alignment (window centre).",y:"Mean dN/dS in the window; the dashed line marks the neutral expectation dN/dS = 1.",
+    read:["Dips well below 1: strongly constrained regions (active sites, structural cores).","Peaks above 1 (red): a local excess of amino-acid change — candidate diversifying sites.","The connecting line traces the positional trend; isolated points are single windows."],
+    watch:["Short windows are noisy; a lone peak from few substitutions is fragile.","The window track shares the model and alignment of the pooled estimate — a misalignment shifts the whole curve."]},
+  lineage:{title:"dN/dS by lineage",lead:"Per-genome dN/dS grouped by lineage, with a bar at each lineage's mean, showing between-lineage variation in selective pressure.",x:"Lineage (grouped along x).",y:"dN/dS for each genome (points); the bar is the lineage mean. Dashed line = neutral (1).",
+    read:["A lineage sitting well below 1: pervasive purifying selection.","A lineage shifted upward: relaxed constraint or diversifying selection worth a closer look.","Spread within a lineage shows how consistent the signal is across its genomes."],
+    watch:["Lineages with few genomes give unstable means.","Lineage colours follow the mycolorsTB scheme by name (L1–L10, A1–A4) where recognised, else a series colour."]},
+  group:{title:"dN/dS by group — mean ± 95% CI",lead:"Group mean dN/dS with a 95% confidence interval, so a group whose interval excludes 1 shows a supported departure from neutrality.",x:"Group.",y:"Mean dN/dS; whiskers = 95% CI. Dashed line = neutral (1).",
+    read:["Interval entirely below 1: well-supported purifying selection.","Interval spanning 1: not distinguishable from neutral at this sample size.","Interval entirely above 1: supported diversifying selection."],
+    watch:["The CI reflects between-pair scatter and group size; small groups give wide intervals.","Overlapping intervals between groups mean the difference is not resolved."]},
+  dndsscatter:{title:"dN vs dS — one point per pair",lead:"Each pair plotted by synonymous (dS) and nonsynonymous (dN) divergence; the diagonal is neutrality (dN = dS).",x:"dS — synonymous substitutions per synonymous site.",y:"dN — nonsynonymous substitutions per nonsynonymous site.",
+    read:["Below the diagonal (dN &lt; dS): purifying selection — the majority signal for coding sequence.","Above the diagonal (dN &gt; dS, red): excess amino-acid change — candidate positive selection.","Distance out along the diagonal reflects overall divergence between the pair."],
+    watch:["Points near the origin are near-identical pairs where dN/dS is very unstable.","A pair at dS ≈ 0 has an undefined ratio and is excluded from the pooled estimate."]},
+  histdist:{title:"Pairwise dN/dS distribution",lead:"Histogram of per-pair dN/dS, showing the dominant selective regime across the pair set and any tail of high-ratio pairs.",x:"Per-pair dN/dS bin (1.0 = neutral).",y:"Number of pairs in each bin.",
+    read:["Mass below 1: purifying selection dominates the set.","A bin around 1: pairs indistinguishable from neutral, often low-divergence.","A right tail beyond 1: candidate diversifying pairs — inspect them in the dN-vs-dS scatter."],
+    watch:["Low-divergence pairs give unstable ratios that smear the distribution; a bin's position is not a significance test."]},
+};
+function helpHtml(h){
+  return '<h4>'+h.title+'</h4><p class="lead">'+h.lead+'</p>'
+    +(h.x?'<div class="ax"><b>x</b> — '+h.x+'</div>':'')
+    +(h.y?'<div class="ax"><b>y</b> — '+h.y+'</div>':'')
+    +((h.read&&h.read.length)?'<ul>'+h.read.map(function(s){return '<li>'+s+'</li>';}).join('')+'</ul>':'')
+    +((h.watch&&h.watch.length)?'<div class="warn"><b>Watch out</b> — '+h.watch.join(' · ')+'</div>':'');
+}
+const infoBtn = key => (HELP[key]?`<button class="info" data-help="${key}" title="What is this?" aria-label="What is this?">i</button>`:"");
+const infopop=$("#infopop"); let openInfo=null;
+function positionPop(btn){
+  const r=btn.getBoundingClientRect(), pw=infopop.offsetWidth, ph=infopop.offsetHeight, m=8;
+  const left=Math.max(m, Math.min(r.left, window.innerWidth-pw-m));
+  let top=r.bottom+6; if(top+ph>window.innerHeight-m) top=r.top-ph-6;   // flip above if it would overflow below
+  top=Math.max(m, Math.min(top, window.innerHeight-ph-m));               // clamp fully into the viewport
+  infopop.style.left=left+'px'; infopop.style.top=top+'px';
+}
+function showInfo(btn){ const h=HELP[btn.dataset.help]; if(!h||!infopop) return;
+  infopop.innerHTML=helpHtml(h); infopop.hidden=false; positionPop(btn);
+  btn.classList.add('on'); openInfo=btn; }
+function hideInfo(){ if(!infopop) return; infopop.hidden=true; if(openInfo)openInfo.classList.remove('on'); openInfo=null; }
+document.addEventListener('click', function(e){ const b=e.target.closest&&e.target.closest('.info');
+  if(b){ e.stopPropagation(); if(openInfo===b){hideInfo();}else{hideInfo();showInfo(b);} return; }
+  if(!(e.target.closest&&e.target.closest('#infopop'))) hideInfo(); });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && openInfo){ hideInfo(); e.stopImmediatePropagation(); } });
+window.addEventListener('resize', hideInfo);
+window.addEventListener('scroll', hideInfo, true);
+
 $("#meta").textContent = `model ${M.model} · ${M.totalPairs} pairs (${M.validPairs} valid)`;
-const card = (k,v,cls) => `<div class="card${cls?" "+cls:""}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const card = (k,v,cls,help) => `<div class="card${cls?" "+cls:""}"><div class="k">${k}${help?infoBtn(help):""}</div><div class="v">${v}</div></div>`;
 $("#cards").innerHTML =
-  card("Pairs", M.totalPairs) + card("Valid pairs", M.validPairs) +
-  card("Pooled dN/dS", fmt(M.pooled), "hero") + card("Mean dN / dS", fmt(M.meanDn,3)+" / "+fmt(M.meanDs,3));
+  card("Pairs", M.totalPairs, "", "pairs") + card("Valid pairs", M.validPairs, "", "pairs") +
+  card("Pooled dN/dS", fmt(M.pooled), "hero", "pooled") + card("Mean dN / dS", fmt(M.meanDn,3)+" / "+fmt(M.meanDs,3), "", "meandnds");
 
 // ── Hero verdict banner: plain-language direction of the pooled ratio (mirrors the vcf report).
 // This is a pooled point estimate over lineage/group pairs, with no per-ratio significance test,
@@ -30,12 +84,15 @@ $("#cards").innerHTML =
   v.innerHTML=
     '<span class="dot" style="background:'+dotc+';color:'+dotc+'"></span>'+
     '<div style="flex:1;min-width:0"><div class="vlab">Pooled dN/dS '+val+'— '+lab+'</div>'+
-    '<div class="vsub">pooled across '+M.validPairs+' of '+M.totalPairs+' pair(s) · '+hesc(M.model)+' · point estimate</div></div>';
+    '<div class="vsub">pooled across '+M.validPairs+' of '+M.totalPairs+' pair(s) · '+hesc(M.model)+' · point estimate</div></div>'+
+    infoBtn("pooled");
   v.style.setProperty("--vc", dotc);   // regime colour drives the banner's accent edge + wash
 })();
 
 const sec = $("#sections");
-function addSection(title, id){ const d=document.createElement("section"); d.innerHTML=`<h2>${title}</h2><div style="overflow-x:auto" id="${id}"></div>`; sec.appendChild(d); return $("#"+id); }
+function addSection(title, id, help){ const d=document.createElement("section");
+  d.innerHTML=`<h2><span class="htitle">${title}</span>${help?infoBtn(help):""}</h2><div style="overflow-x:auto" id="${id}"></div>`;
+  sec.appendChild(d); return $("#"+id); }
 function wireTip(c){
   c.addEventListener("mousemove", e=>{ const info=e.target.getAttribute && e.target.getAttribute("data-tip");
     if(info){ tip.innerHTML=info; tip.style.opacity=1; tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY+12)+"px"; } else tip.style.opacity=0; });
@@ -48,7 +105,7 @@ function neutral(s,ml,pw,ymax,Y){ if(1<=ymax){ const y=Y(1);
 
 // ── Sliding-window dN/dS along the alignment — positional "Manhattan" ──
 if (DATA.window) {
-  const box = addSection("dN/dS along the alignment (sliding window)", "winplot");
+  const box = addSection("dN/dS along the alignment (sliding window)", "winplot", "window");
   const w = DATA.window.filter(p=>p[1]!=null && isFinite(p[1]));
   const W=900,H=360,ml=60,mr=30,mt=20,mb=54,pw=W-ml-mr,ph=H-mt-mb;
   const xmax=Math.max(1,...w.map(p=>p[0])), ymax=Math.max(1.1,...w.map(p=>p[1]))*1.1;
@@ -69,7 +126,7 @@ if (DATA.window) {
 
 // ── Lineage strip-scatter (points per genome + per-lineage mean) ──
 if (DATA.lineage) {
-  const box = addSection("dN/dS by lineage — points per genome, bar = mean", "linplot");
+  const box = addSection("dN/dS by lineage — points per genome, bar = mean", "linplot", "lineage");
   const pts = DATA.lineage.filter(d=>d.ratio!=null && isFinite(d.ratio));
   const lins = [...new Set(pts.map(d=>d.lineage))];
   const meanOf={}, nOf={};
@@ -97,7 +154,7 @@ if (DATA.lineage) {
 
 // ── Group mean ± 95% CI scatter ──
 if (DATA.group) {
-  const box = addSection("dN/dS by group — mean ± 95% CI", "grpplot");
+  const box = addSection("dN/dS by group — mean ± 95% CI", "grpplot", "group");
   const g = DATA.group.filter(d=>d.mean!=null && isFinite(d.mean));
   const W=Math.max(560, 90*g.length+140), H=440, ml=60,mr=30,mt=20,mb=120, pw=W-ml-mr, ph=H-mt-mb;
   const ymax=Math.max(1.1, ...g.map(d=>isFinite(d.ciHigh)?d.ciHigh:d.mean))*1.1;
@@ -116,7 +173,7 @@ if (DATA.group) {
 
 // ── dN vs dS scatter (one point per pair) ──
 if (DATA.dnds) {
-  const box = addSection("dN vs dS — one point per pair (above the line = dN>dS)", "dndsplot");
+  const box = addSection("dN vs dS — one point per pair (above the line = dN>dS)", "dndsplot", "dndsscatter");
   const pts = DATA.dnds.filter(p=>p[0]!=null && p[1]!=null && isFinite(p[0]) && isFinite(p[1]));
   const W=560,H=460,ml=64,mr=24,mt=20,mb=54,pw=W-ml-mr,ph=H-mt-mb;
   const amax=Math.max(0.1, ...pts.map(p=>Math.max(p[0],p[1])))*1.08;
@@ -137,7 +194,7 @@ if (DATA.dnds) {
 
 // ── Pairwise dN/dS distribution ──
 if (DATA.hist) {
-  const box = addSection("Pairwise dN/dS distribution", "histplot");
+  const box = addSection("Pairwise dN/dS distribution", "histplot", "histdist");
   const h=DATA.hist, cmax=Math.max(1,...h.map(d=>d.count));
   const W=760,H=320,ml=60,mr=20,mt=20,mb=70,pw=W-ml-mr,ph=H-mt-mb,bw=pw/h.length;
   let s=`<svg viewBox="0 0 ${W} ${H}">`;
@@ -153,9 +210,43 @@ if (DATA.hist) {
 
 if(!DATA.lineage && !DATA.group && !DATA.hist && !DATA.dnds && !DATA.window){ sec.innerHTML='<p style="color:var(--muted)">No visualizations available for this run.</p>'; }
 
-// ── Theme toggle + JSON export ────────────────────────────────────────
+// ── Theme toggle · CSV / JSON export · print ──────────────────────────
 $("#themeTog").addEventListener("click", ()=>{ const r=document.documentElement;
   const cur=r.getAttribute("data-theme")||(matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light");
   r.setAttribute("data-theme", cur==="dark"?"light":"dark"); });
-$("#expJson").addEventListener("click", ()=>{ const b=new Blob([JSON.stringify(DATA,null,1)],{type:"application/json"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="eskaks_dnds.json"; a.click(); URL.revokeObjectURL(a.href); });
+
+function dl(name,txt,type){ const b=new Blob([txt],{type}); const a=document.createElement("a");
+  a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href); }
+// Numbers pass through verbatim (full precision, and never a formula); only STRING cells are
+// quoted and, if they open with =+-@ (tab/CR), prefixed with ' to defuse spreadsheet formula injection.
+const csvCell = v => {
+  if(typeof v==="number") return isFinite(v)?String(v):"";
+  let s=String(v==null?"":v);
+  // Defuse spreadsheet formula injection: =/@ always start a formula; +/- only when more than a
+  // lone sign follows (so a bare "+"/"-" datum is left intact, not turned into "'+").
+  if(/^[=@]/.test(s) || (s.length>1 && /^[+\-]/.test(s))) s="'"+s;
+  return /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+};
+const ratio = (dn,ds) => (dn!=null && isFinite(dn) && ds>0) ? dn/ds : "";   // undefined unless dN is estimable and dS>0
+// Export the richest labelled table this run carries (lineage > group > per-pair),
+// mirroring how the JSON export dumps whatever DATA holds.
+function buildCsv(){
+  let rows;
+  if(DATA.lineage && DATA.lineage.length){
+    rows=[["genome","lineage","dN/dS"]];
+    DATA.lineage.forEach(d=>rows.push([d.genome, d.lineage, d.ratio]));
+  } else if(DATA.group && DATA.group.length){
+    rows=[["group","mean_dN/dS","ci_low","ci_high"]];
+    DATA.group.forEach(d=>rows.push([d.label, d.mean, d.ciLow, d.ciHigh]));
+  } else if(DATA.dnds && DATA.dnds.length){
+    rows=[["pair","dN","dS","dN/dS"]];
+    DATA.dnds.forEach((p,i)=>rows.push([i+1, p[0], p[1], ratio(p[0],p[1])]));
+  } else {
+    rows=[["metric","value"],["model",M.model],["pairs",M.totalPairs],["valid_pairs",M.validPairs],
+      ["pooled_dN/dS",M.pooled],["mean_dN",M.meanDn],["mean_dS",M.meanDs]];
+  }
+  return rows.map(r=>r.map(csvCell).join(",")).join("\n");
+}
+$("#expCsv").addEventListener("click", ()=>dl("eskaks_dnds.csv", buildCsv(), "text/csv"));
+$("#expJson").addEventListener("click", ()=>dl("eskaks_dnds.json", JSON.stringify(DATA,null,1), "application/json"));
+$("#printBtn").addEventListener("click", ()=>{ hideInfo(); window.print(); });
