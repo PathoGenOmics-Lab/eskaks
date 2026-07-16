@@ -1,7 +1,7 @@
 # Getting started: a hands-on tutorial
 
 New to eskaks? This walkthrough takes you from zero to a finished analysis using
-**example data that ships with the tool** — no biology background assumed. Copy and
+**example data that ships with the tool**: no biology background assumed. Copy and
 paste each command; your numbers should match the ones shown here (rows may appear
 in a different order).
 
@@ -9,24 +9,24 @@ in a different order).
 
 Genes are written in **codons** (triplets of DNA). A mutation in a codon is either:
 
-- **synonymous** — it changes the DNA but **not** the amino acid (a "silent" change), or
-- **nonsynonymous** — it **does** change the amino acid.
+- **synonymous**: it changes the DNA but **not** the amino acid (a "silent" change), or
+- **nonsynonymous**: it **does** change the amino acid.
 
 Natural selection mostly cares about the protein, so it acts on nonsynonymous
 changes and largely ignores synonymous ones. eskaks counts both and takes their
 ratio, correcting for how many sites of each kind exist:
 
-- **dN/dS** (from aligned sequences) compares **species** — fixed differences.
-- **pN/pS** (from a VCF) compares individuals **within a population** — variants
+- **dN/dS** (from aligned sequences) compares **species**: fixed differences.
+- **pN/pS** (from a VCF) compares individuals **within a population**: variants
   still segregating.
 
 Read the ratio like a thermostat for selection:
 
 | Ratio | Meaning |
 |---|---|
-| **≈ 0** (well below 1) | **Purifying selection** — amino-acid changes are being removed. The normal state of most functional genes. |
-| **≈ 1** | **Neutral** — no net selection (or too little data to tell). |
-| **> 1** | **Positive / diversifying selection** — amino-acid changes are favoured. Interesting: drug targets, antigens, immune genes. |
+| **≈ 0** (well below 1) | **Purifying selection**: amino-acid changes are being removed. The normal state of most functional genes. |
+| **≈ 1** | **Neutral**: no net selection (or too little data to tell). |
+| **> 1** | **Positive / diversifying selection**: amino-acid changes are favoured. Interesting: drug targets, antigens, immune genes. |
 
 That's the whole idea. Now let's run it.
 
@@ -45,7 +45,7 @@ eskaks --version
 
 The example files below live in the `examples/` folder of the repository.
 
-## 1. Your first run — dN/dS from sequences
+## 1. Your first run: dN/dS from sequences
 
 `examples/genes.fasta` holds six versions of the same gene from six strains,
 already **codon-aligned** (in frame, all the same length). Compute dN/dS for every
@@ -55,7 +55,7 @@ pair:
 eskaks fasta examples/genes.fasta -o first_run
 ```
 
-Open `first_run_pairwise_results.tsv` — one row per pair of strains (order may vary,
+Open `first_run_pairwise_results.tsv`: one row per pair of strains (order may vary,
 the values don't):
 
 ```text
@@ -67,7 +67,7 @@ strain_E  strain_F  0.054217  0.319140  0.169885
 ```
 
 **How to read it:** every `dN/dS` is well below 1 (≈ 0.09–0.22). These genes are
-under **purifying selection** — exactly what you expect for a functioning gene:
+under **purifying selection**: exactly what you expect for a functioning gene:
 silent changes accumulate freely (`dS` is high), but amino-acid changes are held
 back (`dN` is low). A value above 1 would have flagged positive selection.
 
@@ -109,7 +109,7 @@ For a per-genome view (each isolate's mean dN/dS against every lineage), swap
 
 ## 3. Per-gene pN/pS from a VCF
 
-`examples/toy_genome/` is a miniature genome with three files — the three inputs
+`examples/toy_genome/` is a miniature genome with three files, the three inputs
 `eskaks vcf` always needs:
 
 | File | What it is |
@@ -146,12 +146,12 @@ eskaks prints a summary to the screen:
   Significant genes:   7  (BH-FDR < 0.05)
 ```
 
-The **genome-wide** pN/pS is 0.45 — the genome as a whole is under purifying
+The **genome-wide** pN/pS is 0.45, the genome as a whole is under purifying
 selection, and 7 of 12 genes reject the "no selection" null.
 
 ## 4. Read the per-gene table
 
-Open `toy_scan_pnps.tsv` (a plain table — Excel, R, pandas, or `column -t` all work):
+Open `toy_scan_pnps.tsv` (a plain table, Excel, R, pandas, or `column -t` all work):
 
 ```text
 Gene       pN/pS     Nonsyn  Syn  SNPs  P_value   Q_value_BH
@@ -161,27 +161,27 @@ PPE_toy1   1.6171    18      4    22    0.54      ...
 gene05     0.8884    19      7    26    0.94      ...
 ```
 
-- `gene01`, `gene03` — `pN/pS` well below 1 with a **small q-value** → significant
+- `gene01`, `gene03`: `pN/pS` well below 1 with a **small q-value** → significant
   **purifying** selection.
-- `PPE_toy1` — `pN/pS` above 1, but its **q-value is not significant** (0.54) — and
+- `PPE_toy1`: `pN/pS` above 1, but its **q-value is not significant** (0.54), and
   the name (`PPE`) marks it as a **repetitive** gene, where SNP calls are often
   mapping artefacts. Treat it with caution, not excitement.
-- `gene05` — `pN/pS ≈ 1` and not significant → no evidence of selection here.
+- `gene05`: `pN/pS ≈ 1` and not significant → no evidence of selection here.
 
-> ⚠️ A **non-significant** gene is usually just **underpowered** (too few SNPs) —
+> ⚠️ A **non-significant** gene is usually just **underpowered** (too few SNPs);
 > it is *not* proof of neutrality.
 
 ## 5. Explore the interactive report
 
-Open `toy_scan_report.html` in any browser (it is fully self-contained — no
+Open `toy_scan_report.html` in any browser (it is fully self-contained, no
 internet needed). Use the **table of contents on the left** to jump between panels,
 and click the small **"i"** on any panel for a plain-language explanation of it.
 
 Things to try:
 
-- The **Manhattan** and **Volcano** plots — significant genes stand out; click one to
+- The **Manhattan** and **Volcano** plots, significant genes stand out; click one to
   highlight it everywhere.
-- The **"How to read this report"** box at the top — a glossary of every metric.
+- The **"How to read this report"** box at the top, a glossary of every metric.
 - The **👁 CVD** button (colour-blind-safe palette + shapes) and the **◑ Theme**
   (light/dark) button in the top bar.
 - Export the filtered table with **⤓ CSV** / **⤓ JSON**, or **🖶 Print** to PDF.
@@ -210,8 +210,8 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 
 ## Where to go next
 
-- [Interpreting results](interpreting-results.md) — what the numbers mean, and the pitfalls
-- [VCF analysis](vcf-analysis.md) — every pN/pS option, the neutrality test, the report
-- [Glossary](glossary.md) — every term in one place
-- [CLI reference](cli-reference.md) — all flags
-- [FAQ](faq.md) — common questions and errors
+- [Interpreting results](interpreting-results.md), what the numbers mean, and the pitfalls
+- [VCF analysis](vcf-analysis.md), every pN/pS option, the neutrality test, the report
+- [Glossary](glossary.md), every term in one place
+- [CLI reference](cli-reference.md), all flags
+- [FAQ](faq.md), common questions and errors

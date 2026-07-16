@@ -18,7 +18,7 @@ eskaks --version
 
 ---
 
-## `eskaks fasta` — Pairwise dN/dS
+## `eskaks fasta`: Pairwise dN/dS
 
 Compute pairwise dN/dS from codon-aligned FASTA sequences.
 
@@ -71,7 +71,7 @@ cat input.fasta | eskaks fasta - --summary -o piped
 
 ---
 
-## `eskaks vcf` — pN/pS per gene
+## `eskaks vcf`: pN/pS per gene
 
 Compute pN/pS per gene from a VCF file, reference FASTA, and GFF3 annotation.
 
@@ -85,7 +85,7 @@ eskaks vcf --ref <FASTA> --gff <GFF3> --vcf <VCF> [OPTIONS]
 |---|---|---|
 | `--ref <FASTA>` | Reference genome in FASTA format | required |
 | `--gff <GFF3>` | Gene annotation in GFF3 format | required |
-| `--vcf <VCF>` | VCF file(s) — use multiple times for per-sample VCFs | required |
+| `--vcf <VCF>` | VCF file(s), use multiple times for per-sample VCFs | required |
 | `--vcf-list <FILE>` | File with one VCF path per line | none |
 | `-o, --output <PREFIX>` | Base name for output files | `output` |
 | `--format <tsv\|csv\|json>` | Output format | `tsv` |

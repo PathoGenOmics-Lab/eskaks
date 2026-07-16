@@ -48,7 +48,7 @@ Special values:
 
 | Mode | Flag | Output file |
 |------|------|------------|
-| Pairwise (default) | — | `<prefix>_pairwise_results.<ext>` |
+| Pairwise (default) | - | `<prefix>_pairwise_results.<ext>` |
 | Lineage summary | `--lineage` | `<prefix>_lineage_summary.<ext>` |
 | Group average | `--group-average` | `<prefix>_group_avg_dn_ds.<ext>` |
 | Sliding window | `--window-size N` | `<prefix>_pairwise_windows.<ext>` |

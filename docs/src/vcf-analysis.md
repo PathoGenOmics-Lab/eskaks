@@ -13,7 +13,7 @@ While dN/dS measures *fixed* substitutions between species, **pN/pS** measures t
 
 | pN/pS | Interpretation |
 |---|---|
-| **< 1** | Purifying selection — most amino acid changes are removed |
+| **< 1** | Purifying selection, most amino acid changes are removed |
 | **≈ 1** | Neutral evolution or pseudogene |
 | **> 1** | Possible positive/diversifying selection |
 
@@ -48,7 +48,7 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 |---|---|
 | `--ref <FASTA>` | Reference genome in FASTA format |
 | `--gff <GFF3>` | Gene annotation in GFF3 format (CDS features) |
-| `--vcf <VCF>` | VCF file(s) — use multiple times for per-sample VCFs |
+| `--vcf <VCF>` | VCF file(s), use multiple times for per-sample VCFs |
 
 ### Options
 
@@ -61,7 +61,7 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--genetic-code <N>` | NCBI translation table | `1` |
 | `--pass-only` | Only include FILTER=PASS (or `.`) variants | off |
 | `--min-af <FLOAT>` | Minimum allele frequency (0.0–1.0) | none |
-| `--max-af <FLOAT>` | Maximum allele frequency — use 0.99 to exclude fixed variants | none |
+| `--max-af <FLOAT>` | Maximum allele frequency, use 0.99 to exclude fixed variants | none |
 | `--min-depth <INT>` | Minimum read depth (INFO/DP) | none |
 | `--kappa <FLOAT>` | Transition/transversion rate ratio for [spectrum-aware site counting](#mutation-spectrum-aware-site-counting---kappa) | `1.0` (equal rates) |
 | `--min-snps <INT>` | Drop genes with fewer SNPs from the per-gene table, plot, and [test](#per-gene-neutrality-test) (the pooled estimate still uses all genes) | `0` |
@@ -124,13 +124,13 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 
 > **Caveat:** the binomial null assumes SNPs are independent draws over sites. In
 > highly clonal or strongly linked bacterial populations this is violated and the
-> p-values are anti-conservative — treat them as a ranking aid, and lean on the FDR
+> p-values are anti-conservative, treat them as a ranking aid, and lean on the FDR
 > column rather than raw p-values.
 
 ## Interactive HTML report
 
 `--report` writes `<prefix>_report.html`: a single **self-contained** file (all
-CSS/JS inlined, no CDN or internet needed — it works on air-gapped HPC nodes and
+CSS/JS inlined, no CDN or internet needed, it works on air-gapped HPC nodes and
 opens straight in a browser). It turns the per-gene table into a linked dashboard
 with a **sticky table of contents** down the left (with scroll-spy), where clicking
 any point or row highlights that gene across **every** panel. Every panel and
@@ -138,7 +138,7 @@ summary card carries an **"i"** button explaining how to read it.
 
 **Always present:**
 
-- a genome-wide **verdict** banner and **summary cards** — pooled pN/pS with its
+- a genome-wide **verdict** banner and **summary cards**: pooled pN/pS with its
   bootstrap CI (if `--bootstrap` was used), the significant-gene count, and the
   genomic-inflation factor **λ**;
 - a **"How to read this report"** glossary of every metric;
@@ -175,7 +175,7 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 The per-gene binomial test assumes SNPs are independent. In **clonal** organisms
 like *M. tuberculosis*, genome-wide linkage breaks that assumption and the
 p-values become **anti-conservative**. eskaks always reports the **genomic-inflation
-factor λ** — the median test χ² divided by its neutral expectation — as a diagnostic
+factor λ**: the median test χ² divided by its neutral expectation, as a diagnostic
 (λ ≈ 1 is well-calibrated; λ ≫ 1 means far more low p-values than chance).
 
 With `--genomic-control`, each gene's χ² is divided by λ (floored at 1) and
@@ -184,12 +184,12 @@ from a log-space `−log10(p)`, so genes whose exact p underflows stay finite.
 
 > **Caveat:** a high λ can reflect **genuine, pervasive** purifying selection, not
 > only artefactual inflation. Apply `--genomic-control` only when you suspect
-> systematic bias (mapping, reference, filtering, structure) — not reflexively.
+> systematic bias (mapping, reference, filtering, structure), not reflexively.
 
 ## Core-genome mode
 
-`--exclude-repetitive` drops repetitive / hard-to-map genes — PE/PPE/PGRS, IS
-elements, maturases — from the **genome-wide pooled estimate** and the
+`--exclude-repetitive` drops repetitive / hard-to-map genes (PE/PPE/PGRS, IS
+elements, maturases) from the **genome-wide pooled estimate** and the
 **neutrality-test family**, since their SNP calls are frequently mapping artefacts.
 Those genes still appear in the per-gene table, flagged. The report always shows a
 **core-vs-repetitive** pooled comparison so the gap is visible either way.
@@ -218,16 +218,16 @@ input: ALTs with `AF >= --mk-fixed-af` (default 0.99) are treated as **fixed**
 (divergence), the rest as **polymorphic**. Each gene gets the 2×2 table
 `[Dn, Ds; Pn, Ps]` plus:
 
-- **NI** (Neutrality Index) = `(Pn/Ps)/(Dn/Ds)` — > 1 suggests purifying selection, < 1 adaptive.
-- **alpha** = `1 − (Ds·Pn)/(Dn·Ps)` — the estimated proportion of adaptive substitutions.
-- **Fisher_p** — a two-sided Fisher exact test on the table, with a **Fisher_q_BH** FDR q-value across genes.
+- **NI** (Neutrality Index) = `(Pn/Ps)/(Dn/Ds)`, > 1 suggests purifying selection, < 1 adaptive.
+- **alpha** = `1 − (Ds·Pn)/(Dn·Ps)`: the estimated proportion of adaptive substitutions.
+- **Fisher_p**: a two-sided Fisher exact test on the table, with a **Fisher_q_BH** FDR q-value across genes.
 
 ```bash
 eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
   --genetic-code 11 --mk --mk-fixed-af 0.95 -o mtb_mk
 ```
 
-> **Caveat:** this is a **reference-polarized** MK test — "fixed" means high AF
+> **Caveat:** this is a **reference-polarized** MK test, "fixed" means high AF
 > *within your sample*, which conflates high-frequency derived alleles with true
 > between-species divergence. It is a fast screen for adaptation, not a substitute
 > for an outgroup-based MK test.
@@ -265,7 +265,7 @@ the standard way to report an overall signal of selection. Under `--af-weighted`
 the pooled figure is πN/πS.
 
 The `Selection:` line is a coarse convenience label (`< 0.9` purifying, `0.9–1.1`
-near-neutral, `> 1.1` diversifying), not a statistical test — formal inference
+near-neutral, `> 1.1` diversifying), not a statistical test, formal inference
 needs an explicit null model.
 
 Add `--bootstrap N` (with `--seed`) for a reproducible **95% confidence interval**
@@ -276,17 +276,17 @@ warns that a few gene-rich loci dominate the pooled estimate.
 
 By default eskaks counts synonymous (S) and nonsynonymous (N) sites the classic
 Nei-Gojobori way: every possible single-nucleotide change at a codon is treated
-as equally likely. Real mutational spectra are **not** uniform — most genomes,
+as equally likely. Real mutational spectra are **not** uniform, most genomes,
 and *M. tuberculosis* especially, are strongly **transition-biased** (A↔G, C↔T
 mutations are far more frequent than transversions).
 
 This matters because the synonymous change at a 2-fold degenerate third position
 is almost always a transition. Counting it with equal weights **under-counts
-synonymous sites**, which inflates N, deflates S, and biases pN/pS **downward** —
+synonymous sites**, which inflates N, deflates S, and biases pN/pS **downward**,
 potentially making genuinely conserved genes look neutral and masking selection.
 
 `--kappa <ratio>` corrects this by weighting each candidate change by its
-relative mutation rate — `kappa` for a transition, `1` for a transversion —
+relative mutation rate (`kappa` for a transition, `1` for a transversion)
 when counting sites (the [modified Nei-Gojobori / Ina 1995 correction](models.md)):
 
 ```bash
@@ -299,12 +299,12 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 - 4-fold degenerate sites are synonymous regardless, so they are **κ-invariant**.
 - The total number of sites per codon is unchanged; only the **S/N split** moves.
 - Weighting keeps the same codon-level normalisation as the default, so `κ` is the
-  *only* thing that changes — the correction is not confounded with a scheme switch.
+  *only* thing that changes, the correction is not confounded with a scheme switch.
 - **Across the coding genome**, transition bias (`κ>1`) generally raises total S,
   lowers total N, and so raises pN/pS relative to the equal-rates estimate.
-  Individual codons can move either way — a codon whose transition-reachable
+  Individual codons can move either way, a codon whose transition-reachable
   changes are mostly *nonsynonymous* (e.g. some 4-fold codons) shifts the other
-  way — so read the direction genome-wide, not gene-by-gene.
+  way, so read the direction genome-wide, not gene-by-gene.
 
 Only the site **denominators** change. The observed synonymous/nonsynonymous SNP
 counts (the numerators) are read directly from the VCF and are never rate-weighted,
