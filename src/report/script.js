@@ -605,7 +605,11 @@ function filtered(){ const f=($("#search").value||"").toLowerCase();
   return genes.filter(g=>(!f||g.name.toLowerCase().includes(f)||(g.chrom||"").toLowerCase().includes(f)) && (!regimeFilter||regime(g)===regimeFilter)); }
 function dl(name,txt,type){ const b=new Blob([txt],{type}); const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; a.click(); URL.revokeObjectURL(a.href); }
 $("#expCsv").addEventListener("click", ()=>{ const keys=cols.map(c=>c[0]).filter(k=>k!=="dir"&&k!=="ci").concat(["ratioLo","ratioHi"]);
-  const cell=v=>{ const s=(v==null||(typeof v==="number"&&!isFinite(v)))?"NA":String(v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const cell=v=>{ if(typeof v==="number") return isFinite(v)?String(v):"NA";   // numbers (incl. negatives) pass verbatim, never a formula
+    let s=(v==null)?"NA":String(v);
+    // Defuse formula injection in string cells, but leave a lone +/- (e.g. the strand column) intact.
+    if(/^[=@]/.test(s) || (s.length>1 && /^[+\-]/.test(s))) s="'"+s;
+    return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
   const head=keys.map(cell).join(","); const body=filtered().map(g=>keys.map(k=>cell(g[k])).join(",")).join("\n");
   dl("eskaks_genes.csv", head+"\n"+body, "text/csv"); });
 $("#expJson").addEventListener("click", ()=>{ dl("eskaks_genes.json", JSON.stringify(filtered().map(g=>{const o={...g};delete o._i;return o;}),null,1), "application/json"); });
