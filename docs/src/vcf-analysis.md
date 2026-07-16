@@ -234,13 +234,16 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 
 ## Genome-wide (pooled) pN/pS
 
-After writing the per-gene table, eskaks prints a summary to stderr that ends
-with a **genome-wide** estimate pooled across every analyzed gene:
+After writing the per-gene table, eskaks prints a summary to stderr that includes
+a **genome-wide** estimate pooled across every analyzed gene (followed by the
+per-gene [neutrality-test](#per-gene-neutrality-test) tally and the list of files
+written):
 
 ```
 ── pN/pS Summary ──────────────────────────
   Genes analyzed:      2
   Genes with SNPs:     2
+  SNPs used (in CDS):  3 of 3 parsed
   Total synonymous:    2.00
   Total nonsynonymous: 1.00
   ── Genome-wide (pooled) ──────────────────
@@ -248,6 +251,7 @@ with a **genome-wide** estimate pooled across every analyzed gene:
   Overall pN / pS:     0.027335 / 0.175182
   Overall pN/pS:       0.156036
   Selection:           purifying selection (pN/pS < 1)
+  ...
 ───────────────────────────────────────────
 ```
 

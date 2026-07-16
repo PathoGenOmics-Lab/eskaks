@@ -93,5 +93,5 @@ concept in the report or docs is unfamiliar, look here first.
 
 - **NaN**: "not a number": the estimate is undefined (e.g. sequences too divergent
   and the correction saturated, or a gene with no variation). Reported as `null` in JSON.
-- **Inf**: infinity: e.g. `dN > 0` but `dS = 0`, so the ratio is unbounded.
+- **inf**: infinity: e.g. `dN > 0` but `dS = 0`, so the ratio is unbounded. Reported as `null` in JSON.
 - **NA**: the value was not computed for this row (e.g. an untested gene's p-value).

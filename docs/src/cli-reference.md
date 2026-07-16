@@ -97,8 +97,8 @@ eskaks vcf --ref <FASTA> --gff <GFF3> --vcf <VCF> [OPTIONS]
 |---|---|---|
 | `--ref <FASTA>` | Reference genome in FASTA format | required |
 | `--gff <GFF3>` | Gene annotation in GFF3 format | required |
-| `--vcf <VCF>` | VCF file(s), use multiple times for per-sample VCFs | required |
-| `--vcf-list <FILE>` | File with one VCF path per line | none |
+| `--vcf <VCF>` | VCF file(s), use multiple times for per-sample VCFs | one of `--vcf` / `--vcf-list` required |
+| `--vcf-list <FILE>` | File with one VCF path per line (alternative to repeated `--vcf`) | one of `--vcf` / `--vcf-list` required |
 | `-o, --output <PREFIX>` | Base name for output files | `output` |
 | `--format <tsv\|csv\|json>` | Output format | `tsv` |
 | `--genetic-code <N>` | NCBI translation table number | `1` |

@@ -18,7 +18,7 @@ Output is deterministic regardless of the number of `--workers` threads.
 
 The Li model achieves **R² = 1.0** against KaKs_Calculator's LPB implementation.
 Full accuracy data and the benchmarking methodology are in
-[benchmarks/](../benchmarks/).
+[benchmarks/](https://github.com/PathoGenOmics-Lab/eskaks/tree/main/benchmarks).
 
 ## Feature comparison
 
