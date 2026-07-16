@@ -11,10 +11,28 @@ const MYCOLORS = {A1:"#d1ae00",A2:"#8ef5c8",A3:"#73c2ff",A4:"#ff9cdb",L1:"#ff309
 const SER = ["--s1","--s2","--s3","--s4","--s5","--s6","--s7","--s8"];
 
 $("#meta").textContent = `model ${M.model} · ${M.totalPairs} pairs (${M.validPairs} valid)`;
-const card = (k,v) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const card = (k,v,cls) => `<div class="card${cls?" "+cls:""}"><div class="k">${k}</div><div class="v">${v}</div></div>`;
 $("#cards").innerHTML =
   card("Pairs", M.totalPairs) + card("Valid pairs", M.validPairs) +
-  card("Pooled dN/dS", fmt(M.pooled)) + card("Mean dN / dS", fmt(M.meanDn,3)+" / "+fmt(M.meanDs,3));
+  card("Pooled dN/dS", fmt(M.pooled), "hero") + card("Mean dN / dS", fmt(M.meanDn,3)+" / "+fmt(M.meanDs,3));
+
+// ── Hero verdict banner: plain-language direction of the pooled ratio (mirrors the vcf report).
+// This is a pooled point estimate over lineage/group pairs, with no per-ratio significance test,
+// so the wording states the direction only and never claims significance.
+(function renderVerdict(){
+  const v=$("#verdict"); if(!v) return;
+  const gw=M.pooled; let lab, dotc;
+  if(gw==null||!isFinite(gw)){ lab="dN/dS undetermined"; dotc="var(--ns)"; }
+  else if(gw<1){ lab="purifying selection (dN/dS < 1)"; dotc="var(--accent)"; }
+  else if(gw>1){ lab="positive / diversifying selection (dN/dS > 1)"; dotc="var(--pos)"; }
+  else { lab="neutral (dN/dS = 1)"; dotc="var(--ns)"; }
+  const val=(gw==null||!isFinite(gw))?"":fmt(gw,3)+" ";
+  v.innerHTML=
+    '<span class="dot" style="background:'+dotc+';color:'+dotc+'"></span>'+
+    '<div style="flex:1;min-width:0"><div class="vlab">Pooled dN/dS '+val+'— '+lab+'</div>'+
+    '<div class="vsub">pooled across '+M.validPairs+' of '+M.totalPairs+' pair(s) · '+hesc(M.model)+' · point estimate</div></div>';
+  v.style.setProperty("--vc", dotc);   // regime colour drives the banner's accent edge + wash
+})();
 
 const sec = $("#sections");
 function addSection(title, id){ const d=document.createElement("section"); d.innerHTML=`<h2>${title}</h2><div style="overflow-x:auto" id="${id}"></div>`; sec.appendChild(d); return $("#"+id); }

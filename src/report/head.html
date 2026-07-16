@@ -67,12 +67,14 @@ transition:box-shadow 140ms ease,border-color 140ms ease}
 .card .k{color:var(--muted);font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;line-height:1.3}
 .card .v{font-size:1.3rem;font-weight:650;margin-top:4px;line-height:1.15;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 .card .v.small{font-size:.98rem}
-/* Hero: the pooled genome-wide ratio is the headline number — it out-ranks the six utility cards. */
-.card:has([data-help="card_gw"]){border-color:color-mix(in srgb,var(--accent) 32%,var(--border));
+/* Hero: the pooled ratio is the headline number — it out-ranks the utility cards.
+   The vcf report hooks it via the card_gw help key (no JS change); the fasta report
+   tags its "Pooled dN/dS" card with .hero directly. Both share this treatment. */
+.card:has([data-help="card_gw"]),.card.hero{border-color:color-mix(in srgb,var(--accent) 32%,var(--border));
 background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 6%,var(--card)),var(--card));box-shadow:var(--shadow-2)}
-.card:has([data-help="card_gw"]) .k{color:var(--accent)}
-.card:has([data-help="card_gw"]) .v.small{font-size:1.5rem;font-weight:700;color:var(--accent)}
-.card:has([data-help="card_gw"]):hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));box-shadow:var(--shadow-3)}
+.card:has([data-help="card_gw"]) .k,.card.hero .k{color:var(--accent)}
+.card:has([data-help="card_gw"]) .v.small,.card.hero .v{font-size:1.5rem;font-weight:700;color:var(--accent)}
+.card:has([data-help="card_gw"]):hover,.card.hero:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));box-shadow:var(--shadow-3)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:20px;margin-bottom:24px}
 section{margin-bottom:8px}
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:var(--shadow-1)}
@@ -183,7 +185,7 @@ button.btn:active,button.tog:active{transform:none!important}}
 .grid{display:block}.panel{margin-bottom:16px}.guide[open] summary{display:none}
 /* Shadows waste ink on paper. The hero card (:has, 0,2,0) and the dot halo (.verdict .dot, 0,2,0)
    need their own specificity here or they out-rank a bare .card/.dot reset and bleed onto the page. */
-.panel,.card,.card:has([data-help="card_gw"]),.toc,.tablewrap,.verdict,.verdict .dot,.tip,.info-pop,.brand-logo{box-shadow:none}}
+.panel,.card,.card:has([data-help="card_gw"]),.card.hero,.toc,.tablewrap,.verdict,.verdict .dot,.tip,.info-pop,.brand-logo{box-shadow:none}}
 </style>
 </head>
 <body>
