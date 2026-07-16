@@ -993,6 +993,28 @@ fn cov_core_count_sites_skips_stop_and_ambiguous_codons() {
 }
 
 #[test]
+fn cov_core_count_sites_excludes_changes_to_stop() {
+    // The convention that determines agreement with KaKs_Calculator / SNPGenie:
+    // a single-nt change that turns a *coding* codon into a stop is excluded from
+    // the site counts (not counted as nonsynonymous, as classic Nei-Gojobori 1986
+    // would). TGG (Trp) is the sharp case — of its 9 changes, 2nd→TAG and 3rd→TGA
+    // are stop, so only 7 valid changes remain, all nonsynonymous:
+    //   S = 3·0/7 = 0.0,  N = 3·7/7 = 3.0.
+    // (Under the count-nonsense-as-nonsyn convention this would still be 0/3, but
+    // 2-fold codons adjacent to a stop, e.g. TAC/TGC, would differ — see below.)
+    let gc = make_gc();
+    let (n, s) = count_sites(b"TGG", gc);
+    assert!((n - 3.0).abs() < 1e-9, "TGG N sites: got {}, want 3.0", n);
+    assert!((s - 0.0).abs() < 1e-9, "TGG S sites: got {}, want 0.0", s);
+
+    // TGC (Cys): 3rd pos → TGA is stop (excluded); TGT is syn (Cys). Of the 8 valid
+    // changes, 1 syn and 7 nonsyn ⇒ S = 3·1/8 = 0.375. If changes-to-stop were kept
+    // (9 changes, 1 syn) S would be 3·1/9 = 0.333 — so this value confirms exclusion.
+    let (_n2, s2) = count_sites(b"TGC", gc);
+    assert!((s2 - 0.375).abs() < 1e-9, "TGC S sites: got {}, want 0.375 (stop excluded)", s2);
+}
+
+#[test]
 fn cov_core_count_sites_weighted_skips_stop_and_ambiguous_codons() {
     let gc = make_gc();
     let just_phe = count_sites_weighted(b"TTT", gc, 2.0);

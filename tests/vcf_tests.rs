@@ -135,6 +135,60 @@ fn vcf_produces_correct_gene_count() {
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
 }
 
+/// End-to-end pN/pS pinned to an INDEPENDENT by-hand Nei-Gojobori derivation
+/// (the exclude-changes-to-stop convention KaKs_Calculator / SNPGenie use).
+/// Every asserted number is derived below from the genetic code alone, so this
+/// validates the whole stack — VCF/GFF/reference parsing, CDS assembly, site
+/// counting, SNP classification and the ratio — instead of a self-captured value.
+#[test]
+fn vcf_pnps_matches_hand_derived_nei_gojobori() {
+    // CDS gval = val1:1-9 (+) = GCT TTT TGG = Ala Phe Trp (code 11 = code 1 here).
+    //
+    // Nei-Gojobori sites — for each codon, of its 9 single-nt changes count syn vs
+    // nonsyn EXCLUDING any change to a stop codon, then renormalise the codon to 3:
+    //   GCT (Ala): 3rd pos GCA/GCC/GCG all Ala → 3 syn, 6 nonsyn, 0 stop
+    //              ⇒ S = 3·3/9 = 1.0,   N = 3·6/9 = 2.0
+    //   TTT (Phe): only TTC (3rd pos) is syn → 1 syn, 8 nonsyn, 0 stop
+    //              ⇒ S = 3·1/9 = 1/3,   N = 3·8/9 = 8/3
+    //   TGG (Trp): 2nd pos→TAG and 3rd pos→TGA are STOP (excluded); other 7 nonsyn
+    //              ⇒ S = 3·0/7 = 0.0,   N = 3·7/7 = 3.0
+    //   Totals: N = 2 + 8/3 + 3 = 23/3 ≈ 7.6667,  S = 1 + 1/3 + 0 = 4/3 ≈ 1.3333  (N+S = 9)
+    //
+    // SNPs: pos3 T→C GCT→GCC (Ala=Ala) SYN; pos4 T→G TTT→GTT (Phe→Val) NONSYN;
+    //       pos9 G→T TGG→TGT (Trp→Cys) NONSYN.  ⇒ Syn=1, Nonsyn=2, Total=3
+    //   pN = 2/(23/3) = 6/23 ≈ 0.260870 ; pS = 1/(4/3) = 0.75 ; pN/pS = 8/23 ≈ 0.347826
+    let out = "/tmp/eskaks_test_pnps_hand";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_hand.vcf",
+            "--genetic-code", "11",
+            "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out));
+    let hdr = &rows[0];
+    let col = |name: &str| {
+        hdr.iter().position(|h| h == name).unwrap_or_else(|| panic!("no column {}", name))
+    };
+    let g = rows.iter().find(|r| r[0] == "gval").expect("gene gval in output");
+    let num = |name: &str| g[col(name)].parse::<f64>().unwrap();
+
+    // Integer SNP tallies (exact); sites/ratios to the TSV's printed precision.
+    assert!((num("Nonsyn_SNPs") - 2.0).abs() < 1e-9, "nonsyn {}", num("Nonsyn_SNPs"));
+    assert!((num("Syn_SNPs") - 1.0).abs() < 1e-9, "syn {}", num("Syn_SNPs"));
+    assert!((num("Total_SNPs") - 3.0).abs() < 1e-9, "total {}", num("Total_SNPs"));
+    assert!((num("N_sites") - 23.0 / 3.0).abs() < 5e-4, "N_sites {}", num("N_sites"));
+    assert!((num("S_sites") - 4.0 / 3.0).abs() < 5e-4, "S_sites {}", num("S_sites"));
+    assert!((num("pN") - 6.0 / 23.0).abs() < 5e-4, "pN {}", num("pN"));
+    assert!((num("pS") - 0.75).abs() < 5e-4, "pS {}", num("pS"));
+    assert!((num("pN/pS") - 8.0 / 23.0).abs() < 5e-4, "pN/pS {}", num("pN/pS"));
+    fs::remove_file(format!("{}_pnps.tsv", out)).ok();
+}
+
 #[test]
 fn vcf_gene_a_has_correct_snp_classification() {
     // geneA: pos 4 G→A is nonsynonymous (GCT→ACT, Ala→Thr)
