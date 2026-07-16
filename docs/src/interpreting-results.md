@@ -42,3 +42,18 @@ Window analysis reveals variation along the alignment:
 - **Peaks (ω > 1)**: Potential positive selection hotspots (e.g., surface-exposed domains)
 - **Valleys (ω ≈ 0)**: Highly conserved regions (e.g., catalytic sites, structural cores)
 - **Noisy windows**: Short windows or few differences produce unreliable estimates. Use windows of at least 50–100 codons.
+
+## Limitations
+
+- `eskaks fasta` expects **codon-aligned** input (in-frame, gap lengths multiples
+  of 3); align with MAFFT + PAL2NAL or MACSE first.
+- `eskaks vcf` uses **SNPs only**; indels and multi-nucleotide variants are not
+  codon-annotated (see [get_MNV](https://github.com/PathoGenOmics-Lab/get_MNV) for MNVs).
+- pN/pS is estimated from **within-sample polymorphism**, so many genes are
+  **underpowered** in low-diversity organisms; a non-significant result is not
+  evidence of neutrality.
+- The per-gene neutrality test assumes independent SNPs. In **clonal** organisms
+  (e.g. *M. tuberculosis*) genome-wide linkage inflates significance;
+  `--genomic-control` is a pragmatic correction, but a high λ can also reflect
+  **real** pervasive selection, so apply it only when you suspect systematic bias.
+- Contig names must match across the VCF, reference FASTA, and GFF3.

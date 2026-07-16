@@ -17,4 +17,9 @@
 
 - [Glossary](./glossary.md)
 - [CLI Reference](./cli-reference.md)
+- [Performance & Accuracy](./performance.md)
 - [FAQ](./faq.md)
+
+# Contributing
+
+- [Development](./development.md)
