@@ -53,6 +53,18 @@ pub fn compute_pn_ps(
                 }
             };
 
+            // A CDS exon extending past the reference end would desync
+            // genomic_to_cds_offset (which counts full exon spans) from the
+            // reference-clamped CDS, silently mis-mapping or dropping SNPs. Skip such a
+            // gene loudly rather than analyse a truncated / mismatched annotation.
+            if gene.exons.iter().any(|e| e.end > ref_seq.len()) {
+                warn!(
+                    "Gene {} has a CDS exon extending past the end of {} ({} bp), skipping",
+                    gene.name, gene.seqid, ref_seq.len()
+                );
+                return None;
+            }
+
             let chrom_snps = snp_map.get(gene.seqid.as_str());
 
             // Extract the full CDS sequence from the reference
@@ -73,6 +85,9 @@ pub fn compute_pn_ps(
             // Counts are f64 to support AF-weighted mode (πN/πS)
             let mut nonsyn_count = 0.0f64;
             let mut syn_count = 0.0f64;
+            // Raw (unweighted) count of classified SNP alleles, for --min-snps and the
+            // "genes with SNPs" tally — independent of AF weighting.
+            let mut n_snps_raw = 0usize;
             let mut local_checked = 0usize;
             let mut local_mismatch = 0usize;
             // McDonald-Kreitman: fixed (AF >= threshold) vs polymorphic counts.
@@ -154,6 +169,7 @@ pub fn compute_pn_ps(
                                     let af = snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0);
                                     let fixed = af >= mk_fixed_af;
                                     let bin = sfs_bin(af);
+                                    n_snps_raw += 1;
                                     if r == a {
                                         syn_count += weight;
                                         sfs_syn[bin] += 1;
@@ -237,6 +253,7 @@ pub fn compute_pn_ps(
                 nonsyn_snps: nonsyn_count,
                 syn_snps: syn_count,
                 total_snps,
+                n_snps: n_snps_raw,
                 genome_start: gene.start,
                 genome_end,
                 strand,
@@ -312,25 +329,32 @@ pub fn bootstrap_genome_wide_ci(
         }
         let pn = if n_sites > 0.0 { nonsyn / n_sites } else { 0.0 };
         let ps = if s_sites > 0.0 { syn / s_sites } else { 0.0 };
-        let ratio = if ps > 0.0 { pn / ps } else { f64::NAN };
-        if ratio.is_finite() {
-            ratios.push(ratio);
+        // ps == 0 with pn > 0 is a genuine upper-tail extreme (pN/pS = +∞), so keep it
+        // toward the upper percentile instead of discarding it and biasing the CI low.
+        // Only 0/0 (no variation at all) is genuinely undefined and excluded.
+        let ratio = if ps > 0.0 {
+            pn / ps
+        } else if pn > 0.0 {
+            f64::INFINITY
         } else {
+            f64::NAN
+        };
+        if ratio.is_nan() {
             undefined += 1;
+        } else {
+            ratios.push(ratio);
         }
+    }
+    // Warn BEFORE the empty-set early return so an all-undefined result is never silent.
+    if undefined > 0 {
+        warn!(
+            "{}/{} bootstrap replicates had no variation at all (0/0) and were excluded \
+             from the genome-wide pN/pS CI.",
+            undefined, n_boot
+        );
     }
     if ratios.is_empty() {
         return None;
-    }
-    // Replicates with no synonymous variation give an undefined ratio and are
-    // excluded from the percentiles, which truncates the upper tail. Warn so a
-    // biased-low CI on sparse-synonymous data isn't read as precise.
-    if undefined > 0 {
-        warn!(
-            "{}/{} bootstrap replicates had no synonymous variation (undefined pN/pS) and were \
-             excluded; the CI may be biased low when synonymous SNPs are sparse.",
-            undefined, n_boot
-        );
     }
     ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let tail = (1.0 - confidence) / 2.0 * 100.0;

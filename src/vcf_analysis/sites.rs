@@ -105,9 +105,13 @@ pub(crate) fn genomic_to_cds_offset(gene: &Gene, pos: usize) -> Option<usize> {
 
 /// Count nonsynonymous (N) and synonymous (S) sites for a CDS sequence.
 ///
-/// For each codon, enumerates all 9 possible single-nucleotide changes
-/// and classifies each as synonymous or nonsynonymous. Fractional sites
-/// are assigned as: S_sites = syn_changes/3, N_sites = nonsyn_changes/3.
+/// For each codon, enumerates the single-nucleotide changes and classifies each as
+/// synonymous or nonsynonymous. Changes to a stop codon (and ambiguous codons) are
+/// EXCLUDED, then the codon is renormalized to contribute exactly 3 sites:
+/// `S += 3·syn/(syn+nonsyn)`, `N += 3·nonsyn/(syn+nonsyn)`. For a codon whose 9
+/// changes are all valid this equals `syn/3` and `nonsyn/3`; for a stop-adjacent
+/// codon the excluded changes are redistributed over the remaining ones (a
+/// deliberate convention, so N+S is always 3 per non-stop codon).
 pub(crate) fn count_sites(cds: &[u8], gc: &GeneticCode) -> (f64, f64) {
     let mut n_sites = 0.0f64;
     let mut s_sites = 0.0f64;

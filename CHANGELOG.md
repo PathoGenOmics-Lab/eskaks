@@ -155,6 +155,22 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Adversarial bug-hunt round, second batch:**
+  - **`--min-snps` filtered on the AF-weighted fractional total under `--af-weighted`**,
+    so it dropped genes that had far more than the threshold in real SNPs. It now
+    filters on the raw SNP count (new unweighted `n_snps`).
+  - **`--min-af`/`--max-af` filtered whole records**, so at a multi-allelic site a
+    sub-threshold allele leaked through and a co-located in-range allele was dropped.
+    Filtering is now per-allele; the record is dropped only if no ALT survives.
+  - **Bootstrap genome-wide CI** discarded replicates with no synonymous variation
+    (`pS = 0`, `pN > 0`) as undefined, truncating the upper tail and biasing the CI
+    low; such replicates are now kept as `+∞` toward the upper percentile, and the
+    "excluded replicates" warning fires even when *every* replicate is undefined.
+  - **A CDS exon extending past the reference end** desynced the SNP→codon offset
+    mapping and silently dropped SNPs; such genes are now skipped with a warning.
+  - Documented that the `--exclude-repetitive` pooled totals are core-only in the
+    summary; corrected the `count_sites` docstring (renormalise-to-3 convention) and
+    the genomic-control λ docstring (a discrete-test null yields λ < 1, not ≈ 1).
 - **Adversarial bug-hunt round (found by running the binary on crafted inputs):**
   - **Li/LPB93 dS collapsed to 0 (not NaN) at synonymous transition saturation**,
     reporting a spurious dN/dS = ∞ (apparent extreme positive selection) where Nei

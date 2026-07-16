@@ -60,6 +60,10 @@ pub struct GenePnPs {
     pub syn_snps: f64,
     /// Total SNPs in this gene (AF-weighted if --af-weighted)
     pub total_snps: f64,
+    /// Raw (unweighted) count of classified SNP alleles in this gene. Unlike
+    /// `total_snps`, this is never AF-weighted, so `--min-snps` filters on the real
+    /// SNP count even under `--af-weighted`.
+    pub n_snps: usize,
     /// Genomic start position (1-based, for plotting/output)
     pub genome_start: usize,
     /// Genomic end position (1-based, max exon end)

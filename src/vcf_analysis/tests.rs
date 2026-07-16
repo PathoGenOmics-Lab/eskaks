@@ -164,6 +164,7 @@ fn gene_result(n_sites: f64, s_sites: f64, nonsyn: f64, syn: f64) -> GenePnPs {
         nonsyn_snps: nonsyn,
         syn_snps: syn,
         total_snps: nonsyn + syn,
+        n_snps: (nonsyn + syn) as usize,
         genome_start: 0,
         genome_end: 0,
         strand: '+',
@@ -934,4 +935,28 @@ fn cov_core_base_to_li_and_complement_edges() {
 fn cov_core_sfs_bin_above_one_saturates_last_bin() {
     // An out-of-range AF (> 1.0) falls through the edge loop to the last bin.
     assert_eq!(sfs_bin(1.5), SFS_NBINS - 1);
+}
+
+
+#[test]
+fn cov_bootstrap_keeps_diversifying_extreme_replicates() {
+    // Genes with syn=0 but nonsyn>0 pool to pN/pS = +inf (diversifying extreme).
+    // These replicates must be kept toward the upper CI, not discarded as undefined:
+    // the CI must exist (not None) and its upper bound must reach +inf.
+    let genes: Vec<GenePnPs> = (0..5).map(|_| gene_result(100.0, 50.0, 5.0, 0.0)).collect();
+    let ci = bootstrap_genome_wide_ci(&genes, 100, 42, 0.95);
+    assert!(ci.is_some(), "CI must exist for diversifying-extreme replicates, not None");
+    assert!(ci.unwrap().1.is_infinite(), "upper CI bound must reach +inf");
+}
+
+#[test]
+fn cov_core_gene_exon_past_reference_is_skipped() {
+    // A CDS exon overrunning the reference used to desync the offset mapping and drop
+    // SNPs silently; such a gene must now be skipped outright.
+    let gc = make_gc();
+    let mut reference = HashMap::new();
+    reference.insert("chr1".to_string(), b"TTTGCT".to_vec()); // 6 bp
+    let gene = cov_core_gene("g", "chr1", Strand::Plus, 1, 12, 0); // exon 1..12 > 6 bp
+    let res = compute_pn_ps(&reference, &[gene], &[], gc, false, 1.0, 0.95);
+    assert!(res.is_empty(), "a gene whose CDS overruns the reference must be skipped");
 }

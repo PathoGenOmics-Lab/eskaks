@@ -182,7 +182,7 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     // Genome-wide pooled estimate and gene counts use ALL genes (pooling is
     // robust to low-count genes), captured before any --min-snps filtering.
     let total_genes = results.len();
-    let genes_with_snps = results.iter().filter(|r| r.total_snps > 0.0).count();
+    let genes_with_snps = results.iter().filter(|r| r.n_snps > 0).count();
     // Stratified core vs repetitive pooled ratios (always computed, for the
     // report). --exclude-repetitive makes the primary estimate core-only.
     let (core_gw, rep_gw) = vcf_analysis::genome_wide_core_repetitive(&results);
@@ -209,7 +209,7 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     let mut dropped = 0usize;
     if args.min_snps > 0 {
         let before = results.len();
-        results.retain(|r| r.total_snps >= args.min_snps as f64);
+        results.retain(|r| r.n_snps >= args.min_snps);
         dropped = before - results.len();
         info!("--min-snps {}: kept {} of {} genes", args.min_snps, results.len(), before);
     }
@@ -301,8 +301,11 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     if args.min_snps > 0 {
         eprintln!("  Genes kept (>= {} SNPs): {}  ({} dropped)", args.min_snps, results.len(), dropped);
     }
-    eprintln!("  Total synonymous:    {:.2}", total_syn);
-    eprintln!("  Total nonsynonymous: {:.2}", total_nonsyn);
+    // Under --exclude-repetitive the pooled totals are core-only while the gene
+    // counts above are over all genes; flag the scope so the block is self-consistent.
+    let core_note = if args.exclude_repetitive { "   (core genes only)" } else { "" };
+    eprintln!("  Total synonymous:    {:.2}{}", total_syn, core_note);
+    eprintln!("  Total nonsynonymous: {:.2}{}", total_nonsyn, core_note);
     if let Some(gw) = &genome_wide {
         eprintln!("  ── Genome-wide (pooled) ──────────────────");
         eprintln!("  N / S sites:         {:.1} / {:.1}", gw.n_sites, gw.s_sites);

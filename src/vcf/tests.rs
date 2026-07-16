@@ -333,3 +333,21 @@ chr1\t100\t.\tA\tG\t30\tPASS\tDP=4000000000\n";
     let merged = merge_vcfs(&paths, false, None).unwrap();
     assert_eq!(merged[0].depth, Some(4_000_000_000));
 }
+
+
+#[test]
+fn af_filter_is_per_allele_at_multiallelic_sites() {
+    // One multi-allelic record G@0.05, C@0.5, T@0.995. --min-af 0.1 --max-af 0.99
+    // must keep only C (0.5), pruning the sub-threshold G and the fixed T, rather than
+    // dropping the whole record or leaking the out-of-range alleles.
+    let snp = VcfSnp {
+        chrom: "chr1".into(), pos: 100, ref_allele: b'A',
+        alt_alleles: vec![b'G', b'C', b'T'],
+        alt_freqs: vec![0.05, 0.5, 0.995],
+        filter: "PASS".into(), depth: None,
+    };
+    let out = filter_snps(vec![snp], false, Some(0.1), Some(0.99), None);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].alt_alleles, vec![b'C']);
+    assert_eq!(out[0].alt_freqs, vec![0.5]);
+}

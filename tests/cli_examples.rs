@@ -698,3 +698,18 @@ fn vcf_nonexistent_reference_fails_clearly() {
     ]);
     assert!(!out.status.success());
 }
+
+
+#[test]
+fn vcf_examples_min_snps_counts_raw_not_af_weighted() {
+    // --min-snps must filter on the real SNP count, so --af-weighted keeps the same
+    // genes as plain mode (the AF-weighted fractional total is smaller but irrelevant).
+    let plain = new_run();
+    vcf_core(&plain.prefix, &["--min-snps", "20"]);
+    let weighted = new_run();
+    vcf_core(&weighted.prefix, &["--min-snps", "20", "--af-weighted"]);
+    let n_plain = tsv(&format!("{}_pnps.tsv", plain.prefix)).len();
+    let n_weighted = tsv(&format!("{}_pnps.tsv", weighted.prefix)).len();
+    assert_eq!(n_plain, n_weighted, "--min-snps must not drop more genes under --af-weighted");
+    assert!(n_plain > 1, "some genes should survive --min-snps 20");
+}
