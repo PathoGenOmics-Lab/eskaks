@@ -82,10 +82,11 @@ function renderVerdict(){
   const strLab=stringency==='q'?'BH-FDR':'Bonferroni';
   const untested=Math.max(0,S.totalGenes-S.tested);
   $("#verdict").innerHTML=
-    '<span class="dot" style="background:'+dotc+'"></span>'+
+    '<span class="dot" style="background:'+dotc+';color:'+dotc+'"></span>'+
     '<div style="flex:1;min-width:0"><div class="vlab">Genome-wide '+M.ratioName+' '+fmt(gw,3)+ciTxt+' — '+lab+'</div>'+
     '<div class="vsub">'+c.positive+' diversifying · '+c.purifying+' purifying — significant ('+strLab+' &lt; '+M.fdr+') of '+S.tested+' gene(s) tested'+(untested?'; '+untested+' untested (too few SNPs)':'')+'</div></div>'+
     '<button class="info" data-help="card_gw" title="What is this?" aria-label="What is this?">i</button>';
+  $("#verdict").style.setProperty('--vc',dotc);   // regime colour drives the banner's accent edge + wash
 }
 function renderGuide(){
   const terms=[
