@@ -22,8 +22,8 @@ pub fn write_pairwise_tests(
     let pairs: Vec<(usize, usize)> =
         (0..n).flat_map(|i| (i + 1..n).map(move |j| (i, j))).collect();
     let is_json = ext == "json";
-    let fmt = |v: f64| if v.is_finite() { format!("{:.6}", v) } else { "NaN".to_string() };
-    let jfmt = |v: f64| if v.is_finite() { format!("{:.6}", v) } else { "null".to_string() };
+    let fmt = |v: f64| if v.is_finite() { format!("{:.6}", norm_zero(v)) } else { "NaN".to_string() };
+    let jfmt = |v: f64| if v.is_finite() { format!("{:.6}", norm_zero(v)) } else { "null".to_string() };
 
     let rows: Vec<String> = pairs
         .par_iter()
@@ -80,8 +80,8 @@ pub fn write_pairwise_bootstrap(
     let pairs: Vec<(usize, usize)> =
         (0..n).flat_map(|i| (i + 1..n).map(move |j| (i, j))).collect();
     let is_json = ext == "json";
-    let fmt = |v: f64| if v.is_finite() { format!("{:.6}", v) } else { "NaN".to_string() };
-    let jfmt = |v: f64| if v.is_finite() { format!("{:.6}", v) } else { "null".to_string() };
+    let fmt = |v: f64| if v.is_finite() { format!("{:.6}", norm_zero(v)) } else { "NaN".to_string() };
+    let jfmt = |v: f64| if v.is_finite() { format!("{:.6}", norm_zero(v)) } else { "null".to_string() };
 
     let rows: Vec<String> = pairs
         .par_iter()

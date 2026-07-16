@@ -198,12 +198,20 @@ fn collect_report_pairwise(
                 gen_map[u_j] = cur_gen;
             }
             let DsDn { dn, ds } = row_cache[u_j];
-            let ratio = if ds > 0.0 {
-                dn / ds
-            } else if dn > 0.0 {
-                f64::INFINITY
-            } else {
+            // Use write_pairwise's exact ratio convention so the report histogram agrees
+            // with --summary and the main table: a finite zero-divergence pair (dn == 0,
+            // ds == 0 — e.g. identical/duplicate sequences) is 0.0, not NaN, so it bins
+            // into [0.0, 0.2) rather than the [1.0, inf) overflow.
+            let ratio = if dn.is_nan() || ds.is_nan() {
                 f64::NAN
+            } else if ds == 0.0 {
+                if dn == 0.0 {
+                    0.0
+                } else {
+                    f64::INFINITY
+                }
+            } else {
+                dn / ds
             };
             summary.record_pair_atomic(dn, ds, ratio);
             local.record(dn, ds, ratio);
@@ -479,6 +487,32 @@ mod tests {
             summary.total_count.load(Ordering::Relaxed),
             6,
             "report must count all id-pairs (4*3/2 = 6), not unique-sequence pairs"
+        );
+    }
+
+    #[test]
+    fn report_histogram_bins_identical_pairs_like_the_main_table() {
+        // Regression: identical (zero-divergence) pairs have dN/dS = 0.0 in the main
+        // table and --summary (bin [0.0, 0.2)). The report's histogram must agree — it
+        // must NOT map dn==0,ds==0 to NaN and land those pairs in the [1.0, inf) overflow
+        // bin (which would read as positive selection on clonal data).
+        let gc = crate::genetic_code::get_table(1).unwrap();
+        let engine = ComputeEngine::new(Model::Nei, gc);
+        let a = crate::codon::fasta_to_codon_indices(b"ATGGCTGCT", Model::Nei);
+        let data = SequenceData {
+            ids: vec!["s1".into(), "s2".into()], // identical -> one zero-divergence pair
+            uidx_by_id: vec![0, 0],
+            unique_codon_indices: vec![a],
+            n_unique: 1,
+        };
+        let (summary, _scatter) = collect_report_pairwise(&data, &engine, 8000);
+        let hist = summary.get_histogram();
+        assert_eq!(hist[0].1, 1, "identical pair must bin into [0.0, 0.2), got {:?}", hist);
+        assert_eq!(
+            hist[hist.len() - 1].1,
+            0,
+            "identical pair must NOT land in the [1.0, inf) overflow bin, got {:?}",
+            hist
         );
     }
 }

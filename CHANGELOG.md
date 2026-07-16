@@ -185,6 +185,18 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Follow-up sweep (adversarial round 4, over the code added earlier in this cycle):**
+  - **The HTML report's dN/dS histogram mis-binned identical (zero-divergence) pairs.**
+    After the report started aggregating over all id-pairs, `collect_report_pairwise`
+    still used a ratio convention where a `dN=0, dS=0` pair became `NaN`, landing every
+    duplicate pair in the `[1.0, inf)` (positive-selection) bin instead of `[0.0, 0.2)` —
+    so on clonal data the report's distribution panel contradicted `--summary` and the
+    table. It now uses the writer's exact ratio rule (`0/0 → 0.0`), so the panels agree.
+  - The per-pair **neutrality and bootstrap** tables no longer emit `-0.000000` (they
+    now normalise negative zero like the main results file, in TSV/CSV and JSON).
+  - **`delim_field` no longer over-quotes TSV fields** that contain a `"` but no tab
+    (which corrupted the value for TSV readers); quote-escaping is now CSV-only, while
+    tab/newline still force quoting in both formats.
 - **Correctness & output-integrity sweep (adversarial round 3, found by running the
   binary on crafted inputs):**
   - **Unequal-length sequences silently produced a wrong dN/dS.** The Nei and Li

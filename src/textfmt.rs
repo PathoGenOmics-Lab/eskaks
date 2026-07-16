@@ -29,7 +29,12 @@ pub(crate) fn json_escape(s: &str) -> String {
 /// interior quote. (For TSV this keeps a fixed column count for RFC-4180-aware
 /// readers; a bare embedded tab would otherwise add a spurious field.)
 pub(crate) fn delim_field(s: &str, sep: char) -> String {
-    if s.contains(sep) || s.contains('"') || s.contains('\n') || s.contains('\r') {
+    // A bare double quote only needs escaping in CSV (RFC 4180). TSV has no quoting
+    // convention, so a field like `gene"1` (a quote but no tab) must pass through
+    // verbatim — wrapping it in quotes there would corrupt the value for TSV readers.
+    let needs_quote =
+        s.contains(sep) || s.contains('\n') || s.contains('\r') || (sep == ',' && s.contains('"'));
+    if needs_quote {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         s.to_string()
@@ -68,9 +73,12 @@ mod tests {
         assert_eq!(delim_field("NP_001,alpha", '\t'), "NP_001,alpha");
         // A tab triggers quoting in TSV.
         assert_eq!(delim_field("a\tb", '\t'), "\"a\tb\"");
-        // Interior quotes are doubled; newlines force quoting.
+        // Interior quotes are doubled in CSV; newlines force quoting (both formats).
         assert_eq!(delim_field("a\"b", ','), "\"a\"\"b\"");
         assert_eq!(delim_field("a\nb", ','), "\"a\nb\"");
+        assert_eq!(delim_field("a\nb", '\t'), "\"a\nb\"");
+        // A bare quote (no tab/newline) must NOT be quoted in TSV — it would corrupt the value.
+        assert_eq!(delim_field("gene\"1", '\t'), "gene\"1");
     }
 
     #[test]
