@@ -345,6 +345,13 @@ impl LiTables {
     /// instead of the full 288KB data table.
     #[inline]
     pub fn compute_pair(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64) {
+        // Compare strictly position-by-position over the common length; see the note in
+        // nei.rs::compute_pair_stats. Without this clamp the chunks_exact(4) fast path
+        // mis-registers codons for unequal-length inputs, yielding a wrong Ka/Ks.
+        let n = codon_indices1.len().min(codon_indices2.len());
+        let codon_indices1 = &codon_indices1[..n];
+        let codon_indices2 = &codon_indices2[..n];
+
         let mut l_sum = [0.0; 3];
         let mut ti_sum = [0.0; 3];
         let mut tv_sum = [0.0; 3];
@@ -488,6 +495,20 @@ mod tests {
         let (dn, ds) = li(b"ATGGCTGCT", b"ATGGCTGCT");
         assert!((dn).abs() < EPSILON, "dN for identical seqs should be 0, got {}", dn);
         assert!((ds).abs() < EPSILON, "dS for identical seqs should be 0, got {}", ds);
+    }
+
+    #[test]
+    fn li_unequal_length_compares_overlap_not_misregistered() {
+        // See the Nei twin: unequal-length inputs must be compared over the common prefix,
+        // not mis-registered by the chunked fast path.
+        let long = b"ATGATGATGATGAAACCCATGATGGGGTTT"; // 10 codons
+        let short = b"ATGATGATGATGGGGTTT"; //             6 codons
+        let trunc = b"ATGATGATGATGAAACCC"; //             long's first 6 codons
+        let (dn_u, ds_u) = li(long, short);
+        let (dn_t, ds_t) = li(trunc, short);
+        assert!((dn_u - dn_t).abs() < 1e-12 || (dn_u.is_nan() && dn_t.is_nan()), "dN {} vs {}", dn_u, dn_t);
+        assert!((ds_u - ds_t).abs() < 1e-12 || (ds_u.is_nan() && ds_t.is_nan()), "dS {} vs {}", ds_u, ds_t);
+        assert!(dn_u > 0.0, "overlap divergence must not be hidden, got dN={}", dn_u);
     }
 
     #[test]

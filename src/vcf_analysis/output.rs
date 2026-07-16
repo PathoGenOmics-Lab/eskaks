@@ -1,6 +1,9 @@
 //! Per-gene pN/pS and McDonald-Kreitman table writers.
 
 use super::*;
+// Gene/chrom names come from GFF3 attributes (percent-decoded), so they can carry
+// quotes, delimiters, or control chars; escape/quote them like every other writer.
+use crate::textfmt::{delim_field, json_escape};
 
 /// Write pN/pS results to a file.
 pub fn write_results(
@@ -23,7 +26,7 @@ pub fn write_results(
                 writeln!(
                     file,
                     "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"length_bp\":{},\"N_sites\":{:.4},\"S_sites\":{:.4},\"exp_N_frac\":{},\"pN\":{},\"pS\":{},\"pN_pS\":{},\"nonsyn_snps\":{:.4},\"syn_snps\":{:.4},\"total_snps\":{:.4},\"p_value\":{},\"q_value_bh\":{},\"p_bonferroni\":{}}}{}",
-                    r.name, r.chrom, r.genome_start, r.genome_end, r.strand, r.length_bp,
+                    json_escape(&r.name), json_escape(&r.chrom), r.genome_start, r.genome_end, r.strand, r.length_bp,
                     r.n_sites, r.s_sites, format_json_num(exp_n_frac(r)),
                     format_json_f64(r.pn), format_json_f64(r.ps), format_json_f64(r.pn_ps),
                     r.nonsyn_snps, r.syn_snps, r.total_snps,
@@ -45,10 +48,10 @@ pub fn write_results(
                 writeln!(
                     file,
                     "{}{s}{}{s}{:.4}{s}{:.4}{s}{:.6}{s}{:.6}{s}{}{s}{:.4}{s}{:.4}{s}{:.4}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
-                    r.name, r.length_bp, r.n_sites, r.s_sites,
+                    delim_field(&r.name, sep), r.length_bp, r.n_sites, r.s_sites,
                     r.pn, r.ps, format_ratio(r.pn_ps),
                     r.nonsyn_snps, r.syn_snps, r.total_snps,
-                    r.chrom, r.genome_start, r.genome_end, r.strand,
+                    delim_field(&r.chrom, sep), r.genome_start, r.genome_end, r.strand,
                     format_pval(exp_n_frac(r)), format_pval(r.p_value),
                     format_pval(r.q_value), format_pval(r.p_bonferroni),
                     s = sep
@@ -124,7 +127,7 @@ pub fn write_mk_results(
             writeln!(
                 file,
                 "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"Dn\":{},\"Ds\":{},\"Pn\":{},\"Ps\":{},\"NI\":{},\"alpha\":{},\"fisher_p\":{},\"fisher_q_bh\":{}}}{}",
-                r.name, r.chrom, r.genome_start, r.genome_end, r.strand,
+                json_escape(&r.name), json_escape(&r.chrom), r.genome_start, r.genome_end, r.strand,
                 r.mk_dn, r.mk_ds, r.mk_pn, r.mk_ps,
                 format_json_num(ni(r)), format_json_num(alpha(r)),
                 format_json_num(pvals[i]), format_json_num(qvals[i]), comma
@@ -142,7 +145,7 @@ pub fn write_mk_results(
             writeln!(
                 file,
                 "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
-                r.name, r.chrom, r.genome_start, r.genome_end, r.strand,
+                delim_field(&r.name, sep), delim_field(&r.chrom, sep), r.genome_start, r.genome_end, r.strand,
                 r.mk_dn, r.mk_ds, r.mk_pn, r.mk_ps,
                 format_pval(ni(r)), format_pval(alpha(r)),
                 format_pval(pvals[i]), format_pval(qvals[i]),

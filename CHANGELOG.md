@@ -173,6 +173,36 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Correctness & output-integrity sweep (adversarial round 3, found by running the
+  binary on crafted inputs):**
+  - **Unequal-length sequences silently produced a wrong dN/dS.** The Nei and Li
+    fast paths split each sequence into chunks of 4 codons and handled the remainder
+    separately, which desynced when the two inputs differed in length: extra codons of
+    the longer sequence were dropped and the remainders were compared out of register,
+    so real divergence was hidden (reported as 0) or fabricated. Both models now clamp
+    to the common length and compare strictly position-by-position over the overlap.
+  - **Reference site-counting ignored RNA `U`.** A `U` in the reference never matched
+    the `ACGT` self-skip in `count_sites`, so a `U→T` non-mutation was scored as a
+    spurious synonymous change (and `--kappa` weighting collapsed), giving a U reference
+    different N/S sites from its DNA equivalent. The CDS is now normalised `U→T`.
+  - **A gene id reused on two contigs merged into one gene** (its CDS assembled from a
+    single contig, the other gene silently lost). GFF3 grouping now keys on
+    `(seqid, gene_id)`.
+  - **A duplicate contig id in the reference FASTA silently overwrote** the earlier
+    record (last wins), scoring genes against the wrong sequence; it is now a hard error.
+  - **Sequence ids / gene names containing the CSV/TSV delimiter, a quote, or a newline
+    corrupted the columns** (an extra field or a split row) across every delimited
+    writer (FASTA pairwise/lineage/window/tests/bootstrap and VCF pN/pS + MK). Fields
+    are now RFC-4180 quoted. **Gene/chrom names with a quote/backslash/control char
+    broke the VCF `_pnps.json` / `_mk.json`**; they are now JSON-escaped. Escaping and
+    quoting are centralised in one module so no writer drifts out of sync again.
+  - **The FASTA loader used the whole header line as the id** (leaking descriptions into
+    the `Seq1/Seq2` columns and splitting group keys); it now takes the first
+    whitespace token, matching the reference parser and standard FASTA semantics.
+  - **`--mk` combined with `--min-af`/`--max-af` silently gutted the McDonald-Kreitman
+    table** (the AF filter runs before the fixed/polymorphic split); it now warns.
+  - Delimited writers no longer emit a nonsensical `-0.000000` (normalised to `0`,
+    matching the JSON formatter).
 - **All-N / all-gap pairs reported dN/dS = 0.0 instead of undefined.** A sequence
   with no comparable codons (entirely `N`, ambiguous, or gap) was rendered as a
   perfect `0.0` self-comparison, which reads as extreme purifying selection rather

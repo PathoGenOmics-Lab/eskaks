@@ -9,6 +9,7 @@ mod output;
 mod plot;
 mod report;
 mod stats;
+mod textfmt;
 mod vcf;
 mod vcf_analysis;
 mod run_fasta;

@@ -111,7 +111,8 @@ pub fn write_lineage(
                         mean_dn / mean_ds
                     };
                     let _ = writeln!(block, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
-                        &ids[i], &lineage_names[lin_idx], mean_dn, mean_ds, ratio, s = sep);
+                        delim_field(&ids[i], sep), delim_field(&lineage_names[lin_idx], sep),
+                        norm_zero(mean_dn), norm_zero(mean_ds), norm_zero(ratio), s = sep);
 
                     if let Some(stats) = summary {
                         stats.record_pair_atomic(mean_dn, mean_ds, ratio);
@@ -253,7 +254,7 @@ pub fn write_group_average(
             let mean: f64 = pair_dn_ds_ratios.iter().sum::<f64>() / n as f64;
             if n == 1 {
                 (format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}N/A{s}N/A\n",
-                    &group_names[g1], &group_names[g2],
+                    delim_field(&group_names[g1], sep), delim_field(&group_names[g2], sep),
                     members1.len(), members2.len(), n, mean, s = sep),
                  GroupPlotData {
                      label: format!("{} vs {}", &group_names[g1], &group_names[g2]),
@@ -265,7 +266,7 @@ pub fn write_group_average(
                 let se = (variance / n as f64).sqrt();
                 let ci_hw = Z_95_CONFIDENCE * se;
                 (format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{}\n",
-                    &group_names[g1], &group_names[g2],
+                    delim_field(&group_names[g1], sep), delim_field(&group_names[g2], sep),
                     members1.len(), members2.len(), n,
                     mean, se, ci_field(mean - ci_hw, mean + ci_hw, sep), s = sep),
                  GroupPlotData {

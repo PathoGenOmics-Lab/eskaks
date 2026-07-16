@@ -85,6 +85,18 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     if !(0.0..=1.0).contains(&args.mk_fixed_af) {
         bail!("--mk-fixed-af must be between 0.0 and 1.0 (got {})", args.mk_fixed_af);
     }
+    // The AF filters are applied to the whole SNP set before the McDonald-Kreitman
+    // fixed/polymorphic split, so they silently delete the variants MK depends on:
+    // --max-af drops the fixed/divergence class (its help even recommends 0.99, which
+    // equals the default --mk-fixed-af), and --min-af drops the polymorphic class.
+    if args.mk && (args.min_af.is_some() || args.max_af.is_some()) {
+        warn!(
+            "--mk with --min-af/--max-af: the AF filter is applied BEFORE the \
+             McDonald-Kreitman fixed/polymorphic split, so NI, alpha and Fisher's p are \
+             computed from a truncated table (--max-af removes fixed/divergence variants, \
+             --min-af removes polymorphisms). Interpret the MK columns with care."
+        );
+    }
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.workers)

@@ -39,9 +39,16 @@ pub(crate) fn extract_cds_sequence(gene: &Gene, ref_seq: &[u8]) -> Vec<u8> {
         }
     }
 
-    // Uppercase
+    // Uppercase, and normalise RNA U -> T so the CDS is pure DNA. The translation and
+    // site-counting code treats U as T, but count_sites' self-skip (`alt == codon[pos]`)
+    // and is_transition compare the raw byte against A/C/G/T: a leftover 'U' never matches,
+    // so a U->T change is miscounted as a real synonymous substitution and kappa weighting
+    // collapses. Normalising here keeps a U reference equal to its DNA equivalent.
     for b in cds.iter_mut() {
         *b = b.to_ascii_uppercase();
+        if *b == b'U' {
+            *b = b'T';
+        }
     }
 
     // A CDS whose length is not a multiple of 3 signals a frame/annotation
@@ -302,6 +309,14 @@ pub fn parse_reference_fasta(path: &std::path::Path) -> anyhow::Result<HashMap<S
         let line = line.trim_end();
         if line.starts_with('>') {
             if let Some(name) = current_name.take() {
+                if seqs.contains_key(&name) {
+                    anyhow::bail!(
+                        "Duplicate contig id '{}' in reference FASTA {} — contig ids must be \
+                         unique, otherwise genes on that contig are silently scored against the \
+                         wrong sequence.",
+                        name, path.display()
+                    );
+                }
                 seqs.insert(name, std::mem::take(&mut current_seq));
             }
             // Take the first word as the sequence name
@@ -313,6 +328,13 @@ pub fn parse_reference_fasta(path: &std::path::Path) -> anyhow::Result<HashMap<S
         }
     }
     if let Some(name) = current_name {
+        if seqs.contains_key(&name) {
+            anyhow::bail!(
+                "Duplicate contig id '{}' in reference FASTA {} — contig ids must be unique, \
+                 otherwise genes on that contig are silently scored against the wrong sequence.",
+                name, path.display()
+            );
+        }
         seqs.insert(name, current_seq);
     }
 

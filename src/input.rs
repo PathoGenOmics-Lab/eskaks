@@ -129,7 +129,13 @@ pub fn load_sequences(
                 }
             }
 
-            let id_str = String::from_utf8_lossy(rec.id()).into_owned();
+            // Use the first whitespace-delimited token of the header as the id (standard
+            // FASTA convention, matching parse_reference_fasta). needletail's id() returns
+            // the whole header line, so without this a description would leak into the
+            // Seq1/Seq2 columns and could split group/lineage keys (extract_group_key runs
+            // on the id).
+            let full_id = String::from_utf8_lossy(rec.id());
+            let id_str = full_id.split_ascii_whitespace().next().unwrap_or("").to_string();
             all_codon_indices.push(codons);
             ids.push(id_str);
         }

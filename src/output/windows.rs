@@ -93,7 +93,8 @@ pub fn write_pairwise_windows(
                     }
 
                     let _ = writeln!(local_buffer, "{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
-                        &ids[i], &ids[j], start + 1, end, result.dn, result.ds, ratio, s = sep);
+                        delim_field(&ids[i], sep), delim_field(&ids[j], sep), start + 1, end,
+                        norm_zero(result.dn), norm_zero(result.ds), norm_zero(ratio), s = sep);
                 }
                 pb.inc(num_windows as u64);
             }

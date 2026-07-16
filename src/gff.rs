@@ -60,8 +60,12 @@ pub fn parse_gff3(path: &Path) -> anyhow::Result<Vec<Gene>> {
         .with_context(|| format!("Failed to open GFF3 file: {}", path.display()))?;
     let reader = BufReader::new(file);
 
-    // Map: gene_id -> (name, seqid, strand, Vec<CdsExon>)
-    let mut gene_map: BTreeMap<String, (String, String, Strand, Vec<CdsExon>)> = BTreeMap::new();
+    // Map: (seqid, gene_id) -> (name, seqid, strand, Vec<CdsExon>). Keying on the pair,
+    // not the id alone, keeps two genes that (against the GFF3 spec) reuse an id on
+    // different contigs separate — otherwise their exons pool into one gene whose CDS is
+    // assembled from a single contig and the other gene silently vanishes.
+    type GeneGroup = (String, String, Strand, Vec<CdsExon>);
+    let mut gene_map: BTreeMap<(String, String), GeneGroup> = BTreeMap::new();
     // Format diagnostics: did we ever see a proper 9-column GFF3 record?
     let mut any_structured = false;
     let mut first_line: Option<String> = None;
@@ -134,7 +138,7 @@ pub fn parse_gff3(path: &Path) -> anyhow::Result<Vec<Gene>> {
         let gene_name = extract_gene_name(attributes).unwrap_or_else(|| gene_id.clone());
 
         let entry = gene_map
-            .entry(gene_id)
+            .entry((seqid.clone(), gene_id))
             .or_insert_with(|| (gene_name.clone(), seqid.clone(), strand, Vec::new()));
 
         entry.3.push(CdsExon {
@@ -298,6 +302,25 @@ chr1\t.\tCDS\t100\t200\t.\t+\t0\tParent=gene1;gene=geneA\n";
         assert_eq!(genes[0].exons[0].start, 100);
         assert_eq!(genes[0].exons[0].end, 200);
         assert_eq!(genes[0].strand, Strand::Plus);
+    }
+
+    #[test]
+    fn colliding_gene_id_on_different_contigs_stays_separate() {
+        // Regression: a gene id reused on two contigs (against the GFF3 spec) must not
+        // merge into one gene — which would assemble one gene's CDS from a single contig
+        // and silently drop the other. Keying on (seqid, id) keeps them separate.
+        let gff = "\
+##gff-version 3
+chr1\t.\tCDS\t1\t15\t.\t+\t0\tParent=g1;gene=alpha
+chr2\t.\tCDS\t1\t15\t.\t+\t0\tParent=g1;gene=beta\n";
+        let f = write_temp_gff(gff);
+        let genes = parse_gff3(f.path()).unwrap();
+        assert_eq!(genes.len(), 2, "colliding ids on different contigs must stay separate");
+        let seqids: Vec<&str> = genes.iter().map(|g| g.seqid.as_str()).collect();
+        assert!(seqids.contains(&"chr1") && seqids.contains(&"chr2"), "one gene per contig");
+        for g in &genes {
+            assert_eq!(g.length_bp, 15, "each gene keeps its own single 15 bp CDS, not a doubled one");
+        }
     }
 
     #[test]

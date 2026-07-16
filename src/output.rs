@@ -23,24 +23,10 @@ pub use grouped::{write_group_average, write_lineage};
 pub use pairwise::{write_pairwise, write_pairwise_bootstrap, write_pairwise_tests};
 pub use windows::write_pairwise_windows;
 
-/// Escape a string for embedding inside a JSON double-quoted string, so a
-/// sequence/lineage id containing `"`, `\`, or a control char cannot produce
-/// invalid JSON output.
-fn json_escape(s: &str) -> String {
-    let mut o = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '"' => o.push_str("\\\""),
-            '\\' => o.push_str("\\\\"),
-            '\n' => o.push_str("\\n"),
-            '\r' => o.push_str("\\r"),
-            '\t' => o.push_str("\\t"),
-            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
-            c => o.push(c),
-        }
-    }
-    o
-}
+// Id escaping/quoting is centralised in crate::textfmt so every writer (FASTA and
+// VCF, JSON and delimited) stays in sync. Re-exported so the output submodules reach
+// them via `use super::*`.
+pub(crate) use crate::textfmt::{delim_field, json_escape, norm_zero};
 
 /// Format f64 for JSON: NaN/Infinity → null, -0 → 0, otherwise 6 decimal places.
 fn format_json_f64(v: f64) -> String {

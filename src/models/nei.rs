@@ -204,6 +204,17 @@ impl NeiTables {
     /// (saturation) or the sites are zero.
     #[inline]
     pub fn compute_pair_stats(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64, f64, f64) {
+        // Compare strictly position-by-position over the common length. If the inputs
+        // differ in length (an imperfect / differently-trimmed alignment — the loader
+        // only warns, never bails), the chunks_exact(4) fast path below would otherwise
+        // desync: chunks1.zip(chunks2) drops the longer sequence's extra full chunks and
+        // the two `.remainder()` slices start at different codon offsets, mis-registering
+        // codons and reporting an arbitrary wrong dN/dS. Clamping to min() keeps both the
+        // chunk stream and the remainder aligned to the same absolute codon index.
+        let n = codon_indices1.len().min(codon_indices2.len());
+        let codon_indices1 = &codon_indices1[..n];
+        let codon_indices2 = &codon_indices2[..n];
+
         let mut count_valid_codons = 0u32;
         let mut syn_diffs = 0.0f64;
         let mut nonsyn_diffs = 0.0f64;
@@ -514,6 +525,22 @@ mod tests {
         let (dn, ds) = nei(b"CCCCCC", b"GGGGGG");
         assert!(dn.is_nan(), "saturated pN should give NaN dN, got {}", dn);
         assert!(ds.is_nan(), "saturated pS should give NaN dS, got {}", ds);
+    }
+
+    #[test]
+    fn cov_nei_unequal_length_compares_overlap_not_misregistered() {
+        // Unequal-length inputs (an imperfect / differently-trimmed alignment) must be
+        // compared strictly position-by-position over the common prefix, not mis-registered
+        // by the chunks_exact fast path. Result must equal truncating the longer sequence.
+        let long = b"ATGATGATGATGAAACCCATGATGGGGTTT"; // 10 codons
+        let short = b"ATGATGATGATGGGGTTT"; //             6 codons (differs at codons 5,6)
+        let trunc = b"ATGATGATGATGAAACCC"; //             long's first 6 codons
+        let (dn_u, ds_u) = nei(long, short);
+        let (dn_t, ds_t) = nei(trunc, short);
+        assert!((dn_u - dn_t).abs() < 1e-12 || (dn_u.is_nan() && dn_t.is_nan()), "dN {} vs {}", dn_u, dn_t);
+        assert!((ds_u - ds_t).abs() < 1e-12 || (ds_u.is_nan() && ds_t.is_nan()), "dS {} vs {}", ds_u, ds_t);
+        // The real overlap has nonsynonymous divergence — the old code silently reported 0.
+        assert!(dn_u > 0.0, "overlap divergence must not be hidden, got dN={}", dn_u);
     }
 
     #[test]

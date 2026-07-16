@@ -294,6 +294,29 @@ fn cov_write_pairwise_records_every_pair_with_nan() {
 }
 
 #[test]
+fn cov_write_pairwise_csv_quotes_id_containing_comma() {
+    // Regression: an id containing the CSV delimiter must be quoted so the row keeps its
+    // column count instead of splitting the id into an extra field.
+    let dir = cov_tmp();
+    let prefix = cov_prefix(&dir);
+    let ids = vec!["NP_001,alpha".to_string(), "seqB".to_string()];
+    let uidx: Vec<usize> = (0..2).collect();
+    let cfg = OutputConfig {
+        prefix: prefix.as_str(), sep: ',', ext: "csv", model: Model::Nei, summary: None,
+    };
+    write_pairwise(&ids, &uidx, 2, cov_finite_pair, &cfg).expect("write pairwise");
+    let out_path = format!("{}_pairwise_results.csv", prefix);
+    let lines = cov_read_nonempty(&out_path);
+    assert!(
+        lines[1].starts_with("\"NP_001,alpha\","),
+        "comma-containing id must be quoted, got: {}",
+        lines[1]
+    );
+    // A plain id in the same row stays unquoted.
+    assert!(lines[1].contains(",seqB,"), "plain id stays unquoted, got: {}", lines[1]);
+}
+
+#[test]
 fn cov_write_pairwise_nan_dn_over_zero_ds_ratio_is_nan_not_inf() {
     // Regression: when dN is undefined (NaN from nonsynonymous saturation) and dS is a
     // finite zero, the ratio is undefined and must print as NaN, not +inf (which reads

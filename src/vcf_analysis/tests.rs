@@ -443,6 +443,35 @@ fn cov_out_parse_reference_fasta_missing_file_is_err() {
 }
 
 #[test]
+fn cov_out_parse_reference_fasta_duplicate_contig_is_err() {
+    // A repeated contig id would otherwise silently overwrite (last wins), scoring every
+    // gene on that contig against the wrong sequence. It must be rejected.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("dup.fasta");
+    std::fs::write(&path, ">chr1\nACGTACGT\n>chr1\nTTTTAAAA\n").unwrap();
+    assert!(parse_reference_fasta(&path).is_err(), "duplicate contig id must be rejected");
+}
+
+#[test]
+fn cov_core_rna_reference_matches_dna() {
+    // A U (RNA) reference must yield the same N/S site counts as its DNA equivalent, since
+    // the tool defines U == T. Regression for count_sites' self-skip comparing raw bytes.
+    let gc = make_gc();
+    let gene_d = cov_core_gene("g", "chr1", Strand::Plus, 1, 9, 0);
+    let gene_r = cov_core_gene("g", "chr1", Strand::Plus, 1, 9, 0);
+    let mut dna = HashMap::new();
+    dna.insert("chr1".to_string(), b"TTTAAACCC".to_vec()); // Phe Lys Pro
+    let mut rna = HashMap::new();
+    rna.insert("chr1".to_string(), b"UUUAAACCC".to_vec()); // same, RNA
+    let (rd, _) = compute_pn_ps(&dna, &[gene_d], &[], gc, false, 1.0, 0.95);
+    let (rr, _) = compute_pn_ps(&rna, &[gene_r], &[], gc, false, 1.0, 0.95);
+    assert_eq!(rd.len(), 1);
+    assert_eq!(rr.len(), 1);
+    assert!((rd[0].n_sites - rr[0].n_sites).abs() < 1e-9, "N_sites U {} vs T {}", rr[0].n_sites, rd[0].n_sites);
+    assert!((rd[0].s_sites - rr[0].s_sites).abs() < 1e-9, "S_sites U {} vs T {}", rr[0].s_sites, rd[0].s_sites);
+}
+
+#[test]
 fn cov_out_write_results_tsv_header_and_row() {
     // gene_result(100,100,10,20): pn=0.10, ps=0.20, pn_ps=0.5, total=30,
     // exp_n_frac = 100/200 = 0.5; p/q/bonferroni default to NaN -> "NA".
