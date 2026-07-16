@@ -62,6 +62,9 @@ pub fn parse_gff3(path: &Path) -> anyhow::Result<Vec<Gene>> {
 
     // Map: gene_id -> (name, seqid, strand, Vec<CdsExon>)
     let mut gene_map: BTreeMap<String, (String, String, Strand, Vec<CdsExon>)> = BTreeMap::new();
+    // Format diagnostics: did we ever see a proper 9-column GFF3 record?
+    let mut any_structured = false;
+    let mut first_line: Option<String> = None;
 
     for (line_no, line) in reader.lines().enumerate() {
         let line = line.with_context(|| format!("Failed to read line {} of GFF3", line_no + 1))?;
@@ -70,11 +73,15 @@ pub fn parse_gff3(path: &Path) -> anyhow::Result<Vec<Gene>> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
+        if first_line.is_none() {
+            first_line = Some(line.chars().take(60).collect());
+        }
 
         let fields: Vec<&str> = line.split('\t').collect();
         if fields.len() < 9 {
             continue;
         }
+        any_structured = true;
 
         // Only process CDS features
         if fields[2] != "CDS" {
@@ -172,7 +179,22 @@ pub fn parse_gff3(path: &Path) -> anyhow::Result<Vec<Gene>> {
     genes.sort_by(|a, b| a.seqid.cmp(&b.seqid).then(a.start.cmp(&b.start)));
 
     if genes.is_empty() {
-        anyhow::bail!("No CDS features found in GFF3 file: {}", path.display());
+        // Distinguish "valid GFF3 with no CDS rows" from "this isn't a GFF3 at all".
+        if !any_structured && first_line.is_some() {
+            let hint = match first_line.as_deref() {
+                Some(l) if l.starts_with('>') => " (the first line starts with '>': is this a FASTA?)",
+                _ => "",
+            };
+            anyhow::bail!(
+                "{}: no tab-separated 9-column GFF3 records found — is this really a GFF3?{}",
+                path.display(), hint
+            );
+        }
+        anyhow::bail!(
+            "No CDS features found in GFF3 file: {} (the file parsed as GFF3 but has no 'CDS' rows — \
+             check the feature type column).",
+            path.display()
+        );
     }
 
     Ok(genes)
@@ -438,5 +460,13 @@ chr1\t.\tCDS\t100\t150\t.\t+\t0\tParent=g2;gene=ok\n";
         let genes = parse_gff3(f.path()).unwrap();
         assert_eq!(genes.len(), 1);
         assert_eq!(genes[0].name, "ok");
+    }
+
+    #[test]
+    fn fasta_content_as_gff3_reports_wrong_format() {
+        let gff = ">chr1\nATGGCTGCTAAA\n";
+        let f = write_temp_gff(gff);
+        let err = parse_gff3(f.path()).unwrap_err().to_string();
+        assert!(err.contains("GFF3") && err.contains("FASTA"), "err: {}", err);
     }
 }

@@ -94,6 +94,13 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     let ref_path = std::path::Path::new(&args.reference);
     let gff_path = std::path::Path::new(&args.gff);
 
+    // Fail fast with a clear message on gzip-compressed inputs (common footgun).
+    input::ensure_not_gzipped(&args.reference)?;
+    input::ensure_not_gzipped(&args.gff)?;
+    for v in &args.vcf {
+        input::ensure_not_gzipped(v)?;
+    }
+
     info!("Loading reference FASTA: {}", args.reference);
     let reference = vcf_analysis::parse_reference_fasta(ref_path)?;
 
@@ -175,9 +182,50 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     }
 
     // Compute pN/pS
-    let mut results = vcf_analysis::compute_pn_ps(
+    let (mut results, diag): (Vec<_>, vcf_analysis::ComputeDiagnostics) = vcf_analysis::compute_pn_ps(
         &reference, &genes, &snps, gc, args.af_weighted, args.kappa, args.mk_fixed_af,
     );
+
+    // ── Diagnostics: make an empty / garbage result impossible to mistake for
+    // a clean run. ────────────────────────────────────────────────────────────
+    // 1) VCF contigs that match no annotated gene: their SNPs were silently dropped.
+    {
+        let gene_ids: HashSet<&str> = genes.iter().map(|g| g.seqid.as_str()).collect();
+        let mut unmatched: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+        for s in &snps {
+            if !gene_ids.contains(s.chrom.as_str()) {
+                *unmatched.entry(s.chrom.as_str()).or_insert(0) += 1;
+            }
+        }
+        if !unmatched.is_empty() {
+            let dropped: usize = unmatched.values().sum();
+            let names: Vec<String> = unmatched.iter().map(|(c, n)| format!("{} ({} SNPs)", c, n)).collect();
+            warn!(
+                "{} of {} SNPs are on VCF contig(s) that match no annotated gene and were dropped: {}. \
+                 Check that contig names agree across VCF, GFF and reference.",
+                dropped, snps.len(), names.join(", ")
+            );
+        }
+    }
+    // 2) SNPs supplied but none landed inside a CDS: almost always a coordinate/build
+    //    mismatch (contig names match but positions do not) rather than 'no data'.
+    if !snps.is_empty() && diag.snps_in_cds == 0 {
+        warn!(
+            "{} SNPs were read but NONE fell inside an annotated CDS. Contig names match, so the \
+             coordinates likely disagree with the GFF (wrong reference build, coordinate system, or \
+             all variants are intergenic). Verify the VCF, GFF and reference share the same assembly.",
+            snps.len()
+        );
+    }
+    // 3) Reference genes that do not translate cleanly → wrong genetic code / frame.
+    if diag.genes_with_internal_stops > 0 && !results.is_empty() {
+        let frac = diag.genes_with_internal_stops as f64 / results.len().max(1) as f64;
+        warn!(
+            "{}/{} genes ({:.0}%) have an internal stop codon in their reference CDS — this usually \
+             means the wrong --genetic-code (currently {}) or a frame/phase problem in the GFF.",
+            diag.genes_with_internal_stops, results.len(), 100.0 * frac, args.genetic_code
+        );
+    }
 
     // Genome-wide pooled estimate and gene counts use ALL genes (pooling is
     // robust to low-count genes), captured before any --min-snps filtering.
@@ -212,6 +260,13 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         results.retain(|r| r.n_snps >= args.min_snps);
         dropped = before - results.len();
         info!("--min-snps {}: kept {} of {} genes", args.min_snps, results.len(), before);
+        if results.is_empty() && before > 0 {
+            warn!(
+                "--min-snps {} dropped all {} genes — the per-gene table, plot and report will have \
+                 no rows. Lower --min-snps. (The genome-wide pooled estimate still uses all genes.)",
+                args.min_snps, before
+            );
+        }
     }
 
     // Per-gene neutrality test correction (BH-FDR q-values + Bonferroni),
@@ -227,22 +282,28 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         info!("Genomic control applied (λ = {:.3})", lambda);
     }
 
-    // Write results
+    // Write results (collect every path so the summary can list them regardless of
+    // log level — a user should always see where their output went).
+    let mut written: Vec<String> = Vec::new();
     let output_path = vcf_analysis::write_results(&results, &args.output, &args.format)?;
     info!("Results saved to {}", output_path);
+    written.push(output_path);
 
     // McDonald-Kreitman test (optional).
     if args.mk {
         let mk_path = vcf_analysis::write_mk_results(&results, &args.output, &args.format)?;
         info!("McDonald-Kreitman results saved to {}", mk_path);
+        written.push(mk_path);
     }
 
     // Generate plots if requested
     if args.plot {
         let plot_path = vcf_analysis::write_pnps_plot(&results, &args.output, args.fdr)?;
         info!("Plot saved to {}", plot_path);
+        written.push(plot_path);
         let pv_path = vcf_analysis::write_pvalue_manhattan(&results, &args.output, args.fdr)?;
         info!("p-value Manhattan saved to {}", pv_path);
+        written.push(pv_path);
     }
 
     // Interactive HTML report.
@@ -280,6 +341,7 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             &rmeta, divergence.as_ref(), &args.output,
         )?;
         info!("Report saved to {}", report_path);
+        written.push(report_path);
     }
     if args.divergence.is_some() && !args.report {
         warn!("--divergence is only used by the interactive report; add --report or the file is ignored.");
@@ -298,6 +360,10 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     }
     eprintln!("  Genes analyzed:      {}", total_genes);
     eprintln!("  Genes with SNPs:     {}", genes_with_snps);
+    eprintln!("  SNPs used (in CDS):  {} of {} parsed", diag.snps_in_cds, snps.len());
+    if diag.ref_mismatch > 0 {
+        eprintln!("  SNPs skipped (REF≠ref): {}", diag.ref_mismatch);
+    }
     if args.min_snps > 0 {
         eprintln!("  Genes kept (>= {} SNPs): {}  ({} dropped)", args.min_snps, results.len(), dropped);
     }
@@ -315,6 +381,15 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         if let Some((lo, hi)) = gw_ci {
             eprintln!("  95% CI ({} boot):    [{:.6}, {:.6}]", args.bootstrap, lo, hi);
         }
+    } else {
+        // No pooled estimate: say so explicitly rather than leaving a silent gap.
+        eprintln!("  ── Genome-wide (pooled) ──────────────────");
+        let why = if args.exclude_repetitive {
+            " (all genes were excluded as repetitive — drop --exclude-repetitive?)"
+        } else {
+            " (no gene contributed any coding SNP)"
+        };
+        eprintln!("  Overall {}:       n/a{}", ratio_name, why);
     }
     // "Tested" = the multiple-testing family (finite q), not merely genes with a raw
     // p — under --exclude-repetitive the repetitive genes are dropped from the family.
@@ -348,6 +423,10 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         eprintln!("  Genes with MK data:  {}", with_data);
         eprintln!("  Totals Dn/Ds/Pn/Ps:  {}/{}/{}/{}", total_dn, total_ds, total_pn, total_ps);
     }
+    eprintln!("───────────────────────────────────────────");
+    // Always tell the user where the output went (info-level "saved to" lines are
+    // hidden at the default log level).
+    eprintln!("  Output: {}", written.join(", "));
     eprintln!("───────────────────────────────────────────");
 
     info!("VCF analysis completed successfully.");

@@ -667,7 +667,7 @@ fn cov_core_compute_plus_strand_hand_checked() {
         cov_core_snp("chr1", 3, b'T', b'C', 0.8),
         cov_core_snp("chr1", 4, b'G', b'A', 0.4),
     ];
-    let res = compute_pn_ps(&reference, &[gene], &snps, gc, false, 1.0, 0.5);
+    let (res, _diag) = compute_pn_ps(&reference, &[gene], &snps, gc, false, 1.0, 0.5);
     assert_eq!(res.len(), 1);
     let g = &res[0];
 
@@ -723,7 +723,7 @@ fn cov_core_compute_minus_strand_hand_checked() {
         cov_core_snp("chrM", 4, b'A', b'G', 0.5),
         cov_core_snp("chrM", 3, b'C', b'T', 0.5),
     ];
-    let res = compute_pn_ps(&reference, &[gene], &snps, gc, false, 1.0, 0.95);
+    let (res, _diag) = compute_pn_ps(&reference, &[gene], &snps, gc, false, 1.0, 0.95);
     assert_eq!(res.len(), 1);
     let g = &res[0];
     assert_eq!(g.strand, '-');
@@ -745,7 +745,7 @@ fn cov_core_compute_af_weighted_uses_frequencies() {
         cov_core_snp("chr1", 3, b'T', b'C', 0.8), // synonymous, weight 0.8
         cov_core_snp("chr1", 4, b'G', b'A', 0.4), // nonsynonymous, weight 0.4
     ];
-    let res = compute_pn_ps(&reference, &[gene], &snps, gc, true, 1.0, 0.5);
+    let (res, _diag) = compute_pn_ps(&reference, &[gene], &snps, gc, true, 1.0, 0.5);
     assert_eq!(res.len(), 1);
     let g = &res[0];
     // Under --af-weighted each ALT contributes its allele frequency.
@@ -766,7 +766,7 @@ fn cov_core_compute_skips_gene_with_missing_reference() {
     // Reference has no entry for the gene's seqid -> gene is filtered out.
     let reference: HashMap<String, Vec<u8>> = HashMap::new();
     let gene = cov_core_gene("g1", "chr1", Strand::Plus, 1, 6, 0);
-    let res = compute_pn_ps(&reference, &[gene], &[], gc, false, 1.0, 0.95);
+    let (res, _diag) = compute_pn_ps(&reference, &[gene], &[], gc, false, 1.0, 0.95);
     assert!(res.is_empty());
 }
 
@@ -777,7 +777,7 @@ fn cov_core_compute_skips_short_cds() {
     let mut reference = HashMap::new();
     reference.insert("chr1".to_string(), b"AT".to_vec());
     let gene = cov_core_gene("g1", "chr1", Strand::Plus, 1, 2, 0);
-    let res = compute_pn_ps(&reference, &[gene], &[], gc, false, 1.0, 0.95);
+    let (res, _diag) = compute_pn_ps(&reference, &[gene], &[], gc, false, 1.0, 0.95);
     assert!(res.is_empty());
 }
 
@@ -789,7 +789,7 @@ fn cov_core_compute_ref_mismatch_snp_skipped() {
     let gene = cov_core_gene("g1", "chr1", Strand::Plus, 1, 6, 0);
     // VCF claims REF=A at pos 3, but the reference has T there -> SNP is skipped.
     let snps = vec![cov_core_snp("chr1", 3, b'A', b'C', 0.5)];
-    let res = compute_pn_ps(&reference, &[gene], &snps, gc, false, 1.0, 0.95);
+    let (res, _diag) = compute_pn_ps(&reference, &[gene], &snps, gc, false, 1.0, 0.95);
     assert_eq!(res.len(), 1);
     let g = &res[0];
     assert_eq!(g.total_snps, 0.0);
@@ -957,6 +957,26 @@ fn cov_core_gene_exon_past_reference_is_skipped() {
     let mut reference = HashMap::new();
     reference.insert("chr1".to_string(), b"TTTGCT".to_vec()); // 6 bp
     let gene = cov_core_gene("g", "chr1", Strand::Plus, 1, 12, 0); // exon 1..12 > 6 bp
-    let res = compute_pn_ps(&reference, &[gene], &[], gc, false, 1.0, 0.95);
+    let (res, _diag) = compute_pn_ps(&reference, &[gene], &[], gc, false, 1.0, 0.95);
     assert!(res.is_empty(), "a gene whose CDS overruns the reference must be skipped");
+}
+
+
+#[test]
+fn cov_core_diagnostics_report_in_cds_snps_and_internal_stops() {
+    let gc = make_gc();
+    // Clean CDS TTT GCT, one SNP inside it.
+    let mut reference = HashMap::new();
+    reference.insert("chr1".to_string(), b"TTTGCT".to_vec());
+    let gene = cov_core_gene("g1", "chr1", Strand::Plus, 1, 6, 0);
+    let (_r, diag) = compute_pn_ps(&reference, &[gene], &[cov_core_snp("chr1", 3, b'T', b'C', 0.8)], gc, false, 1.0, 0.5);
+    assert_eq!(diag.snps_in_cds, 1);
+    assert_eq!(diag.genes_with_internal_stops, 0);
+
+    // CDS starting with a stop codon (TAA) -> flagged as an internal stop.
+    let mut ref2 = HashMap::new();
+    ref2.insert("chr1".to_string(), b"TAAGCT".to_vec());
+    let gene2 = cov_core_gene("g2", "chr1", Strand::Plus, 1, 6, 0);
+    let (_r2, diag2) = compute_pn_ps(&ref2, &[gene2], &[], gc, false, 1.0, 0.5);
+    assert_eq!(diag2.genes_with_internal_stops, 1);
 }

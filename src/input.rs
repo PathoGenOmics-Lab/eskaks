@@ -1,7 +1,7 @@
 //! FASTA reading, validation, deduplication, and filtering.
 
 use anyhow::{bail, Context};
-use log::{info, warn};
+use log::{debug, info, warn};
 use needletail::{parse_fastx_file, parse_fastx_reader};
 
 use crate::codon;
@@ -25,6 +25,25 @@ fn is_stdin(path: &str) -> bool {
     path == "-" || path == "/dev/stdin"
 }
 
+/// Bail with a clear message if `path` looks gzip-compressed. eskaks reads plain
+/// text, and a `.gz` otherwise fails deep in a parser with a cryptic UTF-8 error.
+pub fn ensure_not_gzipped(path: &str) -> anyhow::Result<()> {
+    use std::io::Read;
+    if is_stdin(path) {
+        return Ok(());
+    }
+    if let Ok(mut f) = std::fs::File::open(path) {
+        let mut magic = [0u8; 2];
+        if f.read_exact(&mut magic).is_ok() && magic == [0x1f, 0x8b] {
+            bail!(
+                "'{path}' appears to be gzip-compressed, but eskaks reads plain text. \
+                 Decompress it first (e.g. `gunzip -k {path}` or pipe through `zcat`)."
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Read FASTA, validate, filter, and deduplicate.
 /// `stop_codons` is an optional set of codon indices that are stop codons for the active genetic code.
 pub fn load_sequences(
@@ -40,6 +59,7 @@ pub fn load_sequences(
     let mut ids: Vec<String> = Vec::new();
     let mut gap_count_total = 0usize;
     let mut seqs_with_gaps = 0usize;
+    let mut seqs_with_internal_stop = 0usize;
 
     // Buffer for stdin data (must outlive the reader)
     let stdin_buf: Vec<u8> = if is_stdin(input_file) {
@@ -87,19 +107,25 @@ pub fn load_sequences(
             }
             let codons = codon::fasta_to_codon_indices(&seq, model);
 
-            // Check for internal stop codons (last codon excluded — it's expected)
+            // Check for internal stop codons (last codon excluded — it's expected).
+            // Count them per sequence: a single internal stop hints at a pseudogene,
+            // but many (across many sequences) point at a wrong genetic code / frame.
+            // Per-sequence detail stays at debug; an aggregate warning fires below.
             if let Some(stops) = stop_codons {
-                let id = String::from_utf8_lossy(rec.id());
                 let last = codons.len().saturating_sub(1);
-                for (pos, &c) in codons.iter().enumerate() {
-                    if pos < last && c != codon::INVALID_CODON && stops.contains(&c) {
-                        warn!(
-                            "Sequence '{}' has internal stop codon at codon position {} (0-based). \
-                             This may indicate a frameshift, pseudogene, or wrong reading frame.",
-                            id, pos
-                        );
-                        break; // one warning per sequence is enough
-                    }
+                let internal: Vec<usize> = codons
+                    .iter()
+                    .take(last)
+                    .enumerate()
+                    .filter(|(_, &c)| c != codon::INVALID_CODON && stops.contains(&c))
+                    .map(|(pos, _)| pos)
+                    .collect();
+                if !internal.is_empty() {
+                    seqs_with_internal_stop += 1;
+                    debug!(
+                        "Sequence '{}' has {} internal stop codon(s), first at codon {} (0-based).",
+                        String::from_utf8_lossy(rec.id()), internal.len(), internal[0]
+                    );
                 }
             }
 
@@ -149,6 +175,23 @@ pub fn load_sequences(
             "{} sequence(s) contain {} total gap character(s) ('-' or '.'), treated as ambiguous.",
             seqs_with_gaps, gap_count_total
         );
+    }
+    if seqs_with_internal_stop > 0 {
+        let frac = seqs_with_internal_stop as f64 / ids.len().max(1) as f64;
+        if frac > 0.5 {
+            warn!(
+                "{}/{} sequences ({:.0}%) contain internal stop codons — this strongly suggests the \
+                 wrong --genetic-code or reading frame. Check that the input is in-frame coding sequence \
+                 (run -vv for per-sequence positions).",
+                seqs_with_internal_stop, ids.len(), 100.0 * frac
+            );
+        } else {
+            warn!(
+                "{}/{} sequence(s) contain internal stop codons (a frameshift/pseudogene, or a \
+                 genetic-code/frame issue; run -vv for positions).",
+                seqs_with_internal_stop, ids.len()
+            );
+        }
     }
     if let Some(first_len) = all_codon_indices.first().map(|v| v.len()) {
         let mismatched = all_codon_indices
@@ -403,5 +446,17 @@ mod tests {
         assert_ne!(uidx[0], uidx[1]);
         assert_ne!(uidx[1], uidx[3]);
         assert_eq!(unique.len(), 3);
+    }
+
+    #[test]
+    fn ensure_not_gzipped_rejects_gzip_magic() {
+        let p = write_temp_fasta("gzmagic", "");
+        std::fs::write(&p, [0x1fu8, 0x8b, 0x08, 0x00]).unwrap(); // gzip magic
+        let err = ensure_not_gzipped(&p).unwrap_err().to_string();
+        assert!(err.contains("gzip"), "err: {}", err);
+        // A plain-text file passes.
+        let p2 = write_temp_fasta("plain_ok", ">s\nATG\n");
+        assert!(ensure_not_gzipped(&p2).is_ok());
+        std::fs::remove_file(&p).ok(); std::fs::remove_file(&p2).ok();
     }
 }

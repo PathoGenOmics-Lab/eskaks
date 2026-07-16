@@ -6,6 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Much clearer failure diagnostics**, so an empty or garbage result is never
+  mistaken for a clean run:
+  - `eskaks vcf` summary now accounts for the SNPs (`SNPs used (in CDS): X of Y`),
+    lists the output files written, and warns when SNPs are read but *none* land in a
+    CDS (a coordinate/build mismatch), when some VCF contigs match no gene (their SNPs
+    are dropped), when many reference genes have an internal stop (likely the wrong
+    `--genetic-code`), when `--min-snps` drops every gene, and prints `n/a` (not
+    `0.000000`) when there is no pooled estimate.
+  - `eskaks fasta` aggregates the internal-stop warnings into one line that names the
+    likely wrong `--genetic-code`/frame, and `--lineage`/`--group-average` warn when
+    only a single group is detected.
+  - Gzip-compressed inputs fail fast with "decompress first" instead of a cryptic
+    parse error; a FASTA passed as a VCF/GFF3 is reported as the wrong format (with a
+    "is this a FASTA?" hint) instead of an all-NaN "success"; malformed-line warnings
+    are capped so a wrong-format file no longer scrolls the terminal.
 - The eskaks logo is now shown in the interactive HTML report header, embedded as a
   base64 `data:` URI so the report stays fully self-contained and offline-capable.
 

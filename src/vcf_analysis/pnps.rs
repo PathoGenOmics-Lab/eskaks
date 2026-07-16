@@ -21,7 +21,7 @@ pub fn compute_pn_ps(
     af_weighted: bool,
     kappa: f64,
     mk_fixed_af: f64,
-) -> Vec<GenePnPs> {
+) -> (Vec<GenePnPs>, ComputeDiagnostics) {
     // kappa == 1 reproduces the original counting byte-for-byte; only a
     // non-neutral kappa switches to the rate-weighted path. (count_sites_weighted
     // is provably identical at kappa == 1, so this gate is purely defensive.)
@@ -41,6 +41,9 @@ pub fn compute_pn_ps(
     // preserves gene order, so results are deterministic regardless of threads.
     let ref_checked = AtomicUsize::new(0);
     let ref_mismatch = AtomicUsize::new(0);
+    // Genes whose reference CDS translates to an internal stop codon (a strong signal
+    // of a wrong --genetic-code, wrong frame/phase, or a wrong reference build).
+    let internal_stops = AtomicUsize::new(0);
 
     let results: Vec<GenePnPs> = genes
         .par_iter()
@@ -72,6 +75,16 @@ pub fn compute_pn_ps(
             if cds_seq.len() < 3 {
                 warn!("Gene {} CDS too short ({} bp), skipping", gene.name, cds_seq.len());
                 return None;
+            }
+
+            // Diagnostic: a stop codon anywhere but the last codon of the reference CDS
+            // means the gene does not translate cleanly — usually the wrong genetic
+            // code, reading frame/phase, or reference build.
+            let ncodons = cds_seq.len() / 3;
+            if (0..ncodons.saturating_sub(1)).any(|c| {
+                codon_to_aa(&[cds_seq[c * 3], cds_seq[c * 3 + 1], cds_seq[c * 3 + 2]], gc) == Some(b'*')
+            }) {
+                internal_stops.fetch_add(1, Ordering::Relaxed);
             }
 
             // Count S and N sites from reference codons
@@ -297,7 +310,24 @@ pub fn compute_pn_ps(
     }
 
     info!("Computed pN/pS for {} genes", results.len());
-    results
+    let diagnostics = ComputeDiagnostics {
+        snps_in_cds: ref_checked,
+        ref_mismatch,
+        genes_with_internal_stops: internal_stops.load(Ordering::Relaxed),
+    };
+    (results, diagnostics)
+}
+
+/// Whole-run diagnostics from [`compute_pn_ps`], surfaced in the CLI summary so an
+/// empty or garbage result is never mistaken for a clean run.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ComputeDiagnostics {
+    /// SNPs whose position fell inside a CDS (the REF-allele check ran on these).
+    pub snps_in_cds: usize,
+    /// Of the in-CDS SNPs, how many had a REF allele disagreeing with the reference.
+    pub ref_mismatch: usize,
+    /// Genes whose reference CDS contains an internal stop codon.
+    pub genes_with_internal_stops: usize,
 }
 
 /// Percentile bootstrap confidence interval for the genome-wide pooled pN/pS,

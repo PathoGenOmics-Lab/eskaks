@@ -351,3 +351,12 @@ fn af_filter_is_per_allele_at_multiallelic_sites() {
     assert_eq!(out[0].alt_alleles, vec![b'C']);
     assert_eq!(out[0].alt_freqs, vec![0.5]);
 }
+
+
+#[test]
+fn fasta_content_as_vcf_reports_wrong_format() {
+    let f = write_temp_vcf(">strain_A\nATGGCTGCT\n>strain_B\nATGGCTGCT\n");
+    let err = parse_vcf(f.path()).unwrap_err().to_string();
+    assert!(err.contains("valid VCF records"), "err: {}", err);
+    assert!(err.contains("FASTA"), "should hint FASTA, err: {}", err);
+}

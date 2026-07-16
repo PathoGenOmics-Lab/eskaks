@@ -34,6 +34,14 @@ pub fn write_lineage(
     let ext = cfg.ext;
     let summary = cfg.summary;
     let num_lineages = lineage_names.len();
+    if num_lineages < 2 {
+        log::warn!(
+            "Only {} lineage detected from the sequence IDs. --lineage compares each genome ACROSS \
+             lineages, so a single lineage gives a degenerate result — check the ID naming (grouping \
+             splits on '_', or use --first-letter-lineage).",
+            num_lineages
+        );
+    }
     let output_path = format!("{}_lineage_summary.{}", output_prefix, ext);
 
     let (tx, writer_thread) = spawn_ordered_writer(
@@ -162,6 +170,14 @@ pub fn write_group_average(
     }).collect();
 
     let num_groups = group_names.len();
+    if num_groups < 2 {
+        log::warn!(
+            "Only {} group detected from the sequence IDs. --group-average compares BETWEEN groups, \
+             so a single group yields just a within-group row — check the ID naming (grouping splits \
+             on '_', or use --first-letter-lineage).",
+            num_groups
+        );
+    }
     let mut group_members: Vec<Vec<usize>> = vec![Vec::new(); num_groups];
     for (id_idx, &grp) in group_by_id.iter().enumerate() {
         group_members[grp].push(id_idx);

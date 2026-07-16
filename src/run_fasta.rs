@@ -26,6 +26,7 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
         .build_global()?;
 
     // Load, validate, filter, and deduplicate sequences
+    input::ensure_not_gzipped(&args.input_file)?;
     let stop_indices = genetic_code::stop_codon_indices(gc, args.model);
     let data = input::load_sequences(&args.input_file, args.model, args.min_codons, Some(&stop_indices))?;
 

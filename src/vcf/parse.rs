@@ -12,10 +12,17 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
     let reader = BufReader::new(file);
     let mut snps = Vec::new();
     let mut sample_count = 0usize;
+    // Format diagnostics: distinguish "valid VCF, no SNPs" from "this isn't a VCF".
+    let mut data_lines = 0usize;
+    let mut malformed_lines = 0usize;
+    let mut first_bad: Option<String> = None;
 
     for (line_no, line) in reader.lines().enumerate() {
         let line = line.with_context(|| format!("Failed to read line {} of VCF", line_no + 1))?;
         let line = line.trim_end();
+        if line.is_empty() {
+            continue;
+        }
 
         // Skip meta-information lines
         if line.starts_with("##") {
@@ -32,9 +39,19 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
         }
 
         // Parse data line
+        data_lines += 1;
         let fields: Vec<&str> = line.split('\t').collect();
         if fields.len() < 8 {
-            warn!("VCF line {} has fewer than 8 fields, skipping", line_no + 1);
+            malformed_lines += 1;
+            if first_bad.is_none() {
+                first_bad = Some(line.chars().take(60).collect());
+            }
+            // Cap the per-line spam so a wrong-format file doesn't scroll the terminal.
+            if malformed_lines <= 3 {
+                warn!("VCF line {} has fewer than 8 tab-separated fields, skipping", line_no + 1);
+            } else if malformed_lines == 4 {
+                warn!("… further malformed-line warnings suppressed (see the format check below).");
+            }
             continue;
         }
 
@@ -118,6 +135,20 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
             filter,
             depth,
         });
+    }
+
+    // If EVERY data line was malformed, this is almost certainly not a VCF — fail
+    // loudly with a format hint rather than returning an empty, "successful" result.
+    if snps.is_empty() && data_lines > 0 && malformed_lines == data_lines {
+        let hint = match first_bad.as_deref() {
+            Some(l) if l.starts_with('>') => " (the first data line starts with '>': is this a FASTA?)",
+            _ => "",
+        };
+        anyhow::bail!(
+            "{}: {} data line(s) but 0 valid VCF records — none had 8+ tab-separated columns. \
+             Is this really a tab-delimited VCF?{}",
+            path.display(), data_lines, hint
+        );
     }
 
     // An empty VCF is not fatal on its own: in a multi-sample merge one

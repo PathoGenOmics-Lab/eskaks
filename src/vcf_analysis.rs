@@ -24,7 +24,10 @@ mod tests;
 pub use neutrality::{apply_genomic_control, apply_multiple_testing, genomic_inflation_lambda};
 pub use output::{write_mk_results, write_results};
 pub use plots::{write_pnps_plot, write_pvalue_manhattan};
-pub use pnps::{bootstrap_genome_wide_ci, compute_pn_ps, genome_wide_core_repetitive, genome_wide_pn_ps};
+pub use pnps::{
+    bootstrap_genome_wide_ci, compute_pn_ps, genome_wide_core_repetitive, genome_wide_pn_ps,
+    ComputeDiagnostics,
+};
 pub use sites::parse_reference_fasta;
 
 // Internal helpers shared across submodules.
