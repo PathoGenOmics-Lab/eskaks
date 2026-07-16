@@ -23,6 +23,9 @@ All notable changes to this project will be documented in this file.
     successful run with zero input files, then points at the commands for their own data.
   - The interactive HTML report header now shows the **eskaks version** and a link to the
     **project on GitHub** (both fasta and vcf reports).
+  - The report's toolbar/header **icons are now a single consistent SVG set** (Lucide,
+    embedded inline — still no external assets) instead of a mix of emoji and unicode
+    glyphs; they inherit the theme colour and render identically in light and dark.
 - **Much clearer failure diagnostics**, so an empty or garbage result is never
   mistaken for a clean run:
   - `eskaks vcf` summary now accounts for the SNPs (`SNPs used (in CDS): X of Y`),
