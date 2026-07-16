@@ -291,6 +291,8 @@ pub struct VcfArgs {
     /// per-site πN and πS (nucleotide diversity) and their ratio, Watterson's θ,
     /// and Tajima's D (the SFS neutrality test). Needs the sample size, so it
     /// requires a multi-sample VCF or several single-sample VCFs (--vcf-list).
+    /// Assumes haploid genotypes (M. tuberculosis); only segregating sites count
+    /// (variants fixed within the sample are excluded from π/θ/D).
     #[arg(long, help_heading = "Statistics options")]
     pub diversity: bool,
 

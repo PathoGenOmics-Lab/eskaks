@@ -843,6 +843,31 @@ fn vcf_diversity_matches_hand_derived_pi_theta_tajima() {
     fs::remove_file(format!("{}_diversity.tsv", out)).ok();
 }
 
+/// A site fixed within the sample (AF = 1.0, every allele is ALT) is monomorphic,
+/// not segregating, so it must be EXCLUDED from π / θ_W / Tajima's D (S_seg = 0,
+/// D undefined) rather than clamped in as a high-frequency polymorphism.
+#[test]
+fn vcf_diversity_excludes_sample_fixed_sites() {
+    let out = "/tmp/eskaks_test_diversity_fixed";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_fixed.vcf",
+            "--genetic-code", "11", "--diversity", "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    let rows = parse_tsv(&format!("{}_diversity.tsv", out));
+    let g = rows.iter().find(|r| r[0] == "gval").expect("gene gval");
+    assert_eq!(g[3], "0", "a sample-fixed SNP must not count as a segregating site");
+    assert_eq!(g[5], "0.000000", "piS must be 0 with no segregating synonymous sites");
+    assert_eq!(g[8], "NaN", "Tajima's D is undefined with 0 segregating sites");
+    fs::remove_file(format!("{}_diversity.tsv", out)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out)).ok();
+}
+
 /// An AF-only VCF (no genotype columns) has an unknown sample size, so --diversity
 /// must skip the statistics with a clear warning and write no diversity file.
 #[test]

@@ -254,6 +254,7 @@ fn exp_n_frac(r: &GenePnPs) -> f64 {
 /// Format a p-value / probability for a text column: "NA" for NaN, scientific
 /// for very small values (so significance is not rounded to 0), else 6 dp.
 fn format_pval(v: f64) -> String {
+    let v = if v == 0.0 { 0.0 } else { v }; // normalise -0.0 → 0.0
     if v.is_nan() {
         "NA".to_string()
     } else if v != 0.0 && v.abs() < 1e-3 {
@@ -276,6 +277,7 @@ fn format_json_num(v: f64) -> String {
 /// Format a pN/pS ratio for human-readable output, mapping NaN/Infinity to
 /// stable textual tokens instead of Rust's default `NaN`/`inf` Display.
 pub fn format_ratio(v: f64) -> String {
+    let v = if v == 0.0 { 0.0 } else { v }; // normalise -0.0 → 0.0
     if v.is_nan() {
         "NaN".to_string()
     } else if v.is_infinite() {

@@ -133,10 +133,58 @@ pub fn write_variants(
     Ok(output_path)
 }
 
-/// Recover a segregating derived-allele count from an allele frequency and the
-/// sample size, clamped to a valid segregating range `1..=n-1`.
-fn derived_count(af: f64, n: usize) -> usize {
-    ((af * n as f64).round() as usize).clamp(1, n - 1)
+/// Recover a *segregating* derived-allele count from an allele frequency and the
+/// sample size. Returns None for a site that is monomorphic within the sample —
+/// `k` rounds to 0 (absent) or `n` (fixed for the ALT) — so it is EXCLUDED from
+/// π / θ_W / Tajima's D (Tajima 1989 counts only segregating sites), never clamped
+/// into range. In a clade-fixed *M. tuberculosis* SNP set this exclusion matters:
+/// clamping fixed substitutions in would swamp the statistics.
+fn derived_count(af: f64, n: usize) -> Option<usize> {
+    let k = (af * n as f64).round() as usize;
+    if k == 0 || k >= n {
+        None
+    } else {
+        Some(k)
+    }
+}
+
+/// Segregating derived-allele counts of a variant set, split into (synonymous,
+/// missense). Monomorphic sites and nonsense/stop-loss are dropped.
+fn segregating_counts(variants: &[Variant], n: usize) -> (Vec<usize>, Vec<usize>) {
+    let (mut syn, mut mis) = (Vec::new(), Vec::new());
+    for v in variants {
+        let bucket = match v.effect {
+            SnpEffect::Synonymous => &mut syn,
+            SnpEffect::Missense => &mut mis,
+            _ => continue, // nonsense/stop-loss excluded, as in the pN/pS counts
+        };
+        if let Some(k) = derived_count(v.af, n) {
+            bucket.push(k);
+        }
+    }
+    (syn, mis)
+}
+
+/// A computed diversity summary from split segregating counts and site totals.
+struct DiversityRow {
+    s_seg: usize,
+    pi_n: f64,
+    pi_s: f64,
+    pi_ratio: f64,
+    theta_w: f64,
+    tajima_d: f64,
+}
+
+fn diversity_row(syn: &[usize], mis: &[usize], n_sites: f64, s_sites: f64, n: usize) -> DiversityRow {
+    let s_seg = syn.len() + mis.len();
+    let all: Vec<usize> = syn.iter().chain(mis.iter()).copied().collect();
+    let pi_n = if n_sites > 0.0 { crate::stats::theta_pi(n, mis) / n_sites } else { f64::NAN };
+    let pi_s = if s_sites > 0.0 { crate::stats::theta_pi(n, syn) / s_sites } else { f64::NAN };
+    let pi_ratio = if pi_s > 0.0 { pi_n / pi_s } else { f64::NAN };
+    let total = n_sites + s_sites;
+    let theta_w = if total > 0.0 { crate::stats::theta_watterson(n, s_seg) / total } else { f64::NAN };
+    let tajima_d = crate::stats::tajimas_d(n, s_seg, crate::stats::theta_pi(n, &all));
+    DiversityRow { s_seg, pi_n, pi_s, pi_ratio, theta_w, tajima_d }
 }
 
 /// Genome-wide (pooled) diversity summary over all coding SNPs.
@@ -163,34 +211,29 @@ pub fn genome_wide_diversity(results: &[GenePnPs], n: usize) -> Option<GenomeDiv
     for g in results {
         n_sites += g.n_sites;
         s_sites += g.s_sites;
-        for v in &g.variants {
-            match v.effect {
-                SnpEffect::Synonymous => syn.push(derived_count(v.af, n)),
-                SnpEffect::Missense => mis.push(derived_count(v.af, n)),
-                _ => {} // nonsense/stop-loss excluded, as in the pN/pS counts
-            }
-        }
+        let (gs, gm) = segregating_counts(&g.variants, n);
+        syn.extend(gs);
+        mis.extend(gm);
     }
-    let s_seg = syn.len() + mis.len();
-    let all: Vec<usize> = syn.iter().chain(mis.iter()).copied().collect();
-    let pi_n = if n_sites > 0.0 { crate::stats::theta_pi(n, &mis) / n_sites } else { f64::NAN };
-    let pi_s = if s_sites > 0.0 { crate::stats::theta_pi(n, &syn) / s_sites } else { f64::NAN };
-    let pi_n_pi_s = if pi_s > 0.0 { pi_n / pi_s } else { f64::NAN };
-    let total_sites = n_sites + s_sites;
-    let theta_w_per_site = if total_sites > 0.0 {
-        crate::stats::theta_watterson(n, s_seg) / total_sites
-    } else {
-        f64::NAN
-    };
-    let tajima_d = crate::stats::tajimas_d(n, s_seg, crate::stats::theta_pi(n, &all));
-    Some(GenomeDiversity { n, s_seg, pi_n, pi_s, pi_n_pi_s, theta_w_per_site, tajima_d })
+    let r = diversity_row(&syn, &mis, n_sites, s_sites, n);
+    Some(GenomeDiversity {
+        n,
+        s_seg: r.s_seg,
+        pi_n: r.pi_n,
+        pi_s: r.pi_s,
+        pi_n_pi_s: r.pi_ratio,
+        theta_w_per_site: r.theta_w,
+        tajima_d: r.tajima_d,
+    })
 }
 
 /// Write the per-gene diversity table (`<output>_diversity.<ext>`): sample size,
 /// segregating coding SNPs, per-site πN and πS (nucleotide diversity, the
 /// within-species analogue of pN/pS) and their ratio, per-site Watterson θ, and
 /// Tajima's D — the SFS neutrality test (D < 0: excess of rare variants; D > 0:
-/// intermediate-frequency excess). Requires the sample size `n ≥ 2`.
+/// intermediate-frequency excess). Requires the sample size `n ≥ 2`, and assumes
+/// haploid genotypes (as for *M. tuberculosis*): the derived count is recovered
+/// as round(AF·n), exact for complete haploid calls.
 pub fn write_diversity(
     results: &[GenePnPs],
     n: usize,
@@ -203,42 +246,44 @@ pub fn write_diversity(
     let ext = format.extension();
     let output_path = format!("{}_diversity.{}", prefix, ext);
     let mut file = BufWriter::new(File::create(&output_path)?);
-    let sep = format.separator();
 
-    writeln!(
-        file,
-        "Gene{s}Chrom{s}N_samples{s}S_seg{s}piN{s}piS{s}piN/piS{s}Theta_W{s}Tajima_D",
-        s = sep
-    )?;
-    for g in results {
-        let (mut syn, mut mis) = (Vec::new(), Vec::new());
-        for v in &g.variants {
-            match v.effect {
-                SnpEffect::Synonymous => syn.push(derived_count(v.af, n)),
-                SnpEffect::Missense => mis.push(derived_count(v.af, n)),
-                _ => {}
+    match format {
+        crate::models::OutputFormat::Json => {
+            writeln!(file, "[")?;
+            for (i, g) in results.iter().enumerate() {
+                let (syn, mis) = segregating_counts(&g.variants, n);
+                let d = diversity_row(&syn, &mis, g.n_sites, g.s_sites, n);
+                let comma = if i + 1 < results.len() { "," } else { "" };
+                writeln!(
+                    file,
+                    "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"n_samples\":{},\"s_seg\":{},\"piN\":{},\"piS\":{},\"piN_piS\":{},\"theta_w\":{},\"tajima_d\":{}}}{}",
+                    json_escape(&g.name), json_escape(&g.chrom), n, d.s_seg,
+                    format_json_num(d.pi_n), format_json_num(d.pi_s), format_json_num(d.pi_ratio),
+                    format_json_num(d.theta_w), format_json_num(d.tajima_d), comma
+                )?;
+            }
+            writeln!(file, "]")?;
+        }
+        _ => {
+            let sep = format.separator();
+            writeln!(
+                file,
+                "Gene{s}Chrom{s}N_samples{s}S_seg{s}piN{s}piS{s}piN/piS{s}Theta_W{s}Tajima_D",
+                s = sep
+            )?;
+            for g in results {
+                let (syn, mis) = segregating_counts(&g.variants, n);
+                let d = diversity_row(&syn, &mis, g.n_sites, g.s_sites, n);
+                writeln!(
+                    file,
+                    "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
+                    delim_field(&g.name, sep), delim_field(&g.chrom, sep), n, d.s_seg,
+                    format_pval(d.pi_n), format_pval(d.pi_s), format_ratio(d.pi_ratio),
+                    format_pval(d.theta_w), format_ratio(d.tajima_d),
+                    s = sep
+                )?;
             }
         }
-        let s_seg = syn.len() + mis.len();
-        let all: Vec<usize> = syn.iter().chain(mis.iter()).copied().collect();
-        let pi_n = if g.n_sites > 0.0 { crate::stats::theta_pi(n, &mis) / g.n_sites } else { f64::NAN };
-        let pi_s = if g.s_sites > 0.0 { crate::stats::theta_pi(n, &syn) / g.s_sites } else { f64::NAN };
-        let pi_ratio = if pi_s > 0.0 { pi_n / pi_s } else { f64::NAN };
-        let total_sites = g.n_sites + g.s_sites;
-        let theta_w = if total_sites > 0.0 {
-            crate::stats::theta_watterson(n, s_seg) / total_sites
-        } else {
-            f64::NAN
-        };
-        let tajima_d = crate::stats::tajimas_d(n, s_seg, crate::stats::theta_pi(n, &all));
-        writeln!(
-            file,
-            "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
-            delim_field(&g.name, sep), delim_field(&g.chrom, sep), n, s_seg,
-            format_pval(pi_n), format_pval(pi_s), format_ratio(pi_ratio),
-            format_pval(theta_w), format_ratio(tajima_d),
-            s = sep
-        )?;
     }
     Ok(output_path)
 }
