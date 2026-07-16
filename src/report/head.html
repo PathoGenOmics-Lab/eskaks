@@ -181,8 +181,9 @@ background:linear-gradient(90deg,color-mix(in srgb,var(--vc,var(--accent)) 7%,va
 button.btn:active,button.tog:active{transform:none!important}}
 @media print{.topbar,.info,.guide summary::marker{display:none!important}.panel,.verdict{break-inside:avoid}
 .grid{display:block}.panel{margin-bottom:16px}.guide[open] summary{display:none}
-/* Shadows waste ink on paper. */
-.panel,.card,.toc,.tablewrap,.verdict,.tip,.info-pop{box-shadow:none}}
+/* Shadows waste ink on paper. The hero card (:has, 0,2,0) and the dot halo (.verdict .dot, 0,2,0)
+   need their own specificity here or they out-rank a bare .card/.dot reset and bleed onto the page. */
+.panel,.card,.card:has([data-help="card_gw"]),.toc,.tablewrap,.verdict,.verdict .dot,.tip,.info-pop,.brand-logo{box-shadow:none}}
 </style>
 </head>
 <body>
