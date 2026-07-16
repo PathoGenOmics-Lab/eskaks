@@ -2,6 +2,21 @@
 
 use super::*;
 
+/// Format the `[low, high]` 95% CI field. In CSV mode the field is quoted so its
+/// internal comma does not split it into two columns and misalign the row.
+fn ci_field(lo: f64, hi: f64, sep: char) -> String {
+    let inner = if lo.is_nan() && hi.is_nan() {
+        "[NaN, NaN]".to_string()
+    } else {
+        format!("[{:.6}, {:.6}]", lo, hi)
+    };
+    if sep == ',' {
+        format!("\"{}\"", inner)
+    } else {
+        inner
+    }
+}
+
 /// Writes dN/dS summary by lineage using a dedicated writer thread.
 /// Computes pairs on-the-fly with lazy per-row caching.
 /// Returns lineage plot data if summary stats are being collected.
@@ -205,9 +220,9 @@ pub fn write_group_average(
         }
 
         let (line, plot_data) = if pair_dn_ds_ratios.is_empty() {
-            (format!("{}{s}{}{s}{}{s}{}{s}0{s}NaN{s}NaN{s}[NaN, NaN]\n",
+            (format!("{}{s}{}{s}{}{s}{}{s}0{s}NaN{s}NaN{s}{}\n",
                 &group_names[g1], &group_names[g2],
-                members1.len(), members2.len(), s = sep),
+                members1.len(), members2.len(), ci_field(f64::NAN, f64::NAN, sep), s = sep),
              GroupPlotData {
                  label: format!("{} vs {}", &group_names[g1], &group_names[g2]),
                  mean: f64::NAN, ci_low: f64::NAN, ci_high: f64::NAN,
@@ -228,10 +243,10 @@ pub fn write_group_average(
                     pair_dn_ds_ratios.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
                 let se = (variance / n as f64).sqrt();
                 let ci_hw = Z_95_CONFIDENCE * se;
-                (format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}[{:.6}, {:.6}]\n",
+                (format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{}\n",
                     &group_names[g1], &group_names[g2],
                     members1.len(), members2.len(), n,
-                    mean, se, mean - ci_hw, mean + ci_hw, s = sep),
+                    mean, se, ci_field(mean - ci_hw, mean + ci_hw, sep), s = sep),
                  GroupPlotData {
                      label: format!("{} vs {}", &group_names[g1], &group_names[g2]),
                      mean, ci_low: mean - ci_hw, ci_high: mean + ci_hw,

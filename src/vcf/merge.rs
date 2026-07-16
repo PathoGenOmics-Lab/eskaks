@@ -21,7 +21,7 @@ pub fn merge_vcfs(
     // Also store ref_allele per (chrom, pos)
     let mut ref_alleles: HashMap<(String, usize), u8> = HashMap::new();
     // Track depth sums for averaging
-    let mut depth_sums: HashMap<(String, usize), (u32, u32)> = HashMap::new(); // (sum, count)
+    let mut depth_sums: HashMap<(String, usize), (u64, u32)> = HashMap::new(); // (sum, count)
 
     // Parse + filter every VCF in parallel (the expensive, I/O-bound step). The
     // map reduction below stays serial and is order-independent (AF = count /
@@ -54,7 +54,7 @@ pub fn merge_vcfs(
                 let entry = depth_sums
                     .entry((snp.chrom.clone(), snp.pos))
                     .or_insert((0, 0));
-                entry.0 += dp;
+                entry.0 += dp as u64; // u64 sum: many samples × high DP can exceed u32
                 entry.1 += 1;
             }
 
@@ -85,7 +85,7 @@ pub fn merge_vcfs(
                 .copied()
                 .unwrap_or(b'N');
             let avg_depth = depth_sums.get(&(chrom.clone(), pos)).map(|(sum, cnt)| {
-                if *cnt > 0 { sum / cnt } else { 0 }
+                if *cnt > 0 { (sum / *cnt as u64) as u32 } else { 0 }
             });
             // `alts` came out of a HashMap, whose iteration order is randomized per
             // run. Sort by ALT base so a multi-allelic position emits its ALTs (and

@@ -155,6 +155,26 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Adversarial bug-hunt round (found by running the binary on crafted inputs):**
+  - **Li/LPB93 dS collapsed to 0 (not NaN) at synonymous transition saturation**,
+    reporting a spurious dN/dS = ∞ (apparent extreme positive selection) where Nei
+    correctly reports strong purifying selection. The undefined Kimura correction now
+    propagates NaN, as the module already documented.
+  - **A single malformed `INFO/AF` token** (`nan`, `inf`, or a value outside `[0,1]`)
+    was parsed into `alt_freqs`, where a `NaN` slipped past `--min-af`/`--max-af`
+    (every NaN comparison is false) and poisoned the genome-wide πN/πS to `NaN`.
+    Non-finite / out-of-range AF tokens are now rejected (treated as missing).
+  - **Out-of-range GT allele indices** (a genotype referencing an undeclared ALT)
+    still incremented the allele total, deflating every real allele frequency at the
+    site; they are now ignored.
+  - **JSON output did not escape sequence IDs**, so an id containing `"` produced
+    invalid JSON. IDs are now JSON-escaped in all pairwise writers.
+  - **CSV group-average `95%CI` field** embedded an unquoted comma, splitting the
+    column and misaligning the row; it is now quoted in CSV mode.
+  - **Merged read-depth summed in `u32`** could overflow (panic in debug) on very
+    high `DP` across many samples; it now accumulates in `u64`.
+  - **Unbounded GFF3 CDS coordinates** could overflow `length_bp` / over-allocate the
+    CDS buffer (panic/OOM); an implausibly wide CDS span is now skipped with a warning.
 - **Non-deterministic multi-VCF merge (found while hardening test coverage):**
   when merging single-sample VCFs, a position carrying more than one ALT allele
   (multi-allelic sites, or samples disagreeing on the variant base) emitted its

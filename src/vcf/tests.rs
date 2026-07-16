@@ -289,3 +289,47 @@ fn merge_all_empty_is_error() {
     let paths = merge_paths(&files);
     assert!(merge_vcfs(&paths, false, None).is_err(), "merging only empty VCFs must error");
 }
+
+
+// ---- regression: malformed-input hardening ----
+
+#[test]
+fn af_nonfinite_or_out_of_range_is_rejected() {
+    // "nan"/"2.0" AF tokens are invalid; they must become missing (0.0), not enter
+    // alt_freqs where a NaN evades --min-af/--max-af and poisons genome-wide πN/πS.
+    let vcf = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chr1\t100\t.\tA\tG,C,T\t30\tPASS\tAF=nan,2.0,0.3\n";
+    let f = write_temp_vcf(vcf);
+    let snps = parse_vcf(f.path()).unwrap();
+    assert_eq!(snps[0].alt_freqs, vec![0.0, 0.0, 0.3]);
+    assert!(snps[0].alt_freqs.iter().all(|a| a.is_finite()));
+}
+
+#[test]
+fn gt_out_of_range_allele_index_does_not_deflate_af() {
+    // S2's GT references allele 9 (undeclared): a malformed index must be ignored,
+    // not counted into total_alleles. AF(alt) = 1/2 = 0.5, not 1/4.
+    let vcf = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2
+chr1\t100\t.\tA\tG\t30\tPASS\tDP=50\tGT\t0/1\t9/9\n";
+    let f = write_temp_vcf(vcf);
+    let snps = parse_vcf(f.path()).unwrap();
+    assert!((snps[0].alt_freqs[0] - 0.5).abs() < 1e-9, "got {}", snps[0].alt_freqs[0]);
+}
+
+#[test]
+fn merge_large_depth_does_not_overflow() {
+    // Summed depth (4e9 + 4e9 = 8e9) exceeds u32::MAX; the u64 accumulator must not
+    // panic (debug) or wrap (release). Average 4e9 fits back in u32.
+    let big = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chr1\t100\t.\tA\tG\t30\tPASS\tDP=4000000000\n";
+    let files = [write_temp_vcf(big), write_temp_vcf(big)];
+    let paths = merge_paths(&files);
+    let merged = merge_vcfs(&paths, false, None).unwrap();
+    assert_eq!(merged[0].depth, Some(4_000_000_000));
+}

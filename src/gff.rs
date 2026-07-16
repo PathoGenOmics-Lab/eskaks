@@ -95,6 +95,14 @@ pub fn parse_gff3(path: &Path) -> anyhow::Result<Vec<Gene>> {
             warn!("CDS end {} < start {} at GFF3 line {}, skipping", end, start, line_no + 1);
             continue;
         }
+        // A single exon wider than any real chromosome is almost certainly a malformed
+        // coordinate; keeping it would blow up `length_bp` and the CDS `Vec::with_capacity`
+        // (out-of-memory / capacity-overflow panic). Skip it instead of crashing.
+        const MAX_CDS_SPAN: usize = 1 << 30; // ~1.07 Gb
+        if end - start >= MAX_CDS_SPAN {
+            warn!("CDS span {}..{} at GFF3 line {} is implausibly large, skipping", start, end, line_no + 1);
+            continue;
+        }
         let strand = match fields[6] {
             "+" => Strand::Plus,
             "-" => Strand::Minus,
@@ -416,5 +424,19 @@ chr1\t.\tCDS\t200\t250\t.\t-\t0\tParent=g1;gene=m\n";
         assert_eq!(genes[0].exons[1].start, 100);
         assert_eq!(genes[0].start, 100, "Gene.start is the minimum genomic coordinate");
         assert_eq!(genes[0].length_bp, 102);
+    }
+
+    #[test]
+    fn implausibly_large_cds_span_is_skipped() {
+        // A ~10 Gb CDS would blow up length_bp / the CDS Vec::with_capacity; it must be
+        // skipped with a warning, not panic/OOM. The valid gene survives.
+        let gff = "\
+##gff-version 3
+chr1\t.\tCDS\t1\t9999999999\t.\t+\t0\tParent=g1;gene=huge
+chr1\t.\tCDS\t100\t150\t.\t+\t0\tParent=g2;gene=ok\n";
+        let f = write_temp_gff(gff);
+        let genes = parse_gff3(f.path()).unwrap();
+        assert_eq!(genes.len(), 1);
+        assert_eq!(genes[0].name, "ok");
     }
 }

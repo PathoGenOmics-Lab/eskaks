@@ -84,9 +84,12 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
             // AF from INFO field (Number=A: one per ALT). Keep positional alignment —
             // an unparseable token (e.g. ".") becomes None at ITS position so the
             // remaining ALTs keep the right frequency, instead of shifting left.
+            // Reject non-finite or out-of-[0,1] AF tokens (e.g. "nan", "inf", "2.0"):
+            // one malformed token must not poison the genome-wide πN/πS nor slip past
+            // the --min-af/--max-af filters (every NaN comparison is false).
             let all_afs: Vec<Option<f64>> = af_str
                 .split(',')
-                .map(|v| v.parse::<f64>().ok())
+                .map(|v| v.parse::<f64>().ok().filter(|x| x.is_finite() && (0.0..=1.0).contains(x)))
                 .collect();
             valid_alt_indices
                 .iter()
@@ -158,10 +161,13 @@ fn calculate_af_from_gt(
                     continue;
                 }
                 if let Ok(allele_idx) = allele_str.parse::<usize>() {
+                    // An out-of-range allele index (a malformed GT referencing an
+                    // undeclared ALT) is treated as missing: it must not inflate
+                    // total_alleles and deflate every real frequency at the site.
                     if allele_idx < allele_counts.len() {
                         allele_counts[allele_idx] += 1;
+                        total_alleles += 1;
                     }
-                    total_alleles += 1;
                 }
             }
         }

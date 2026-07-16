@@ -35,7 +35,7 @@ pub fn write_pairwise_tests(
             if is_json {
                 format!(
                     "  {{\"seq1\":\"{}\",\"seq2\":\"{}\",\"dN\":{},\"dS\":{},\"SE_dN\":{},\"SE_dS\":{},\"Z\":{},\"P_value\":{}}}",
-                    ids[i], ids[j], jfmt(dn), jfmt(ds), jfmt(var_dn.sqrt()), jfmt(var_ds.sqrt()), jfmt(z), jfmt(p)
+                    json_escape(&ids[i]), json_escape(&ids[j]), jfmt(dn), jfmt(ds), jfmt(var_dn.sqrt()), jfmt(var_ds.sqrt()), jfmt(z), jfmt(p)
                 )
             } else {
                 format!(
@@ -90,7 +90,7 @@ pub fn write_pairwise_bootstrap(
             if is_json {
                 format!(
                     "  {{\"seq1\":\"{}\",\"seq2\":\"{}\",\"dN\":{},\"dN_CI_low\":{},\"dN_CI_high\":{},\"dS\":{},\"dS_CI_low\":{},\"dS_CI_high\":{},\"dN_dS\":{},\"dNdS_CI_low\":{},\"dNdS_CI_high\":{}}}",
-                    ids[i], ids[j], jfmt(dn), jfmt(dn_lo), jfmt(dn_hi), jfmt(ds), jfmt(ds_lo), jfmt(ds_hi), jfmt(ratio), jfmt(r_lo), jfmt(r_hi)
+                    json_escape(&ids[i]), json_escape(&ids[j]), jfmt(dn), jfmt(dn_lo), jfmt(dn_hi), jfmt(ds), jfmt(ds_lo), jfmt(ds_hi), jfmt(ratio), jfmt(r_lo), jfmt(r_hi)
                 )
             } else {
                 format!(
@@ -227,7 +227,7 @@ pub fn write_pairwise(
                 if is_json {
                     let _ = writeln!(local_buffer,
                         "{{\"seq1\":\"{}\",\"seq2\":\"{}\",\"dN\":{},\"dS\":{},\"dN_dS\":{}}}",
-                        &ids[i], &ids[j],
+                        json_escape(&ids[i]), json_escape(&ids[j]),
                         format_json_f64(result.dn), format_json_f64(result.ds), format_json_f64(ratio));
                 } else {
                     let _ = writeln!(local_buffer, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",

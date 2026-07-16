@@ -575,3 +575,13 @@ fn cov_write_pairwise_windows_nan_with_windowstats() {
     let wd = ws.get_window_data();
     assert_eq!(wd.len(), 2, "one entry per window bin");
 }
+
+
+#[test]
+fn json_escape_neutralizes_quotes_backslash_controls() {
+    assert_eq!(json_escape("seq\"1"), "seq\\\"1");
+    assert_eq!(json_escape("a\\b"), "a\\\\b");
+    assert_eq!(json_escape("t\tn\n"), "t\\tn\\n");
+    assert_eq!(json_escape("plain"), "plain");
+    assert_eq!(json_escape("\u{1}"), "\\u0001");
+}

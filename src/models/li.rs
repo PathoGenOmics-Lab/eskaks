@@ -434,9 +434,17 @@ impl LiTables {
                 if denom_a > LI_EPSILON {
                     let a_val = -0.5 * denom_a.ln() + 0.25 * denom_b.ln();
                     a_k[k] = if a_val >= 0.0 { a_val } else { 0.0 };
+                } else {
+                    // Transitions saturated (1-2P-Q ≤ 0): the A_k Kimura correction is
+                    // undefined. Propagate NaN so Ks does not silently collapse to 0 and
+                    // report a spurious dN/dS = ∞ (the module doc promises NaN here).
+                    a_k[k] = f64::NAN;
                 }
+            } else {
+                // Transversions saturated (1-2Q ≤ 0): both A_k and B_k are undefined.
+                a_k[k] = f64::NAN;
+                b_k[k] = f64::NAN;
             }
-            // else: leave as 0.0 (transversions saturated → no reliable estimate)
         }
 
         // LPB93 Ka/Ks formulas (Li 1993, Pamilo & Bianchi 1993)
@@ -587,11 +595,30 @@ mod tests {
     // Q4 = 3/3 = 1 => denom_b = 1 - 2Q = -1 <= LI_EPSILON => B4 = A4 = 0 => dS = 0.
     // No 0-fold/2-fold substitution => dN = 0.
     #[test]
-    fn cov_li_transversion_saturation_stays_finite_nonneg() {
+    fn cov_li_saturation_returns_nan_not_zero() {
+        // All-transversion synonymous divergence saturates the 4-fold class
+        // (1-2Q ≤ 0), so the Kimura correction for dS is undefined and must be NaN,
+        // NOT silently collapse to 0 (which would report a spurious dN/dS = ∞).
         let (dn, ds) = li(b"GCTGCTGCT", b"GCAGCAGCA");
-        assert!(dn.is_finite() && dn >= 0.0, "dN must be finite & >= 0 under saturation, got {}", dn);
-        assert!(ds.is_finite() && ds >= 0.0, "dS must be finite & >= 0 under saturation, got {}", ds);
-        assert!(dn.abs() < EPSILON, "dN must be 0 (no non-synonymous change), got {}", dn);
-        assert!(ds.abs() < EPSILON, "dS collapses to 0 when transversions saturate, got {}", ds);
+        assert!(ds.is_nan(), "dS must be NaN under transversion saturation, got {}", ds);
+        // No non-synonymous change at the (unsaturated) 0-/2-fold positions -> dN = 0.
+        assert!(dn.is_finite() && dn.abs() < EPSILON, "dN must be finite 0, got {}", dn);
+    }
+
+    #[test]
+    fn cov_li_synonymous_transition_saturation_does_not_give_infinite_ratio() {
+        // Regression: heavily transition-skewed synonymous divergence used to zero the
+        // A_k term and collapse Ks to exactly 0, giving dN/dS = ∞ (false positive
+        // selection). Ks must now be NaN (saturated), so the ratio is not a finite > 1.
+        let a: Vec<u8> = b"GCT".iter().cycle().take(60).copied().collect::<Vec<_>>()
+            .into_iter().chain(b"TTT".iter().cycle().take(60).copied()).collect();
+        let b: Vec<u8> = b"GCC".iter().cycle().take(60).copied().collect::<Vec<_>>()
+            .into_iter()
+            .chain(b"CTT".iter().cycle().take(12).copied())
+            .chain(b"TTT".iter().cycle().take(48).copied())
+            .collect();
+        let (dn, ds) = li(&a, &b);
+        assert!(dn.is_finite() && dn >= 0.0, "dN finite, got {}", dn);
+        assert!(!(ds.is_finite() && ds == 0.0), "dS must not silently be 0 under saturation, got {}", ds);
     }
 }
