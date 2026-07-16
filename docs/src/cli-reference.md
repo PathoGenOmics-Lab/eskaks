@@ -13,8 +13,20 @@ eskaks --version
 | Flag | Description |
 |---|---|
 | `--list-codes` | List available NCBI genetic code tables and exit |
-| `-h, --help` | Show help |
+| `--completions <SHELL>` | Print a shell completion script and exit (`bash`, `zsh`, `fish`, `elvish`, `powershell`) |
+| `-v, --verbose` | Increase log verbosity: `-v` shows info, `-vv` shows debug. Data-quality warnings show by default |
+| `-q, --quiet` | Silence all logs except errors (also hides the run-confirmation block) |
+| `-h, --help` | Show help. Per subcommand, flags are grouped into sections (Output / Analysis / Statistics / Filtering / Input) and followed by usage examples |
 | `-V, --version` | Show version |
+
+### Run confirmation & logging
+
+Every `eskaks fasta` / `eskaks vcf` run ends with a short confirmation block on
+stderr (sequence/gene counts, model, and the list of files written), so a run is
+never silent about where its output went. Add `--quiet` to suppress it.
+
+Diagnostics are printed as clean `warning:` / `error:` lines (coloured only when
+stderr is a terminal). Set `RUST_LOG` to override the level entirely.
 
 ---
 

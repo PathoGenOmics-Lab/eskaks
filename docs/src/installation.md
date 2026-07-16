@@ -40,3 +40,22 @@ The `make release` target automatically enables native CPU optimizations (`-C ta
 eskaks --version
 eskaks --list-codes
 ```
+
+## Shell completions
+
+eskaks can print a completion script for your shell, so `<Tab>` completes
+subcommands and flags:
+
+```bash
+# Bash
+eskaks --completions bash | sudo tee /etc/bash_completion.d/eskaks > /dev/null
+
+# Zsh (into a directory on your $fpath, e.g. ~/.zfunc)
+eskaks --completions zsh > ~/.zfunc/_eskaks
+
+# Fish
+eskaks --completions fish > ~/.config/fish/completions/eskaks.fish
+```
+
+`bash`, `zsh`, `fish`, `elvish`, and `powershell` are supported. Restart the
+shell (or re-source your profile) afterwards.

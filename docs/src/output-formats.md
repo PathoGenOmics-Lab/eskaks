@@ -5,7 +5,7 @@
 Tab-separated values. Standard bioinformatics format.
 
 ```bash
-eskaks genes.fasta -o results
+eskaks fasta genes.fasta -o results
 # → results_pairwise_results.tsv
 ```
 
@@ -19,7 +19,7 @@ gene_A	gene_B	0.052300	0.321400	0.162700
 Comma-separated values. Compatible with Excel and pandas.
 
 ```bash
-eskaks genes.fasta --format csv -o results
+eskaks fasta genes.fasta --format csv -o results
 # → results_pairwise_results.csv
 ```
 
@@ -28,7 +28,7 @@ eskaks genes.fasta --format csv -o results
 JSON array of objects. Best for programmatic parsing.
 
 ```bash
-eskaks genes.fasta --format json -o results
+eskaks fasta genes.fasta --format json -o results
 # → results_pairwise_results.json
 ```
 
@@ -40,9 +40,16 @@ eskaks genes.fasta --format json -o results
 ```
 
 Special values:
-- `NaN` (saturation) → `null`
+- `NaN` (saturation, or no comparable codons) → `null`
 - `Infinity` (dS=0, dN>0) → `null`
 - `-0.0` → `0.0`
+
+`--format` applies to **every** output mode, not just the default pairwise table:
+`--lineage`, `--group-average`, and `--window-size` also emit a valid JSON array (or
+TSV/CSV) with the fields for that mode.
+
+In TSV/CSV, any sequence id or gene name that contains the delimiter, a quote, or a
+newline is quoted (RFC 4180), so the columns never shift.
 
 ## Output modes
 
