@@ -302,10 +302,11 @@ fn vcf_core(prefix: &str, extra: &[&str]) -> Output {
     run_ok(&args)
 }
 
-const PNPS_HEADER: [&str; 18] = [
+const PNPS_HEADER: [&str; 22] = [
     "Gene", "Length_bp", "N_sites", "S_sites", "pN", "pS", "pN/pS", "Nonsyn_SNPs",
     "Syn_SNPs", "Total_SNPs", "Chrom", "Start", "End", "Strand", "Exp_N_frac",
     "P_value", "Q_value_BH", "P_Bonferroni",
+    "pN/pS_lo", "pN/pS_hi", "P_GC", "Q_GC_BH",
 ];
 
 #[test]
@@ -421,7 +422,7 @@ fn vcf_examples_csv_and_json_formats() {
     vcf_core(&c.prefix, &["--format", "csv"]);
     let rows = split_rows(&format!("{}_pnps.csv", c.prefix), ',');
     assert_eq!(rows[0][0], "Gene");
-    assert_eq!(rows[0].len(), 18, "csv should have all 18 columns");
+    assert_eq!(rows[0].len(), 22, "csv should have all 22 columns");
     let g = row(&rows, "gene01");
     assert_eq!(g[1], "399");
     assert!((f(&g[6]) - 0.225889).abs() < EPS, "csv gene01 pN/pS {}", g[6]);

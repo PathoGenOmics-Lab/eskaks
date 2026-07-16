@@ -488,11 +488,11 @@ fn cov_out_write_results_tsv_header_and_row() {
     let header = lines.next().unwrap();
     assert_eq!(
         header,
-        "Gene\tLength_bp\tN_sites\tS_sites\tpN\tpS\tpN/pS\tNonsyn_SNPs\tSyn_SNPs\tTotal_SNPs\tChrom\tStart\tEnd\tStrand\tExp_N_frac\tP_value\tQ_value_BH\tP_Bonferroni"
+        "Gene\tLength_bp\tN_sites\tS_sites\tpN\tpS\tpN/pS\tNonsyn_SNPs\tSyn_SNPs\tTotal_SNPs\tChrom\tStart\tEnd\tStrand\tExp_N_frac\tP_value\tQ_value_BH\tP_Bonferroni\tpN/pS_lo\tpN/pS_hi\tP_GC\tQ_GC_BH"
     );
 
     let row: Vec<&str> = lines.next().unwrap().split('\t').collect();
-    assert_eq!(row.len(), 18, "row = {row:?}");
+    assert_eq!(row.len(), 22, "row = {row:?}");
     assert_eq!(row[0], "g");            // name
     assert_eq!(row[1], "0");            // length_bp
     assert_eq!(row[2], "100.0000");     // n_sites {:.4}
@@ -511,6 +511,10 @@ fn cov_out_write_results_tsv_header_and_row() {
     assert_eq!(row[15], "NA");          // format_pval(NaN)
     assert_eq!(row[16], "NA");
     assert_eq!(row[17], "NA");
+    assert_eq!(row[18], "NaN");         // pn_ps_lo: format_ratio(NaN)
+    assert_eq!(row[19], "NaN");         // pn_ps_hi: format_ratio(NaN)
+    assert_eq!(row[20], "NA");          // p_gc: format_pval(NaN)
+    assert_eq!(row[21], "NA");          // q_gc
 }
 
 #[test]

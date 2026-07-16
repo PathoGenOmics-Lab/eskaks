@@ -25,12 +25,14 @@ pub fn write_results(
                 let comma = if i + 1 < results.len() { "," } else { "" };
                 writeln!(
                     file,
-                    "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"length_bp\":{},\"N_sites\":{:.4},\"S_sites\":{:.4},\"exp_N_frac\":{},\"pN\":{},\"pS\":{},\"pN_pS\":{},\"nonsyn_snps\":{:.4},\"syn_snps\":{:.4},\"total_snps\":{:.4},\"p_value\":{},\"q_value_bh\":{},\"p_bonferroni\":{}}}{}",
+                    "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"length_bp\":{},\"N_sites\":{:.4},\"S_sites\":{:.4},\"exp_N_frac\":{},\"pN\":{},\"pS\":{},\"pN_pS\":{},\"pN_pS_lo\":{},\"pN_pS_hi\":{},\"nonsyn_snps\":{:.4},\"syn_snps\":{:.4},\"total_snps\":{:.4},\"p_value\":{},\"q_value_bh\":{},\"p_bonferroni\":{},\"p_gc\":{},\"q_gc_bh\":{}}}{}",
                     json_escape(&r.name), json_escape(&r.chrom), r.genome_start, r.genome_end, r.strand, r.length_bp,
                     r.n_sites, r.s_sites, format_json_num(exp_n_frac(r)),
                     format_json_f64(r.pn), format_json_f64(r.ps), format_json_f64(r.pn_ps),
+                    format_json_num(r.pn_ps_lo), format_json_num(r.pn_ps_hi),
                     r.nonsyn_snps, r.syn_snps, r.total_snps,
                     format_json_num(r.p_value), format_json_num(r.q_value), format_json_num(r.p_bonferroni),
+                    format_json_num(r.p_gc), format_json_num(r.q_gc),
                     comma
                 )?;
             }
@@ -39,21 +41,25 @@ pub fn write_results(
         _ => {
             let sep = format.separator();
             let mut file = BufWriter::new(File::create(&output_path)?);
+            // New columns (Wilson CI + genomic-control p/q) are appended at the end so
+            // existing 0-indexed column positions stay stable for downstream parsers.
             writeln!(
                 file,
-                "Gene{s}Length_bp{s}N_sites{s}S_sites{s}pN{s}pS{s}pN/pS{s}Nonsyn_SNPs{s}Syn_SNPs{s}Total_SNPs{s}Chrom{s}Start{s}End{s}Strand{s}Exp_N_frac{s}P_value{s}Q_value_BH{s}P_Bonferroni",
+                "Gene{s}Length_bp{s}N_sites{s}S_sites{s}pN{s}pS{s}pN/pS{s}Nonsyn_SNPs{s}Syn_SNPs{s}Total_SNPs{s}Chrom{s}Start{s}End{s}Strand{s}Exp_N_frac{s}P_value{s}Q_value_BH{s}P_Bonferroni{s}pN/pS_lo{s}pN/pS_hi{s}P_GC{s}Q_GC_BH",
                 s = sep
             )?;
             for r in results {
                 writeln!(
                     file,
-                    "{}{s}{}{s}{:.4}{s}{:.4}{s}{:.6}{s}{:.6}{s}{}{s}{:.4}{s}{:.4}{s}{:.4}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
+                    "{}{s}{}{s}{:.4}{s}{:.4}{s}{:.6}{s}{:.6}{s}{}{s}{:.4}{s}{:.4}{s}{:.4}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
                     delim_field(&r.name, sep), r.length_bp, r.n_sites, r.s_sites,
                     r.pn, r.ps, format_ratio(r.pn_ps),
                     r.nonsyn_snps, r.syn_snps, r.total_snps,
                     delim_field(&r.chrom, sep), r.genome_start, r.genome_end, r.strand,
                     format_pval(exp_n_frac(r)), format_pval(r.p_value),
                     format_pval(r.q_value), format_pval(r.p_bonferroni),
+                    format_ratio(r.pn_ps_lo), format_ratio(r.pn_ps_hi),
+                    format_pval(r.p_gc), format_pval(r.q_gc),
                     s = sep
                 )?;
             }

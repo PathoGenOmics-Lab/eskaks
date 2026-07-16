@@ -110,7 +110,8 @@ fn vcf_produces_correct_header() {
         vec!["Gene", "Length_bp", "N_sites", "S_sites", "pN", "pS", "pN/pS",
              "Nonsyn_SNPs", "Syn_SNPs", "Total_SNPs",
              "Chrom", "Start", "End", "Strand", "Exp_N_frac",
-             "P_value", "Q_value_BH", "P_Bonferroni"],
+             "P_value", "Q_value_BH", "P_Bonferroni",
+             "pN/pS_lo", "pN/pS_hi", "P_GC", "Q_GC_BH"],
         "header mismatch: {:?}", rows[0]
     );
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
