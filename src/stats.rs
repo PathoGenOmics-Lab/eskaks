@@ -788,7 +788,6 @@ mod tests {
         assert!(wilson_interval(0, 0, 0.95).0.is_nan());
     }
 
-// ===== from agent: v2:b64cb6513034f622171610a6179e6025aba0595d6fb08d7c1e82fe13841ee906 =====
     #[test]
     fn cov_floataccum_default_matches_new() {
         // FloatAccum::default() delegates to new(): zeroed sums/counts, +-inf extremes.

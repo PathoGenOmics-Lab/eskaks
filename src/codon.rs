@@ -138,7 +138,6 @@ mod tests {
         assert_eq!(indices.len(), 2);
     }
 
-// ===== from agent: v2:b64cb6513034f622171610a6179e6025aba0595d6fb08d7c1e82fe13841ee906 =====
     #[test]
     fn cov_extract_group_key_first_letter_ascii() {
         // by_first_letter = true returns the first UTF-8 character (ASCII: 1 byte).

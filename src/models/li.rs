@@ -517,7 +517,6 @@ mod tests {
         assert!((ds_dna - ds_rna).abs() < EPSILON, "RNA dS differs from DNA: {} vs {}", ds_dna, ds_rna);
     }
 
-// ===== from agent: v2:385cca808ee9161ccf4405845f9abcbbcce06828bbe0fc04922169dafa359350 =====
 
     // === cov_ hardening tests (appended) ===
 

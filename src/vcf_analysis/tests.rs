@@ -377,7 +377,6 @@ fn test_sfs_bins_edges() {
     assert_eq!(sfs_bin(0.99), SFS_NBINS - 1);
 }
 
-// ===== from agent: v2:ecc0343c0435ac7af7d7d59cbc73d09fc9c51903441e72ec8db8635fbe0ea2c9 =====
 // ---- output-writer / formatter coverage (prefix cov_out_) ----
 
 /// Structural + numeric-safety invariants every non-empty SVG we emit must
@@ -619,7 +618,6 @@ fn cov_out_format_ratio_more() {
     assert_eq!(format_ratio(0.0), "0.000000");
 }
 
-// ===== from agent: v2:b090014eae2ed2fe8a10530a4e7867dbc26dba5b504d5cf4396e9559cb00deaa =====
 // ---- cov_core_: numeric-core coverage (compute_pn_ps, bootstrap, site counting) ----
 
 /// Single-exon gene builder for the cov_core_ end-to-end tests. Uses only the

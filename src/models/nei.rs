@@ -469,7 +469,6 @@ mod tests {
         assert!(ds > 0.0, "dS should be > 0, got {}", ds);
     }
 
-// ===== from agent: v2:385cca808ee9161ccf4405845f9abcbbcce06828bbe0fc04922169dafa359350 =====
 
     // === cov_ hardening tests (appended) ===
 

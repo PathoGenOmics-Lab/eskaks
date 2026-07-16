@@ -346,7 +346,6 @@ mod tests {
         }
     }
 
-// ===== from agent: v2:b64cb6513034f622171610a6179e6025aba0595d6fb08d7c1e82fe13841ee906 =====
     #[test]
     fn cov_get_table_unknown_id_is_none() {
         // This crate defines no NCBI tables 0, 7, 8, or 99 => lookup returns None.

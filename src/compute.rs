@@ -208,7 +208,6 @@ mod tests {
         );
     }
 
-// ===== from agent: v2:b64cb6513034f622171610a6179e6025aba0595d6fb08d7c1e82fe13841ee906 =====
     // cov_: NaN-tolerant float comparison (bootstrap CIs can be NaN by design).
     fn cov_eq_or_nan(a: f64, b: f64) -> bool {
         (a.is_nan() && b.is_nan()) || a == b
