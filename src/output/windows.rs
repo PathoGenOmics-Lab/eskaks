@@ -57,14 +57,28 @@ pub fn write_pairwise_windows(
                     let start = w * window_step;
                     let end = start + window_size;
                     let result = if u_i == u_j {
-                        DsDn { dn: 0.0, ds: 0.0 }
+                        // Identical sequences deduplicate to the same unique index. A
+                        // window that has valid codons has zero divergence (0.0), but an
+                        // all-N / all-gap window has no comparable codons and is undefined
+                        // (NaN), not a spurious 0.0 that reads as strong purifying selection.
+                        // This must be checked per window: even for identical sequences one
+                        // window can be all-invalid while others are valid.
+                        if s1[start..end].iter().all(|&c| c == crate::codon::INVALID_CODON) {
+                            DsDn { dn: f64::NAN, ds: f64::NAN }
+                        } else {
+                            DsDn { dn: 0.0, ds: 0.0 }
+                        }
                     } else {
                         compute_pair_slices(&s1[start..end], &s2[start..end])
                     };
                     if !result.dn.is_finite() || !result.ds.is_finite() {
                         nan_count.fetch_add(1, Ordering::Relaxed);
                     }
-                    let ratio = if result.ds == 0.0 {
+                    // An undefined dN or dS makes the ratio undefined too: a NaN numerator
+                    // must not slip through the ds==0 branch and print as +inf.
+                    let ratio = if result.dn.is_nan() || result.ds.is_nan() {
+                        f64::NAN
+                    } else if result.ds == 0.0 {
                         if result.dn == 0.0 { 0.0 } else { f64::INFINITY }
                     } else {
                         result.dn / result.ds

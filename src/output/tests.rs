@@ -293,6 +293,27 @@ fn cov_write_pairwise_records_every_pair_with_nan() {
     );
 }
 
+#[test]
+fn cov_write_pairwise_nan_dn_over_zero_ds_ratio_is_nan_not_inf() {
+    // Regression: when dN is undefined (NaN from nonsynonymous saturation) and dS is a
+    // finite zero, the ratio is undefined and must print as NaN, not +inf (which reads
+    // as extreme positive selection).
+    let dir = cov_tmp();
+    let prefix = cov_prefix(&dir);
+    let ids = cov_ids(2);
+    let uidx: Vec<usize> = (0..2).collect();
+    let cfg = OutputConfig {
+        prefix: prefix.as_str(), sep: '\t', ext: "tsv", model: Model::Nei, summary: None,
+    };
+    let nan_over_zero = |_a: usize, _b: usize| DsDn { dn: f64::NAN, ds: 0.0 };
+    write_pairwise(&ids, &uidx, 2, nan_over_zero, &cfg).expect("write pairwise");
+    let out_path = format!("{}_pairwise_results.tsv", prefix);
+    let lines = cov_read_nonempty(&out_path);
+    let f = cov_fields(&lines[1], '\t');
+    assert_eq!(f[2], "NaN", "dN column");
+    assert_eq!(f[4], "NaN", "dN/dS must be NaN, not inf");
+}
+
 // ─── write_lineage ────────────────────────────────────────
 
 #[test]
@@ -344,6 +365,32 @@ fn cov_write_lineage_header_rows_plot_and_determinism() {
     .expect("write lineage 2");
     let second = std::fs::read_to_string(&out_path).unwrap();
     assert_eq!(first, second, "output must be deterministic");
+}
+
+#[test]
+fn cov_write_lineage_all_invalid_identical_genomes_excluded_not_zero() {
+    // Regression: two identical all-N/all-gap genomes deduplicate to the same unique
+    // index, so each genome's only cross-lineage neighbour is the self/diagonal. That
+    // must be NaN (no comparable codons) and excluded — not a spurious 0.0 from a
+    // hard-coded {0,0} diagonal reused across de-duplicated genomes.
+    let dir = cov_tmp();
+    let prefix = cov_prefix(&dir);
+    let ids = vec!["L1_a".to_string(), "L2_b".to_string()];
+    let uidx: Vec<usize> = vec![0, 0]; // identical -> same unique index
+    let lineage_indices: Vec<usize> = vec![0, 1];
+    let lineage_names: Vec<String> = vec!["L1".to_string(), "L2".to_string()];
+    // compute_pair returns NaN for the all-invalid self/identity comparison (u == u).
+    let compute = |a: usize, b: usize| {
+        if a == b { DsDn { dn: f64::NAN, ds: f64::NAN } } else { DsDn { dn: 0.1, ds: 0.2 } }
+    };
+    let cfg = OutputConfig {
+        prefix: prefix.as_str(), sep: '\t', ext: "tsv", model: Model::Nei, summary: None,
+    };
+    write_lineage(&ids, &uidx, 1, compute, &lineage_indices, &lineage_names, &cfg)
+        .expect("write lineage");
+    let out_path = format!("{}_lineage_summary.tsv", prefix);
+    let lines = cov_read_nonempty(&out_path);
+    assert_eq!(lines.len(), 1, "header only — all-invalid identical genomes are excluded, not 0.0");
 }
 
 #[test]
@@ -492,6 +539,35 @@ fn cov_write_pairwise_windows_nei_header_rows_determinism() {
         .expect("write windows 2");
     let second = std::fs::read_to_string(&out_path).unwrap();
     assert_eq!(first, second, "output must be deterministic");
+}
+
+#[test]
+fn cov_write_pairwise_windows_all_invalid_identical_is_nan_not_zero() {
+    // Regression: two identical all-N/all-gap sequences deduplicate to the same unique
+    // index (u_i == u_j). Every window must be NaN (no comparable codons), not a
+    // hard-coded 0.0 — even though the compute closure would return a finite value.
+    let dir = cov_tmp();
+    let prefix = cov_prefix(&dir);
+    let ids = vec!["a".to_string(), "b".to_string()];
+    let uidx: Vec<usize> = vec![0, 0]; // identical -> same unique index
+    let inv = crate::codon::INVALID_CODON;
+    let seqs: Vec<Vec<u8>> = vec![vec![inv, inv, inv, inv]]; // all-invalid unique sequence
+    let cfg = OutputConfig {
+        prefix: prefix.as_str(), sep: '\t', ext: "tsv", model: Model::Nei, summary: None,
+    };
+    // 2 windows of size 2; cov_win_finite would give 0.1/0.2 but the identity +
+    // all-invalid guard must override every window to NaN.
+    write_pairwise_windows(&ids, &uidx, &seqs, cov_win_finite, 2, 2, None, &cfg)
+        .expect("write windows");
+    let out_path = format!("{}_pairwise_windows.tsv", prefix);
+    let lines = cov_read_nonempty(&out_path);
+    assert_eq!(lines.len(), 1 + 2, "header + 2 window rows");
+    for l in &lines[1..] {
+        let f = cov_fields(l, '\t');
+        assert_eq!(f[4], "NaN", "dN must be NaN for an all-invalid identical window");
+        assert_eq!(f[5], "NaN", "dS must be NaN");
+        assert_eq!(f[6], "NaN", "dN/dS must be NaN");
+    }
 }
 
 #[test]

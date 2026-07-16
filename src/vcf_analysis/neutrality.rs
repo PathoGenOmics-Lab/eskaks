@@ -41,7 +41,16 @@ pub fn genomic_inflation_lambda(results: &[GenePnPs]) -> f64 {
         return f64::NAN;
     }
     chi2.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    crate::stats::percentile_sorted(&chi2, 50.0) / 0.454_936_4
+    let median = crate::stats::percentile_sorted(&chi2, 50.0);
+    // A median tested-gene χ² of 0 means the majority of tested genes are uninformative
+    // (exact two-sided p = 1 → χ² = 0), so λ carries no inflation signal. Report NaN like
+    // the < 2-genes case rather than a spurious 0.0 that renders as "λ 0.00" (extreme
+    // deflation). apply_genomic_control floors λ at 1, so the correction is unchanged.
+    // (median is finite here: chi2 was filtered to finite values and is non-empty.)
+    if median <= 0.0 {
+        return f64::NAN;
+    }
+    median / 0.454_936_4
 }
 
 /// The χ²₁ statistic for a gene's neutrality test, computed from the log-space

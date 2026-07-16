@@ -370,6 +370,31 @@ fn test_genomic_control_survives_underflowed_pvalues() {
 }
 
 #[test]
+fn cov_genomic_lambda_median_zero_is_nan_not_zero() {
+    // Regression: when the median tested-gene χ² is 0 (the majority of genes have exact
+    // two-sided p = 1 → χ² = 0), λ carries no inflation signal and must be NaN, not a
+    // spurious 0.0 that renders as "λ 0.00" (extreme deflation). Mirrors the < 2-tested-
+    // genes NaN sentinel.
+    let mut genes: Vec<GenePnPs> = Vec::new();
+    for _ in 0..3 {
+        let mut g = gene_result(100.0, 100.0, 1.0, 1.0);
+        g.p_value = 1.0;
+        g.neglog10p = 0.0; // χ² = 0
+        genes.push(g);
+    }
+    // One strong outlier so the set has a nonzero max but still a zero median.
+    let mut strong = gene_result(100.0, 100.0, 90.0, 5.0);
+    strong.p_value = 1e-8;
+    strong.neglog10p = 8.0;
+    genes.push(strong);
+    apply_multiple_testing(&mut genes, false);
+    assert!(
+        genomic_inflation_lambda(&genes).is_nan(),
+        "a median χ² of 0 must give NaN λ, not 0.0"
+    );
+}
+
+#[test]
 fn test_sfs_bins_edges() {
     assert_eq!(sfs_bin(0.05), 0);
     assert_eq!(sfs_bin(0.1), 0);
@@ -702,6 +727,50 @@ fn cov_core_compute_plus_strand_hand_checked() {
 
     // Non-AF-weighted with SNPs present: neutrality test is defined.
     assert!(g.p_value.is_finite());
+}
+
+#[test]
+fn cov_core_zero_synonymous_sites_gives_nan_ps_not_zero() {
+    // A translatable gene of only Met (ATG) and Trp (TGG) codons has zero synonymous
+    // sites, so pS is 0/0 (undefined). With a nonsynonymous SNP present it must report
+    // pS = NaN, not a spurious 0.0 that reads as an observed synonymous rate of zero.
+    let gc = make_gc();
+    let mut reference = HashMap::new();
+    reference.insert("chr1".to_string(), b"ATGTGG".to_vec()); // Met Trp — no synonymous sites
+    let gene = cov_core_gene("metg", "chr1", Strand::Plus, 1, 6, 0);
+    // pos 4: REF T -> ALT C  => TGG(Trp) -> CGG(Arg)  NONSYNONYMOUS
+    let snps = vec![cov_core_snp("chr1", 4, b'T', b'C', 0.5)];
+    let (res, _diag) = compute_pn_ps(&reference, &[gene], &snps, gc, false, 1.0, 0.5);
+    assert_eq!(res.len(), 1, "a translatable Met/Trp gene is retained");
+    let g = &res[0];
+    assert_eq!(g.s_sites, 0.0, "Met/Trp CDS has zero synonymous sites");
+    assert!(g.n_sites > 0.0, "nonsynonymous sites still exist");
+    assert!(g.ps.is_nan(), "pS must be NaN for zero synonymous sites, got {}", g.ps);
+    assert!(g.pn.is_finite() && g.pn > 0.0, "pN stays defined, got {}", g.pn);
+}
+
+#[test]
+fn cov_core_untranslatable_all_n_cds_is_skipped() {
+    // A CDS that is entirely N in the reference has no translatable codons: pN and pS
+    // would both be 0/0. The gene must be skipped, not emitted as an all-zero row that
+    // reads as a real gene under total constraint.
+    let gc = make_gc();
+    let mut reference = HashMap::new();
+    reference.insert("chr1".to_string(), b"NNNNNNNNN".to_vec());
+    let gene = cov_core_gene("nng", "chr1", Strand::Plus, 1, 9, 0);
+    let (res, _diag) = compute_pn_ps(&reference, &[gene], &[], gc, false, 1.0, 0.95);
+    assert!(res.is_empty(), "all-N CDS must be skipped, got {} gene(s)", res.len());
+}
+
+#[test]
+fn cov_core_pooled_zero_s_sites_gives_nan_ps_not_zero() {
+    // The genome-wide pooled pS is undefined (NaN), not 0.0, when the retained set has
+    // no synonymous sites at all — otherwise the summary prints a defined synonymous
+    // rate of exactly 0 where none exists.
+    let g = gene_result(30.0, 0.0, 3.0, 0.0); // n_sites>0, s_sites==0, some nonsyn SNPs
+    let pooled = genome_wide_pn_ps(&[g]).expect("one gene pools");
+    assert!(pooled.ps.is_nan(), "pooled pS must be NaN when S_sites == 0, got {}", pooled.ps);
+    assert!(pooled.pn_ps.is_infinite(), "pN>0 over pS=0 pools to +inf, got {}", pooled.pn_ps);
 }
 
 #[test]

@@ -278,8 +278,13 @@ impl NeiTables {
 
         let potential_syn_sites = (sum_syn_sites_seq1 / 3.0 + sum_syn_sites_seq2 / 3.0) / 2.0;
         let potential_nonsyn_sites = (count_valid_codons as f64) * 3.0 - potential_syn_sites;
-        let ps = if potential_syn_sites > 0.0 { syn_diffs / potential_syn_sites } else { 0.0 };
-        let pn = if potential_nonsyn_sites > 0.0 { nonsyn_diffs / potential_nonsyn_sites } else { 0.0 };
+        // A zero-site denominator means the quantity cannot be estimated (e.g. a pair of
+        // all-Met/Trp codons has no synonymous sites), so it is undefined, not 0.0. A
+        // spurious 0.0 would flow through JC into dS = 0 and read as strong purifying
+        // selection; NaN matches the Li model on the same input. (Nonsyn sites are always
+        // > 0 for real codons, but keep the guard symmetric.)
+        let ps = if potential_syn_sites > 0.0 { syn_diffs / potential_syn_sites } else { f64::NAN };
+        let pn = if potential_nonsyn_sites > 0.0 { nonsyn_diffs / potential_nonsyn_sites } else { f64::NAN };
 
         let mut ds = if ps < JC_SATURATION_THRESHOLD {
             -0.75 * (1.0 - (4.0 / 3.0) * ps).ln()
@@ -509,6 +514,17 @@ mod tests {
         let (dn, ds) = nei(b"CCCCCC", b"GGGGGG");
         assert!(dn.is_nan(), "saturated pN should give NaN dN, got {}", dn);
         assert!(ds.is_nan(), "saturated pS should give NaN dS, got {}", ds);
+    }
+
+    #[test]
+    fn cov_nei_zero_synonymous_sites_gives_nan_ds() {
+        // A pair of only Met (ATG) and Trp (TGG) codons has zero synonymous sites, so dS
+        // cannot be estimated: it must be NaN, not a spurious 0.0 (which flows through JC
+        // to dS = 0 and reads as strong purifying selection). Matches the Li model, which
+        // returns Ks = NaN for the same input. dN stays defined (nonsynonymous sites exist).
+        let (dn, ds) = nei(b"ATGATGATG", b"ATGTGGATG");
+        assert!(ds.is_nan(), "zero synonymous sites should give NaN dS, got {}", ds);
+        assert!(dn.is_finite(), "dN is still defined, got {}", dn);
     }
 
     // Jukes-Cantor delta-method variance invariants (compute_pair_stats +

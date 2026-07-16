@@ -181,6 +181,31 @@ All notable changes to this project will be documented in this file.
   self-comparison while an identical pair with at least one valid codon still
   reports `0.0`. Sliding-window and group-average paths inherit the fix (all-N
   windows are `NaN`; an all-N group contributes zero comparisons, not a spurious 0).
+- **No-data / degenerate inputs → `NaN` sweep (siblings of the all-N pair bug,
+  found by an adversarial hunt that ran the binary on crafted inputs):**
+  - **Sliding-window mode** hard-coded `dN/dS = 0.0` for identical (de-duplicated)
+    all-N/all-gap pairs, diverging from the fixed pairwise path. Each window is now
+    `NaN` when it has no comparable codons, and the saturation count includes them.
+  - **`--lineage` summary** hard-coded the self-diagonal to `{0,0}` and reused it for
+    de-duplicated identical genomes, so an all-N genome contributed a spurious `0.0`
+    to its lineage mean. It now runs through the compute engine (`NaN` → excluded),
+    matching the pairwise and `--group-average` paths.
+  - **dN/dS ratio in the pairwise and window writers** returned `+inf` when `dN` was
+    `NaN` (nonsynonymous saturation) over a finite zero `dS`. An undefined numerator
+    now yields `NaN`, not a spurious extreme-positive-selection reading.
+  - **Nei-Gojobori `dS`** collapsed to `0.0` (not `NaN`) when the pair had zero
+    synonymous *sites* (all Met/Trp codons); it now matches the Li model's `NaN`.
+  - **Per-gene `pN`/`pS`** collapsed a zero-site denominator to `0.0`; they are now
+    `NaN` (undefined density), and a fully untranslatable all-ambiguous/all-N CDS is
+    skipped with a warning instead of emitted as an all-zero row.
+  - **Genome-wide pooled `pN`/`pS`** (and each bootstrap replicate) reported `0.0`
+    when the pooled site denominator was `0`; now `NaN`.
+  - **`--exclude-repetitive` summary** printed `Total synonymous/nonsynonymous: 0.00`
+    when every gene was filtered out; it now reads `n/a`, consistent with the pooled
+    ratio line.
+  - **Genomic-control λ** rendered `λ = 0.00` when the median tested-gene χ² was `0`
+    (a degenerate, mostly-`p=1` family); it now reports `NaN`/`NA`. The correction is
+    unchanged (λ is floored at 1 either way).
 - **Adversarial bug-hunt round, second batch:**
   - **`--min-snps` filtered on the AF-weighted fractional total under `--af-weighted`**,
     so it dropped genes that had far more than the threshold in real SNPs. It now

@@ -348,10 +348,7 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     }
 
     // Print summary statistics
-    let (total_syn, total_nonsyn) = genome_wide
-        .as_ref()
-        .map(|gw| (gw.syn_snps, gw.nonsyn_snps))
-        .unwrap_or((0.0, 0.0));
+    let gw_totals = genome_wide.as_ref().map(|gw| (gw.syn_snps, gw.nonsyn_snps));
     let mode = if args.af_weighted { "πN/πS (AF-weighted)" } else { "pN/pS" };
     let ratio_name = if args.af_weighted { "πN/πS" } else { "pN/pS" };
     eprintln!("\n── {} Summary ──────────────────────────", mode);
@@ -370,8 +367,24 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     // Under --exclude-repetitive the pooled totals are core-only while the gene
     // counts above are over all genes; flag the scope so the block is self-consistent.
     let core_note = if args.exclude_repetitive { "   (core genes only)" } else { "" };
-    eprintln!("  Total synonymous:    {:.2}{}", total_syn, core_note);
-    eprintln!("  Total nonsynonymous: {:.2}{}", total_nonsyn, core_note);
+    match gw_totals {
+        Some((total_syn, total_nonsyn)) => {
+            eprintln!("  Total synonymous:    {:.2}{}", total_syn, core_note);
+            eprintln!("  Total nonsynonymous: {:.2}{}", total_nonsyn, core_note);
+        }
+        None => {
+            // No pooled estimate: report n/a for the totals, consistent with the pooled
+            // ratio line below, rather than a misleading 0.00 that reads as "zero coding
+            // SNPs" when in fact every contributing gene was filtered out.
+            let why = if args.exclude_repetitive {
+                "   (all genes excluded as repetitive)"
+            } else {
+                "   (no gene contributed a coding SNP)"
+            };
+            eprintln!("  Total synonymous:    n/a{}", why);
+            eprintln!("  Total nonsynonymous: n/a{}", why);
+        }
+    }
     if let Some(gw) = &genome_wide {
         eprintln!("  ── Genome-wide (pooled) ──────────────────");
         eprintln!("  N / S sites:         {:.1} / {:.1}", gw.n_sites, gw.s_sites);

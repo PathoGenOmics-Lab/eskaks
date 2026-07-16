@@ -216,7 +216,12 @@ pub fn write_pairwise(
                 if !result.dn.is_finite() || !result.ds.is_finite() {
                     nan_count.fetch_add(1, Ordering::Relaxed);
                 }
-                let ratio = if result.ds == 0.0 {
+                // An undefined dN or dS makes the ratio undefined too: a NaN numerator
+                // must not slip through the ds==0 branch and print as +inf (which reads as
+                // extreme positive selection). Saturated dN over zero dS is genuinely NaN.
+                let ratio = if result.dn.is_nan() || result.ds.is_nan() {
+                    f64::NAN
+                } else if result.ds == 0.0 {
                     if result.dn == 0.0 { 0.0 } else { f64::INFINITY }
                 } else {
                     result.dn / result.ds

@@ -94,6 +94,20 @@ pub fn compute_pn_ps(
                 count_sites(&cds_seq, gc)
             };
 
+            // A CDS with neither synonymous nor nonsynonymous sites has no translatable
+            // codons at all (every codon is ambiguous/all-N in the reference). pN and pS
+            // would both be 0/0, so analysing it yields only spurious zeros that read as a
+            // real gene under total constraint. Skip it loudly, like the other
+            // untranslatable-CDS guards, rather than emit a misleading all-zero row.
+            if n_sites == 0.0 && s_sites == 0.0 {
+                warn!(
+                    "Gene {} CDS has no usable (translatable) codons — an all-ambiguous / all-N \
+                     reference region, skipping",
+                    gene.name
+                );
+                return None;
+            }
+
             // Find SNPs that fall within this gene's CDS regions
             // Counts are f64 to support AF-weighted mode (πN/πS)
             let mut nonsyn_count = 0.0f64;
@@ -205,15 +219,20 @@ pub fn compute_pn_ps(
             ref_mismatch.fetch_add(local_mismatch, Ordering::Relaxed);
 
             let total_snps = nonsyn_count + syn_count;
+            // A zero site denominator makes the density undefined (0/0), not 0.0: a gene of
+            // only Met/Trp codons has s_sites == 0, so pS cannot be estimated. Report NaN so
+            // it is not read as an observed synonymous rate of exactly zero. The pn_ps guard
+            // below already treats a NaN/absent pS the same as the old 0.0 (→ +inf when
+            // pn > 0, NaN when both are 0), so the headline ratio is unchanged.
             let pn = if n_sites > 0.0 {
                 nonsyn_count / n_sites
             } else {
-                0.0
+                f64::NAN
             };
             let ps = if s_sites > 0.0 {
                 syn_count / s_sites
             } else {
-                0.0
+                f64::NAN
             };
             let pn_ps = if ps > 0.0 {
                 pn / ps
@@ -357,8 +376,8 @@ pub fn bootstrap_genome_wide_ci(
             nonsyn += r.nonsyn_snps;
             syn += r.syn_snps;
         }
-        let pn = if n_sites > 0.0 { nonsyn / n_sites } else { 0.0 };
-        let ps = if s_sites > 0.0 { syn / s_sites } else { 0.0 };
+        let pn = if n_sites > 0.0 { nonsyn / n_sites } else { f64::NAN };
+        let ps = if s_sites > 0.0 { syn / s_sites } else { f64::NAN };
         // ps == 0 with pn > 0 is a genuine upper-tail extreme (pN/pS = +∞), so keep it
         // toward the upper percentile instead of discarding it and biasing the CI low.
         // Only 0/0 (no variation at all) is genuinely undefined and excluded.
@@ -419,8 +438,11 @@ fn pool_pn_ps<'a>(it: impl Iterator<Item = &'a GenePnPs>) -> Option<GenomeWidePn
     if !any {
         return None;
     }
-    let pn = if n_sites > 0.0 { nonsyn_snps / n_sites } else { 0.0 };
-    let ps = if s_sites > 0.0 { syn_snps / s_sites } else { 0.0 };
+    // Pooled density is undefined (NaN), not 0.0, when its site denominator is 0 — the
+    // whole retained set has no synonymous (or nonsynonymous) sites. The pn_ps guard below
+    // keeps the same +inf / NaN outcome, so only the surfaced pN / pS components change.
+    let pn = if n_sites > 0.0 { nonsyn_snps / n_sites } else { f64::NAN };
+    let ps = if s_sites > 0.0 { syn_snps / s_sites } else { f64::NAN };
     let pn_ps = if ps > 0.0 {
         pn / ps
     } else if pn > 0.0 {

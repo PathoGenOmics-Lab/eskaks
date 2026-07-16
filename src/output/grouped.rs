@@ -73,7 +73,12 @@ pub fn write_lineage(
                 *cur_gen = cur_gen.wrapping_add(1);
                 let gen = *cur_gen;
                 let u_i = uidx_by_id[i];
-                row_cache[u_i] = DsDn { dn: 0.0, ds: 0.0 };
+                // Compute the self-comparison rather than hard-coding 0/0: identical
+                // genomes deduplicate to this same unique index, so an all-N / all-gap
+                // genome would otherwise contribute a spurious 0.0 to its lineage mean
+                // instead of being excluded (compute_pair returns NaN for no comparable
+                // codons). Mirrors the pairwise writer; compute_pair short-circuits u==u.
+                row_cache[u_i] = compute_pair(u_i, u_i);
                 gen_map[u_i] = gen;
 
                 for a in local_aggr.iter_mut() { *a = (0.0, 0.0, 0); }
