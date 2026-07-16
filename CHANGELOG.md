@@ -195,6 +195,14 @@ All notable changes to this project will be documented in this file.
     regardless), and **accepts `--summary`** (which used to be a hard "unexpected
     argument" error) — `--summary` forces the summary even under `--quiet`, symmetric
     with `eskaks fasta`.
+  - More guardrails and feedback (from the same evaluation): the top-level `--help` now
+    ends with usage **examples**; a bare `eskaks alignment.fasta` (subcommand forgotten)
+    now **suggests the right form** instead of a bare "unrecognized subcommand"; input
+    sequences with **non-standard characters** (not A/C/G/T/U/N or a gap) now **warn**;
+    `--window-step` without `--window-size` **warns** it did nothing; a **too-small
+    `--bootstrap`** (< 100) **warns** the CI is unreliable; `eskaks vcf` shows a **per-gene
+    progress bar** on genome-scale runs; and its end-of-run **output list matches the
+    `fasta` "Done" block** (one file per line).
 - **Follow-up sweep (adversarial round 4, over the code added earlier in this cycle):**
   - **The HTML report's dN/dS histogram mis-binned identical (zero-divergence) pairs.**
     After the report started aggregating over all id-pairs, `collect_report_pairwise`

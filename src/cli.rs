@@ -32,9 +32,16 @@ EXAMPLES:
   # Many samples (one VCF path per line) plus a McDonald-Kreitman test
   eskaks vcf --ref ref.fa --gff genes.gff3 --vcf-list samples.txt --mk -o pop";
 
+const TOP_AFTER_HELP: &str = "\
+EXAMPLES:
+  eskaks fasta alignment.fasta -o results          # pairwise dN/dS from a codon alignment
+  eskaks vcf --ref g.fa --gff g.gff3 --vcf v.vcf   # per-gene pN/pS from variants
+
+Run `eskaks help fasta` or `eskaks help vcf` for all options and more examples.";
+
 /// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(version, about, long_about = None, after_help = TOP_AFTER_HELP)]
 pub struct Args {
     /// List all available genetic code tables and exit
     #[arg(long)]

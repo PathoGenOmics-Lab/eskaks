@@ -1,6 +1,7 @@
 //! Per-gene pN/pS computation and genome-wide pooled estimates.
 
 use super::*;
+use indicatif::{ProgressBar, ProgressStyle};
 
 /// Compute pN/pS for all genes given a reference sequence, gene annotations, and SNPs.
 ///
@@ -45,9 +46,19 @@ pub fn compute_pn_ps(
     // of a wrong --genetic-code, wrong frame/phase, or a wrong reference build).
     let internal_stops = AtomicUsize::new(0);
 
+    // Per-gene progress bar for liveness on genome-scale runs (auto-hidden when stderr
+    // is not a terminal, so tests and pipelines stay quiet).
+    let pb = ProgressBar::new(genes.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Genes: {pos}/{len} ({eta})")
+            .progress_chars("#>-"),
+    );
+
     let results: Vec<GenePnPs> = genes
         .par_iter()
         .filter_map(|gene| {
+            pb.inc(1);
             let ref_seq = match reference.get(&gene.seqid) {
                 Some(seq) => seq,
                 None => {
@@ -308,6 +319,7 @@ pub fn compute_pn_ps(
             })
         })
         .collect();
+    pb.finish_and_clear();
 
     let ref_checked = ref_checked.load(Ordering::Relaxed);
     let ref_mismatch = ref_mismatch.load(Ordering::Relaxed);

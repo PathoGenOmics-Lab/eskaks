@@ -25,6 +25,17 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
         .stack_size(4 * 1024 * 1024)
         .build_global()?;
 
+    // Warn about flags that silently do nothing (or too little) on their own.
+    if args.window_step != 1 && args.window_size.is_none() {
+        log::warn!("--window-step is ignored without --window-size (no windowed analysis ran).");
+    }
+    if (1..100).contains(&args.bootstrap) {
+        log::warn!(
+            "--bootstrap {} is very low; a 95% CI from so few replicates is unreliable (use >= 1000).",
+            args.bootstrap
+        );
+    }
+
     // Load, validate, filter, and deduplicate sequences
     input::ensure_not_gzipped(&args.input_file)?;
     let stop_indices = genetic_code::stop_codon_indices(gc, args.model);

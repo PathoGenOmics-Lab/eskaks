@@ -60,6 +60,7 @@ pub fn load_sequences(
     let mut gap_count_total = 0usize;
     let mut seqs_with_gaps = 0usize;
     let mut seqs_with_internal_stop = 0usize;
+    let mut seqs_with_bad_chars = 0usize;
 
     // Buffer for stdin data (must outlive the reader)
     let stdin_buf: Vec<u8> = if is_stdin(input_file) {
@@ -104,6 +105,17 @@ pub fn load_sequences(
                     seq.len(),
                     seq.len() % 3
                 );
+            }
+            // Flag characters that are neither a standard base (A/C/G/T/U/N) nor a gap
+            // (-/.). Letters like X or digits silently become invalid codons, so a
+            // corrupted/mis-encoded alignment would otherwise pass unnoticed.
+            if seq.iter().any(|&b| {
+                !matches!(
+                    b.to_ascii_uppercase(),
+                    b'A' | b'C' | b'G' | b'T' | b'U' | b'N' | b'-' | b'.'
+                )
+            }) {
+                seqs_with_bad_chars += 1;
             }
             let codons = codon::fasta_to_codon_indices(&seq, model);
 
@@ -198,6 +210,13 @@ pub fn load_sequences(
                 seqs_with_internal_stop, ids.len()
             );
         }
+    }
+    if seqs_with_bad_chars > 0 {
+        warn!(
+            "{}/{} sequence(s) contain non-standard characters (not A/C/G/T/U/N or a gap); those \
+             positions become invalid codons and are skipped. Check the input is clean DNA/RNA.",
+            seqs_with_bad_chars, ids.len()
+        );
     }
     if let Some(first_len) = all_codon_indices.first().map(|v| v.len()) {
         // Pairwise dN/dS is only meaningful on a codon ALIGNMENT, where every sequence is

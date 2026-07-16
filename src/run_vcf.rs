@@ -97,6 +97,12 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
              --min-af removes polymorphisms). Interpret the MK columns with care."
         );
     }
+    if (1..100).contains(&args.bootstrap) {
+        warn!(
+            "--bootstrap {} is very low; a 95% CI from so few replicates is unreliable (use >= 1000).",
+            args.bootstrap
+        );
+    }
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.workers)
@@ -452,8 +458,15 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         }
         eprintln!("───────────────────────────────────────────");
         // Tell the user where the output went (info-level "saved to" lines are hidden at
-        // the default log level).
-        eprintln!("  Output: {}", written.join(", "));
+        // the default log level). One file per line, matching the fasta "Done" block.
+        if written.is_empty() {
+            eprintln!("  Output:     (none)");
+        } else {
+            eprintln!("  Output:");
+            for p in &written {
+                eprintln!("    {}", p);
+            }
+        }
         eprintln!("───────────────────────────────────────────");
     }
 

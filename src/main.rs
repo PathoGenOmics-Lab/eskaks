@@ -20,7 +20,30 @@ use log::LevelFilter;
 use cli::{Args, SubCmd};
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    // A biologist's intuitive first try is `eskaks alignment.fasta` (no subcommand). clap
+    // reports "unrecognized subcommand '<file>'"; add a hint pointing at the right form
+    // when the offending value looks like a file path, instead of just the bare error.
+    let args = match Args::try_parse() {
+        Ok(a) => a,
+        Err(e) => {
+            if e.kind() == clap::error::ErrorKind::InvalidSubcommand {
+                if let Some(clap::error::ContextValue::String(val)) =
+                    e.get(clap::error::ContextKind::InvalidSubcommand)
+                {
+                    if val.contains('.') || val.contains('/') {
+                        eprintln!(
+                            "error: '{val}' is not a subcommand — did you forget the mode?\n  \
+                             FASTA alignment:  eskaks fasta {val} -o results\n  \
+                             variants (VCF):   eskaks vcf --ref ref.fa --gff genes.gff3 --vcf {val}\n\
+                             \nRun `eskaks --help` to see the two subcommands."
+                        );
+                        std::process::exit(2);
+                    }
+                }
+            }
+            e.exit();
+        }
+    };
 
     // Show data-quality warnings by default (previously env_logger defaulted to
     // "off", hiding every REF-mismatch / skipped-gene / saturation diagnostic
