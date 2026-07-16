@@ -37,6 +37,11 @@ border-left:2px solid transparent;border-radius:0 5px 5px 0;white-space:nowrap;o
 @media (max-width:900px){.toc{display:none}.layout{display:block}}
 @media print{.toc{display:none}.layout{display:block}}
 h1{font-size:1.5rem;margin:0 0 4px}
+.brand{display:flex;align-items:center;gap:14px;margin:0 0 4px}
+.brand h1{margin:0}
+/* The logo is designed for a light background (it has both white and black parts),
+   so sit it on a small white chip that reads correctly in either theme. */
+.brand-logo{height:52px;width:auto;display:block;background:#fff;border-radius:12px;padding:7px 11px;box-shadow:0 1px 3px rgba(0,0,0,.15)}
 .sub{color:var(--muted);font-size:.85rem;margin-bottom:14px}
 .topbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}

@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- The eskaks logo is now shown in the interactive HTML report header, embedded as a
+  base64 `data:` URI so the report stays fully self-contained and offline-capable.
+
 - **Genomic-control clonality correction** (`eskaks vcf --genomic-control`): the
   per-gene neutrality χ² is divided by the median-based inflation factor λ
   (never below 1) and re-tested, adding `p_gc`/`q_gc` columns. λ is always

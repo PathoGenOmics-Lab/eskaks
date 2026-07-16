@@ -81,6 +81,33 @@ fn num(v: f64) -> String {
     }
 }
 
+/// The original eskaks logo, embedded so the self-contained report needs no
+/// external assets.
+const LOGO_SVG: &[u8] = include_bytes!("../img/esKaKs.svg");
+
+/// Minimal, dependency-free base64 encoder (standard alphabet, padded).
+fn base64(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(T[(n >> 18 & 63) as usize] as char);
+        out.push(T[(n >> 12 & 63) as usize] as char);
+        out.push(if chunk.len() > 1 { T[(n >> 6 & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { T[(n & 63) as usize] as char } else { '=' });
+    }
+    out
+}
+
+/// A `data:` URI for the eskaks logo, safe to drop into an `<img src>` (the SVG's
+/// own `<style>`/ids stay isolated inside the image document).
+fn logo_data_uri() -> String {
+    format!("data:image/svg+xml;base64,{}", base64(LOGO_SVG))
+}
+
 /// Write the interactive HTML report; returns the output path.
 #[allow(clippy::too_many_arguments)]
 pub fn write_html_report(
@@ -215,7 +242,7 @@ pub fn write_html_report(
     // ── Assemble the HTML ──────────────────────────────────────────────────
     let mut html = String::with_capacity(HEAD.len() + BODY.len() + SCRIPT.len() + data.len() + 256);
     html.push_str(HEAD);
-    html.push_str(BODY);
+    html.push_str(&BODY.replace("__ESKAKS_LOGO__", &logo_data_uri()));
     html.push_str("<script>\nconst DATA = ");
     html.push_str(&data);
     html.push_str(";\n");
@@ -350,7 +377,7 @@ pub fn write_fasta_report(
 
     let mut html = String::with_capacity(HEAD.len() + FASTA_BODY.len() + FASTA_SCRIPT.len() + data.len());
     html.push_str(HEAD);
-    html.push_str(FASTA_BODY);
+    html.push_str(&FASTA_BODY.replace("__ESKAKS_LOGO__", &logo_data_uri()));
     html.push_str("<script>\nconst DATA = ");
     html.push_str(&data);
     html.push_str(";\n");
@@ -365,3 +392,26 @@ pub fn write_fasta_report(
 const FASTA_BODY: &str = include_str!("report/fasta_body.html");
 
 const FASTA_SCRIPT: &str = include_str!("report/fasta_script.js");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_matches_rfc4648_vectors() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foob"), "Zm9vYg==");
+        assert_eq!(base64(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+    }
+
+    #[test]
+    fn logo_data_uri_is_a_nonempty_svg_data_uri() {
+        let uri = logo_data_uri();
+        assert!(uri.starts_with("data:image/svg+xml;base64,"));
+        assert!(uri.len() > 1000, "logo data URI unexpectedly small");
+    }
+}
