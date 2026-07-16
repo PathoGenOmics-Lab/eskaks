@@ -566,13 +566,14 @@ fn cov_out_write_mk_results_tsv_header_row_and_filter() {
 }
 
 #[test]
-fn cov_out_write_pnps_plot_empty_returns_path() {
+fn cov_out_write_pnps_plot_empty_skips_file() {
     let dir = tempfile::tempdir().unwrap();
     let prefix = dir.path().join("out");
     let prefix = prefix.to_str().unwrap();
-    // No data points -> function returns the path early without writing a file.
-    let path = write_pnps_plot(&[], prefix, 0.05).unwrap();
-    assert!(path.ends_with("_pnps_manhattan.svg"));
+    // No data points -> returns None and writes NO file (so the caller doesn't list a
+    // phantom path in the output manifest).
+    assert!(write_pnps_plot(&[], prefix, 0.05).unwrap().is_none());
+    assert!(!std::path::Path::new(&format!("{}_pnps_manhattan.svg", prefix)).exists());
 }
 
 #[test]
@@ -589,21 +590,21 @@ fn cov_out_write_pnps_plot_wellformed_with_infinite_gene() {
     let prefix = dir.path().join("out");
     let prefix = prefix.to_str().unwrap();
 
-    let path = write_pnps_plot(&results, prefix, 0.05).unwrap();
+    let path = write_pnps_plot(&results, prefix, 0.05).unwrap().expect("plot written");
     let svg = std::fs::read_to_string(&path).unwrap();
     cov_out_assert_svg(&svg);
 }
 
 #[test]
-fn cov_out_write_pvalue_manhattan_empty_returns_path() {
-    // gene_result leaves p_value = NaN, so no gene has a finite p-value and the
-    // function returns early without writing a file.
+fn cov_out_write_pvalue_manhattan_empty_skips_file() {
+    // gene_result leaves p_value = NaN, so no gene has a finite p-value: returns None
+    // and writes NO file.
     let results = vec![gene_result(100.0, 100.0, 10.0, 20.0)];
     let dir = tempfile::tempdir().unwrap();
     let prefix = dir.path().join("out");
     let prefix = prefix.to_str().unwrap();
-    let path = write_pvalue_manhattan(&results, prefix, 0.05).unwrap();
-    assert!(path.ends_with("_pvalue_manhattan.svg"));
+    assert!(write_pvalue_manhattan(&results, prefix, 0.05).unwrap().is_none());
+    assert!(!std::path::Path::new(&format!("{}_pvalue_manhattan.svg", prefix)).exists());
 }
 
 #[test]
@@ -620,7 +621,7 @@ fn cov_out_write_pvalue_manhattan_wellformed_with_pvalues() {
     let prefix = dir.path().join("out");
     let prefix = prefix.to_str().unwrap();
 
-    let path = write_pvalue_manhattan(&results, prefix, 0.05).unwrap();
+    let path = write_pvalue_manhattan(&results, prefix, 0.05).unwrap().expect("plot written");
     let svg = std::fs::read_to_string(&path).unwrap();
     cov_out_assert_svg(&svg);
 }

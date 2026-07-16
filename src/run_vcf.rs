@@ -314,14 +314,17 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         written.push(mk_path);
     }
 
-    // Generate plots if requested
+    // Generate plots if requested. Each writer returns None when it has no data to plot
+    // (e.g. no coding SNPs), so we only list files that were actually written.
     if args.plot {
-        let plot_path = vcf_analysis::write_pnps_plot(&results, &args.output, args.fdr)?;
-        info!("Plot saved to {}", plot_path);
-        written.push(plot_path);
-        let pv_path = vcf_analysis::write_pvalue_manhattan(&results, &args.output, args.fdr)?;
-        info!("p-value Manhattan saved to {}", pv_path);
-        written.push(pv_path);
+        if let Some(plot_path) = vcf_analysis::write_pnps_plot(&results, &args.output, args.fdr)? {
+            info!("Plot saved to {}", plot_path);
+            written.push(plot_path);
+        }
+        if let Some(pv_path) = vcf_analysis::write_pvalue_manhattan(&results, &args.output, args.fdr)? {
+            info!("p-value Manhattan saved to {}", pv_path);
+            written.push(pv_path);
+        }
     }
 
     // Interactive HTML report.

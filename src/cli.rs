@@ -48,6 +48,10 @@ pub struct Args {
     #[arg(long)]
     pub list_codes: bool,
 
+    /// Run a quick demo on bundled example data (no input files needed) and exit
+    #[arg(long)]
+    pub demo: bool,
+
     /// Generate a shell completion script for the given shell and exit
     /// (e.g. `eskaks --completions bash > /etc/bash_completion.d/eskaks`).
     #[arg(long, value_enum, value_name = "SHELL")]

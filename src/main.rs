@@ -19,6 +19,10 @@ use clap::{CommandFactory, Parser};
 use log::LevelFilter;
 use cli::{Args, SubCmd};
 
+/// Bundled example alignment, embedded so `--demo` works from an installed binary
+/// without the repository's `examples/` directory on disk.
+const DEMO_FASTA: &str = include_str!("../examples/genes.fasta");
+
 fn main() -> anyhow::Result<()> {
     // A biologist's intuitive first try is `eskaks alignment.fasta` (no subcommand). clap
     // reports "unrecognized subcommand '<file>'"; add a hint pointing at the right form
@@ -101,6 +105,11 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Quick demo on the bundled example data (top-level flag, no input files needed).
+    if args.demo {
+        return run_demo();
+    }
+
     match args.command {
         Some(SubCmd::Fasta(fasta_args)) => run_fasta::run_fasta(fasta_args),
         Some(SubCmd::Vcf(vcf_args)) => run_vcf::run_vcf(vcf_args),
@@ -111,5 +120,37 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+/// Run `eskaks fasta` on the embedded example alignment so a brand-new user gets a
+/// real, successful run (with a summary and an HTML report) without supplying any
+/// files, then point them at the real commands for their own data.
+fn run_demo() -> anyhow::Result<()> {
+    use anyhow::Context;
+    let dir = std::env::temp_dir();
+    let fasta = dir.join("eskaks_demo.fasta");
+    let out = dir.join("eskaks_demo");
+    std::fs::write(&fasta, DEMO_FASTA)
+        .with_context(|| format!("Failed to write demo input to {}", fasta.display()))?;
+
+    eprintln!("Demo: running `eskaks fasta` on a bundled 6-strain example alignment.\n");
+    let fasta_args = cli::FastaArgs::parse_from([
+        "eskaks",
+        fasta.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+        "--summary",
+        "--report",
+    ]);
+    run_fasta::run_fasta(fasta_args)?;
+
+    eprintln!(
+        "\nThat was a demo on bundled data (open the _report.html above in a browser).\n\
+         To analyse your OWN data:\n  \
+         pairwise dN/dS:  eskaks fasta your_alignment.fasta -o results\n  \
+         per-gene pN/pS:  eskaks vcf --ref ref.fa --gff genes.gff3 --vcf calls.vcf -o results\n\
+         \nRun `eskaks --help` for all options."
+    );
+    Ok(())
 }
 

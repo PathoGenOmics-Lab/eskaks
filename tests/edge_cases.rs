@@ -15,7 +15,25 @@ fn nonexistent_file_gives_clear_error() {
         .expect("spawn");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Failed to open input file"), "stderr: {}", stderr);
+    assert!(
+        stderr.contains("Could not read") && stderr.contains("as FASTA"),
+        "stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn demo_runs_without_input_files() {
+    // `--demo` must produce a real, successful run on bundled data with no input files.
+    let output = Command::new(binary_path())
+        .args(["--demo"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success(), "demo should exit 0");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Demo:"), "stderr: {}", stderr);
+    let results = std::env::temp_dir().join("eskaks_demo_pairwise_results.tsv");
+    assert!(results.exists(), "demo should write {}", results.display());
 }
 
 #[test]

@@ -18,6 +18,9 @@ All notable changes to this project will be documented in this file.
     Statistics / Filtering / Input) and ends with concrete usage **examples**.
   - **Shell completions**: `eskaks --completions bash|zsh|fish|…` prints a completion
     script (via `clap_complete`).
+  - **`--demo`**: runs a full `eskaks fasta` analysis (summary + interactive report) on a
+    bundled example alignment embedded in the binary, so a new user can see a real,
+    successful run with zero input files, then points at the commands for their own data.
 - **Much clearer failure diagnostics**, so an empty or garbage result is never
   mistaken for a clean run:
   - `eskaks vcf` summary now accounts for the SNPs (`SNPs used (in CDS): X of Y`),
@@ -209,6 +212,10 @@ All notable changes to this project will be documented in this file.
     **duplicate sequence ids** warn; passing a **directory** as input errors clearly; the
     help documents `--workers 0` (= all cores) and that `--seed` only applies with
     `--bootstrap`; and `vcf` help uses `<output>` consistently (was `<prefix>`).
+  - **`eskaks vcf`'s output manifest no longer lists plot files it skipped.** When a run
+    had no data to plot (e.g. no coding SNPs), the plot writers returned a path without
+    writing the file, so the "Output:" list named `.svg` files that did not exist; they
+    now return `None` and are omitted, so the manifest only lists files actually written.
 - **Follow-up sweep (adversarial round 4, over the code added earlier in this cycle):**
   - **The HTML report's dN/dS histogram mis-binned identical (zero-divergence) pairs.**
     After the report started aggregating over all id-pairs, `collect_report_pairwise`

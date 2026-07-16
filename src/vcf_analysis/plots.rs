@@ -3,7 +3,11 @@
 use super::*;
 
 /// Generate an SVG Manhattan-style plot of pN/pS per gene along the genome.
-pub fn write_pnps_plot(results: &[GenePnPs], prefix: &str, fdr: f64) -> anyhow::Result<String> {
+pub fn write_pnps_plot(
+    results: &[GenePnPs],
+    prefix: &str,
+    fdr: f64,
+) -> anyhow::Result<Option<String>> {
     use std::fmt::Write as FmtWrite;
     use std::fs::File;
     use std::io::{BufWriter, Write};
@@ -39,8 +43,8 @@ pub fn write_pnps_plot(results: &[GenePnPs], prefix: &str, fdr: f64) -> anyhow::
     }
 
     if plot_data.is_empty() {
-        info!("No valid data points for pN/pS plot");
-        return Ok(plot_path);
+        info!("No valid data points for the pN/pS plot; skipping {}", plot_path);
+        return Ok(None);
     }
 
     let width = 900.0f64;
@@ -199,14 +203,18 @@ pub fn write_pnps_plot(results: &[GenePnPs], prefix: &str, fdr: f64) -> anyhow::
     let mut file = BufWriter::new(File::create(&plot_path)?);
     file.write_all(svg.as_bytes())?;
 
-    Ok(plot_path)
+    Ok(Some(plot_path))
 }
 
 /// Write a −log10(p) Manhattan plot of the per-gene neutrality test, with a
 /// Benjamini-Hochberg significance line at the given FDR. Genes significant at
 /// that FDR are drawn in red; the rest in grey. Returns the path (an empty file
 /// is skipped when no gene has a finite p-value, e.g. under --af-weighted).
-pub fn write_pvalue_manhattan(results: &[GenePnPs], prefix: &str, fdr: f64) -> anyhow::Result<String> {
+pub fn write_pvalue_manhattan(
+    results: &[GenePnPs],
+    prefix: &str,
+    fdr: f64,
+) -> anyhow::Result<Option<String>> {
     use std::fmt::Write as FmtWrite;
     use std::fs::File;
     use std::io::{BufWriter, Write};
@@ -220,8 +228,8 @@ pub fn write_pvalue_manhattan(results: &[GenePnPs], prefix: &str, fdr: f64) -> a
     let plot_path = format!("{}_pvalue_manhattan.svg", prefix);
     let data: Vec<&GenePnPs> = results.iter().filter(|r| r.p_value.is_finite()).collect();
     if data.is_empty() {
-        info!("No p-values to plot (neutrality test not run)");
-        return Ok(plot_path);
+        info!("No p-values to plot (neutrality test not run); skipping {}", plot_path);
+        return Ok(None);
     }
 
     // Benjamini-Hochberg significance threshold p*: the largest p_(i) with
@@ -299,6 +307,6 @@ pub fn write_pvalue_manhattan(results: &[GenePnPs], prefix: &str, fdr: f64) -> a
     svg.push_str("</svg>\n");
     let mut file = BufWriter::new(File::create(&plot_path)?);
     file.write_all(svg.as_bytes())?;
-    Ok(plot_path)
+    Ok(Some(plot_path))
 }
 
