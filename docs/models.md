@@ -6,7 +6,7 @@ eskaks implements two classical models for estimating synonymous (dS) and nonsyn
 
 The default model. A straightforward counting approach:
 
-1. **Count sites**: Each codon position is classified as synonymous or nonsynonymous based on how many single-nucleotide changes at that position would change the amino acid.
+1. **Count sites**: For each codon, its nine single-nucleotide changes are classified as synonymous or nonsynonymous, *excluding* changes that create a stop codon; the codon's three sites are then split in that ratio (`S = 3 × syn/(syn+nonsyn)`, `N = 3 − S`). This is the same exclude-nonsense convention the VCF pN/pS path uses, so both modes agree codon-for-codon.
 2. **Count differences**: For each codon pair, differences are classified as synonymous or nonsynonymous via pathway analysis:
    - 1-position difference: direct classification
    - 2-position differences: average over 2 pathways (excluding stop codon intermediates)

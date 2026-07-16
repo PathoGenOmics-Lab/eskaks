@@ -149,14 +149,15 @@ fn fasta_examples_pairwise_golden() {
     // 6 strains -> C(6,2) = 15 unordered pairs.
     assert_eq!(rows.len() - 1, 15, "expected 15 pairs");
 
-    // Golden values captured from a real run (Nei-Gojobori model), looked up by
-    // BOTH ids so a future ordering change surfaces as "pair not found".
+    // Golden values captured from a real run (Nei-Gojobori model, exclude-nonsense
+    // site counting), looked up by BOTH ids so a future ordering change surfaces
+    // as "pair not found".
     let ab = find_pair(&rows, "strain_A", "strain_B");
-    assert!((f(&ab[2]) - 0.022873).abs() < EPS, "A/B dN {}", ab[2]);
-    assert!((f(&ab[3]) - 0.166691).abs() < EPS, "A/B dS {}", ab[3]);
-    assert!((f(&ab[4]) - 0.137221).abs() < EPS, "A/B dN/dS {}", ab[4]);
+    assert!((f(&ab[2]) - 0.022990).abs() < EPS, "A/B dN {}", ab[2]);
+    assert!((f(&ab[3]) - 0.164075).abs() < EPS, "A/B dS {}", ab[3]);
+    assert!((f(&ab[4]) - 0.140120).abs() < EPS, "A/B dN/dS {}", ab[4]);
     let ac = find_pair(&rows, "strain_A", "strain_C");
-    assert!((f(&ac[4]) - 0.076606).abs() < EPS, "A/C dN/dS {}", ac[4]);
+    assert!((f(&ac[4]) - 0.077805).abs() < EPS, "A/C dN/dS {}", ac[4]);
 
     // Every pair is under purifying selection (dN/dS < 1).
     for p in &rows[1..] {
@@ -267,9 +268,9 @@ fn fasta_examples_window_mode() {
         .find(|r| r[0] == "strain_A" && r[1] == "strain_B" && r[2] == "1")
         .expect("A/B window [1,20]");
     assert_eq!(w[3], "20");
-    assert!((f(&w[4]) - 0.022815).abs() < EPS, "window dN {}", w[4]);
-    assert!((f(&w[5]) - 0.223870).abs() < EPS, "window dS {}", w[5]);
-    assert!((f(&w[6]) - 0.101914).abs() < EPS, "window dN/dS {}", w[6]);
+    assert!((f(&w[4]) - 0.023104).abs() < EPS, "window dN {}", w[4]);
+    assert!((f(&w[5]) - 0.215020).abs() < EPS, "window dS {}", w[5]);
+    assert!((f(&w[6]) - 0.107451).abs() < EPS, "window dN/dS {}", w[6]);
 }
 
 #[test]
@@ -285,9 +286,9 @@ fn fasta_examples_lineage() {
     // All six IDs split on '_' to the single lineage "strain".
     let a = row(&rows, "strain_A");
     assert_eq!(a[1], "strain");
-    assert!((f(&a[2]) - 0.025975).abs() < EPS, "Mean_dN {}", a[2]);
-    assert!((f(&a[3]) - 0.158087).abs() < EPS, "Mean_dS {}", a[3]);
-    assert!((f(&a[4]) - 0.164308).abs() < EPS, "dN/dS {}", a[4]);
+    assert!((f(&a[2]) - 0.026091).abs() < EPS, "Mean_dN {}", a[2]);
+    assert!((f(&a[3]) - 0.155925).abs() < EPS, "Mean_dS {}", a[3]);
+    assert!((f(&a[4]) - 0.167333).abs() < EPS, "dN/dS {}", a[4]);
 }
 
 // ─────────────────────────── eskaks vcf (examples/toy_genome) ───────────────────────────
@@ -609,7 +610,7 @@ fn fasta_lineages_group_average_default_split() {
     // Between-group comparison: 2 x 2 isolates = 4 pairwise comparisons.
     let l2_l4 = find_group(&rows, "Lineage2", "Lineage4");
     assert_eq!(l2_l4[4], "4", "NumComparisons for a between-lineage cell");
-    assert!((f(&l2_l4[5]) - 0.608113).abs() < EPS, "Lineage2-Lineage4 mean {}", l2_l4[5]);
+    assert!((f(&l2_l4[5]) - 0.621198).abs() < EPS, "Lineage2-Lineage4 mean {}", l2_l4[5]);
     // Within-lineage cell: C(2,2) = 1 comparison, SE reported as N/A.
     let bovis = find_group(&rows, "Bovis", "Bovis");
     assert_eq!(bovis[4], "1");

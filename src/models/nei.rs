@@ -18,8 +18,9 @@ pub struct NeiTables {
     diff_table: [(f32, f32); 4096],
     /// Amino acid array (Nei indexing) for the active genetic code.
     aa_array: [char; 64],
-    /// Synonymous sites ×3 per codon (Nei indexing) for the active genetic code.
-    syn_site_array: [usize; 64],
+    /// Synonymous SITES per codon (Nei indexing), Nei-Gojobori exclude-changes-to-stop
+    /// convention (S = 3·syn/(syn+nonsyn); N = 3 − S). Matches `count_sites` in the vcf path.
+    syn_site_array: [f64; 64],
 }
 
 /// Reconstruct a Nei codon index from 3 slot values.
@@ -238,14 +239,14 @@ impl NeiTables {
                 // syn_site_array has 64 entries, diff_table has 4096 entries (max index = 63*64+63 = 4095).
                 unsafe {
                     count_valid_codons += 4;
-                    sum_syn_sites_seq1 += *self.syn_site_array.get_unchecked(a1) as f64
-                        + *self.syn_site_array.get_unchecked(a2) as f64
-                        + *self.syn_site_array.get_unchecked(a3) as f64
-                        + *self.syn_site_array.get_unchecked(a4) as f64;
-                    sum_syn_sites_seq2 += *self.syn_site_array.get_unchecked(b1) as f64
-                        + *self.syn_site_array.get_unchecked(b2) as f64
-                        + *self.syn_site_array.get_unchecked(b3) as f64
-                        + *self.syn_site_array.get_unchecked(b4) as f64;
+                    sum_syn_sites_seq1 += *self.syn_site_array.get_unchecked(a1)
+                        + *self.syn_site_array.get_unchecked(a2)
+                        + *self.syn_site_array.get_unchecked(a3)
+                        + *self.syn_site_array.get_unchecked(a4);
+                    sum_syn_sites_seq2 += *self.syn_site_array.get_unchecked(b1)
+                        + *self.syn_site_array.get_unchecked(b2)
+                        + *self.syn_site_array.get_unchecked(b3)
+                        + *self.syn_site_array.get_unchecked(b4);
                     if a1 != b1 { let e = *self.diff_table.get_unchecked(a1 * 64 + b1); syn_diffs += e.0 as f64; nonsyn_diffs += e.1 as f64; }
                     if a2 != b2 { let e = *self.diff_table.get_unchecked(a2 * 64 + b2); syn_diffs += e.0 as f64; nonsyn_diffs += e.1 as f64; }
                     if a3 != b3 { let e = *self.diff_table.get_unchecked(a3 * 64 + b3); syn_diffs += e.0 as f64; nonsyn_diffs += e.1 as f64; }
@@ -257,8 +258,8 @@ impl NeiTables {
                     let i2 = c2 as usize;
                     if i1 >= INVALID_CODON as usize || i2 >= INVALID_CODON as usize { continue; }
                     count_valid_codons += 1;
-                    sum_syn_sites_seq1 += self.syn_site_array[i1] as f64;
-                    sum_syn_sites_seq2 += self.syn_site_array[i2] as f64;
+                    sum_syn_sites_seq1 += self.syn_site_array[i1];
+                    sum_syn_sites_seq2 += self.syn_site_array[i2];
                     if i1 != i2 {
                         let e = self.diff_table[i1 * 64 + i2];
                         syn_diffs += e.0 as f64;
@@ -274,8 +275,8 @@ impl NeiTables {
             let idx2 = c2 as usize;
             if idx1 >= INVALID_CODON as usize || idx2 >= INVALID_CODON as usize { continue; }
             count_valid_codons += 1;
-            sum_syn_sites_seq1 += self.syn_site_array[idx1] as f64;
-            sum_syn_sites_seq2 += self.syn_site_array[idx2] as f64;
+            sum_syn_sites_seq1 += self.syn_site_array[idx1];
+            sum_syn_sites_seq2 += self.syn_site_array[idx2];
             if idx1 != idx2 {
                 let e = self.diff_table[idx1 * 64 + idx2];
                 syn_diffs += e.0 as f64;
@@ -287,7 +288,9 @@ impl NeiTables {
             return (f64::NAN, f64::NAN, f64::NAN, f64::NAN);
         }
 
-        let potential_syn_sites = (sum_syn_sites_seq1 / 3.0 + sum_syn_sites_seq2 / 3.0) / 2.0;
+        // syn_site_array already holds per-codon synonymous SITES (not change counts),
+        // so average the two sequences directly; N is the per-codon complement (3 − S).
+        let potential_syn_sites = (sum_syn_sites_seq1 + sum_syn_sites_seq2) / 2.0;
         let potential_nonsyn_sites = (count_valid_codons as f64) * 3.0 - potential_syn_sites;
         // A zero-site denominator means the quantity cannot be estimated (e.g. a pair of
         // all-Met/Trp codons has no synonymous sites), so it is undefined, not 0.0. A
