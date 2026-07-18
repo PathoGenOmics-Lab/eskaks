@@ -5,6 +5,8 @@
 //! copies, is exactly what let some paths drift out of sync (unquoted ids corrupting
 //! CSV columns, un-escaped gene names breaking JSON).
 
+use std::borrow::Cow;
+
 /// Escape a string for embedding inside a JSON double-quoted string, so an id or
 /// gene name containing `"`, `\`, or a control char cannot produce invalid JSON.
 pub(crate) fn json_escape(s: &str) -> String {
@@ -38,6 +40,38 @@ pub(crate) fn delim_field(s: &str, sep: char) -> String {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         s.to_string()
+    }
+}
+
+/// Neutralise spreadsheet formula injection in a CSV *name* cell. A gene, sequence,
+/// or chromosome name derived from user input can begin with `=`, `@`, or a `+`/`-`
+/// followed by more than a lone sign - which Excel / LibreOffice / Sheets evaluate as
+/// a formula when the CSV is opened. Prefix such a cell with a single quote so it is
+/// read as literal text. Mirrors the interactive report's CSV export
+/// (`src/report/script.js`): a lone `+`/`-` (e.g. a strand value) is left intact, and
+/// numeric columns are never routed through here (a leading `-` on a negative number
+/// would otherwise be mis-neutralised).
+fn csv_formula_guard(s: &str) -> Cow<'_, str> {
+    let b = s.as_bytes();
+    let is_formula = matches!(b.first(), Some(b'=') | Some(b'@'))
+        || (b.len() > 1 && matches!(b.first(), Some(b'+') | Some(b'-')));
+    if is_formula {
+        Cow::Owned(format!("'{s}"))
+    } else {
+        Cow::Borrowed(s)
+    }
+}
+
+/// Quote/escape a user-derived NAME field for a delimited file, additionally defusing
+/// spreadsheet formula injection when the delimiter is a comma (CSV). Use this for
+/// gene / sequence / chromosome names; numeric columns format themselves and must not
+/// pass through here. TSV is left un-guarded (its readers are programmatic and a
+/// leading apostrophe would corrupt the value), matching the report's CSV-only scope.
+pub(crate) fn name_field(s: &str, sep: char) -> String {
+    if sep == ',' {
+        delim_field(&csv_formula_guard(s), sep)
+    } else {
+        delim_field(s, sep)
     }
 }
 
@@ -79,6 +113,25 @@ mod tests {
         assert_eq!(delim_field("a\nb", '\t'), "\"a\nb\"");
         // A bare quote (no tab/newline) must NOT be quoted in TSV — it would corrupt the value.
         assert_eq!(delim_field("gene\"1", '\t'), "gene\"1");
+    }
+
+    #[test]
+    fn name_field_defuses_csv_formula_injection() {
+        // Formula triggers get a leading apostrophe in CSV...
+        assert_eq!(name_field("=cmd()", ','), "'=cmd()");
+        assert_eq!(name_field("@SUM(A1)", ','), "'@SUM(A1)");
+        assert_eq!(name_field("-2+3", ','), "'-2+3");
+        assert_eq!(name_field("+A1", ','), "'+A1");
+        // ...but a lone +/- (e.g. a strand value) passes through intact,
+        assert_eq!(name_field("-", ','), "-");
+        assert_eq!(name_field("+", ','), "+");
+        // an ordinary name is untouched,
+        assert_eq!(name_field("katG", ','), "katG");
+        // TSV is never formula-guarded (programmatic readers),
+        assert_eq!(name_field("=cmd()", '\t'), "=cmd()");
+        // and guarding composes with RFC-4180 quoting: a formula name that also
+        // carries the delimiter is both apostrophe-prefixed and quoted.
+        assert_eq!(name_field("=a,b", ','), "\"'=a,b\"");
     }
 
     #[test]

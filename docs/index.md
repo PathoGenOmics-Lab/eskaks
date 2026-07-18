@@ -89,7 +89,7 @@ hide:
     eskaks --demo
     ```
 
-    Runs a complete analysis on bundled example data — no input files needed.
+    Runs both the dN/dS and per-gene pN/pS analyses on bundled example data - no input files needed.
 
 ## How does it compare?
 

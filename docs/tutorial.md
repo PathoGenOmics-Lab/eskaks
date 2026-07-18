@@ -13,9 +13,10 @@ paste each command; your numbers should match the ones shown here (rows may appe
 in a different order).
 
 !!! tip "In a hurry? Run the demo"
-    `eskaks --demo` runs a complete analysis on bundled example data — no input
-    files, no flags — and tells you exactly which files it wrote. It's the fastest
-    way to confirm your build works before following the steps below.
+    `eskaks --demo` runs **both** analyses end to end on bundled data - no input
+    files, no flags: pairwise dN/dS *and* the full per-gene pN/pS scan (including
+    `--variants` and `--diversity`), each writing an interactive report. It's the
+    fastest way to confirm your build works before following the steps below.
 
 !!! tip "Prefer a notebook?"
     The same analysis is available as a runnable [**Jupyter notebook**](tutorial-notebook.ipynb)

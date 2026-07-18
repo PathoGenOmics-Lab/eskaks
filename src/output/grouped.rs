@@ -122,7 +122,7 @@ pub fn write_lineage(
                             format_json_f64(mean_dn), format_json_f64(mean_ds), format_json_f64(ratio));
                     } else {
                         let _ = writeln!(block, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
-                            delim_field(&ids[i], sep), delim_field(&lineage_names[lin_idx], sep),
+                            name_field(&ids[i], sep), name_field(&lineage_names[lin_idx], sep),
                             norm_zero(mean_dn), norm_zero(mean_ds), norm_zero(ratio), s = sep);
                     }
 
@@ -292,15 +292,15 @@ pub fn write_group_average(
             )
         } else if n_comp == 0 {
             format!("{}{s}{}{s}{}{s}{}{s}0{s}NaN{s}NaN{s}{}\n",
-                delim_field(g1n, sep), delim_field(g2n, sep),
+                name_field(g1n, sep), name_field(g2n, sep),
                 members1.len(), members2.len(), ci_field(f64::NAN, f64::NAN, sep), s = sep)
         } else if n_comp == 1 {
             format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}N/A{s}N/A\n",
-                delim_field(g1n, sep), delim_field(g2n, sep),
+                name_field(g1n, sep), name_field(g2n, sep),
                 members1.len(), members2.len(), n_comp, mean, s = sep)
         } else {
             format!("{}{s}{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{}\n",
-                delim_field(g1n, sep), delim_field(g2n, sep),
+                name_field(g1n, sep), name_field(g2n, sep),
                 members1.len(), members2.len(), n_comp,
                 mean, se, ci_field(ci_lo, ci_hi, sep), s = sep)
         };

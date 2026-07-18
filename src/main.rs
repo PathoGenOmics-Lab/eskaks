@@ -23,6 +23,32 @@ use cli::{Args, SubCmd};
 /// without the repository's `examples/` directory on disk.
 const DEMO_FASTA: &str = include_str!("../examples/genes.fasta");
 
+/// Bundled toy genome (reference + annotation + a small 20-sample genotyped VCF, plus
+/// a divergence table), embedded so `eskaks --demo` can also showcase the per-gene
+/// pN/pS path - the neutrality test, `--variants`, `--diversity` and the report -
+/// with no files on disk. The VCF is genotyped so π / θ_W / Tajima's D are defined.
+const DEMO_VCF_REF: &str = include_str!("../examples/toy_genome/reference.fasta");
+const DEMO_VCF_GFF: &str = include_str!("../examples/toy_genome/genes.gff3");
+const DEMO_VCF: &str = include_str!("../examples/toy_genome/variants_multisample.vcf");
+const DEMO_VCF_DIVERGENCE: &str = include_str!("../examples/toy_genome/divergence.tsv");
+
+/// Initialise rayon's global thread pool exactly once per process. A normal run touches
+/// only one subcommand, but `--demo` runs `eskaks fasta` and `eskaks vcf` back to back
+/// in a single process, so the second initialisation must be a no-op instead of the
+/// hard "global thread pool has already been initialized" error.
+fn init_global_pool(workers: usize) -> anyhow::Result<()> {
+    static POOL: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .stack_size(4 * 1024 * 1024)
+            .build_global()
+            .map_err(|e| e.to_string())
+    })
+    .clone()
+    .map_err(|e| anyhow::anyhow!(e))
+}
+
 fn main() -> anyhow::Result<()> {
     // A biologist's intuitive first try is `eskaks alignment.fasta` (no subcommand). clap
     // reports "unrecognized subcommand '<file>'"; add a hint pointing at the right form
@@ -122,34 +148,79 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-/// Run `eskaks fasta` on the embedded example alignment so a brand-new user gets a
-/// real, successful run (with a summary and an HTML report) without supplying any
-/// files, then point them at the real commands for their own data.
+/// Run both `eskaks fasta` and `eskaks vcf` on the embedded example data so a brand-new
+/// user gets two real, successful runs (each with a summary and an HTML report) without
+/// supplying any files, then point them at the real commands for their own data. The
+/// VCF stage exercises the flagship per-gene pN/pS path - including `--variants` and
+/// `--diversity` - which the FASTA-only demo used to leave unreachable on bundled data.
 fn run_demo() -> anyhow::Result<()> {
     use anyhow::Context;
     let dir = std::env::temp_dir();
+
+    // ── Demo 1/2: pairwise dN/dS from a codon-aligned FASTA ────────────────────
     let fasta = dir.join("eskaks_demo.fasta");
-    let out = dir.join("eskaks_demo");
+    let fa_out = dir.join("eskaks_demo");
     std::fs::write(&fasta, DEMO_FASTA)
         .with_context(|| format!("Failed to write demo input to {}", fasta.display()))?;
 
-    eprintln!("Demo: running `eskaks fasta` on a bundled 6-strain example alignment.\n");
+    eprintln!("Demo 1/2: `eskaks fasta` - pairwise dN/dS on a bundled 6-strain alignment.\n");
     let fasta_args = cli::FastaArgs::parse_from([
         "eskaks",
         fasta.to_str().unwrap(),
         "-o",
-        out.to_str().unwrap(),
+        fa_out.to_str().unwrap(),
         "--summary",
         "--report",
     ]);
     run_fasta::run_fasta(fasta_args)?;
 
+    // ── Demo 2/2: per-gene pN/pS + diversity from a VCF + reference + GFF3 ──────
+    let ref_p = dir.join("eskaks_demo_ref.fasta");
+    let gff_p = dir.join("eskaks_demo_genes.gff3");
+    let vcf_p = dir.join("eskaks_demo_variants.vcf");
+    let div_p = dir.join("eskaks_demo_divergence.tsv");
+    let vcf_out = dir.join("eskaks_demo_vcf");
+    std::fs::write(&ref_p, DEMO_VCF_REF)
+        .with_context(|| format!("Failed to write demo reference to {}", ref_p.display()))?;
+    std::fs::write(&gff_p, DEMO_VCF_GFF)
+        .with_context(|| format!("Failed to write demo annotation to {}", gff_p.display()))?;
+    std::fs::write(&vcf_p, DEMO_VCF)
+        .with_context(|| format!("Failed to write demo VCF to {}", vcf_p.display()))?;
+    std::fs::write(&div_p, DEMO_VCF_DIVERGENCE)
+        .with_context(|| format!("Failed to write demo divergence to {}", div_p.display()))?;
+
     eprintln!(
-        "\nThat was a demo on bundled data (open the _report.html above in a browser).\n\
+        "\nDemo 2/2: `eskaks vcf` - per-gene pN/pS, neutrality test, variants and diversity\n  \
+         on a bundled 20-sample toy genome (bacterial genetic code 11).\n"
+    );
+    let vcf_args = cli::VcfArgs::parse_from([
+        "eskaks",
+        "--ref",
+        ref_p.to_str().unwrap(),
+        "--gff",
+        gff_p.to_str().unwrap(),
+        "--vcf",
+        vcf_p.to_str().unwrap(),
+        "--genetic-code",
+        "11",
+        "-o",
+        vcf_out.to_str().unwrap(),
+        "--summary",
+        "--report",
+        "--variants",
+        "--diversity",
+        "--mk",
+        "--divergence",
+        div_p.to_str().unwrap(),
+    ]);
+    run_vcf::run_vcf(vcf_args)?;
+
+    eprintln!(
+        "\nThat was a two-part demo on bundled data (open either _report.html in a browser).\n\
          To analyse your OWN data:\n  \
          pairwise dN/dS:  eskaks fasta your_alignment.fasta -o results\n  \
          per-gene pN/pS:  eskaks vcf --ref ref.fa --gff genes.gff3 --vcf calls.vcf -o results\n\
-         \nRun `eskaks --help` for all options."
+         \nDocs: https://pathogenomics-lab.github.io/eskaks/   ·   `eskaks --help` for all options."
     );
     Ok(())
 }

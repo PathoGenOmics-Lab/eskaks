@@ -40,7 +40,7 @@ pub fn write_pairwise_tests(
             } else {
                 format!(
                     "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
-                    delim_field(&ids[i], sep), delim_field(&ids[j], sep),
+                    name_field(&ids[i], sep), name_field(&ids[j], sep),
                     fmt(dn), fmt(ds), fmt(var_dn.sqrt()), fmt(var_ds.sqrt()), fmt(z), fmt(p), s = sep
                 )
             }
@@ -96,7 +96,7 @@ pub fn write_pairwise_bootstrap(
             } else {
                 format!(
                     "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
-                    delim_field(&ids[i], sep), delim_field(&ids[j], sep),
+                    name_field(&ids[i], sep), name_field(&ids[j], sep),
                     fmt(dn), fmt(dn_lo), fmt(dn_hi), fmt(ds), fmt(ds_lo), fmt(ds_hi), fmt(ratio), fmt(r_lo), fmt(r_hi), s = sep
                 )
             }
@@ -241,7 +241,7 @@ pub fn write_pairwise(
                         format_json_f64(result.dn), format_json_f64(result.ds), format_json_f64(ratio));
                 } else {
                     let _ = writeln!(local_buffer, "{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
-                        delim_field(&ids[i], sep), delim_field(&ids[j], sep),
+                        name_field(&ids[i], sep), name_field(&ids[j], sep),
                         norm_zero(result.dn), norm_zero(result.ds), norm_zero(ratio), s = sep);
                 }
 

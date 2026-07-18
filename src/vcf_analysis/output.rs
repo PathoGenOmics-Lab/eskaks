@@ -3,7 +3,7 @@
 use super::*;
 // Gene/chrom names come from GFF3 attributes (percent-decoded), so they can carry
 // quotes, delimiters, or control chars; escape/quote them like every other writer.
-use crate::textfmt::{delim_field, json_escape};
+use crate::textfmt::{name_field, json_escape};
 
 /// Write pN/pS results to a file.
 pub fn write_results(
@@ -52,10 +52,10 @@ pub fn write_results(
                 writeln!(
                     file,
                     "{}{s}{}{s}{:.4}{s}{:.4}{s}{:.6}{s}{:.6}{s}{}{s}{:.4}{s}{:.4}{s}{:.4}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
-                    delim_field(&r.name, sep), r.length_bp, r.n_sites, r.s_sites,
+                    name_field(&r.name, sep), r.length_bp, r.n_sites, r.s_sites,
                     r.pn, r.ps, format_ratio(r.pn_ps),
                     r.nonsyn_snps, r.syn_snps, r.total_snps,
-                    delim_field(&r.chrom, sep), r.genome_start, r.genome_end, r.strand,
+                    name_field(&r.chrom, sep), r.genome_start, r.genome_end, r.strand,
                     format_pval(exp_n_frac(r)), format_pval(r.p_value),
                     format_pval(r.q_value), format_pval(r.p_bonferroni),
                     format_ratio(r.pn_ps_lo), format_ratio(r.pn_ps_hi),
@@ -120,7 +120,7 @@ pub fn write_variants(
                     writeln!(
                         file,
                         "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{:.4}{s}{}",
-                        delim_field(&g.name, sep), delim_field(&g.chrom, sep), v.pos, g.strand,
+                        name_field(&g.name, sep), name_field(&g.chrom, sep), v.pos, g.strand,
                         v.ref_allele as char, v.alt_allele as char, v.aa_pos,
                         v.ref_aa as char, v.alt_aa as char, change(v), v.af, v.effect.label(),
                         s = sep
@@ -277,7 +277,7 @@ pub fn write_diversity(
                 writeln!(
                     file,
                     "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
-                    delim_field(&g.name, sep), delim_field(&g.chrom, sep), n, d.s_seg,
+                    name_field(&g.name, sep), name_field(&g.chrom, sep), n, d.s_seg,
                     format_pval(d.pi_n), format_pval(d.pi_s), format_ratio(d.pi_ratio),
                     format_pval(d.theta_w), format_ratio(d.tajima_d),
                     s = sep
@@ -370,7 +370,7 @@ pub fn write_mk_results(
             writeln!(
                 file,
                 "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
-                delim_field(&r.name, sep), delim_field(&r.chrom, sep), r.genome_start, r.genome_end, r.strand,
+                name_field(&r.name, sep), name_field(&r.chrom, sep), r.genome_start, r.genome_end, r.strand,
                 r.mk_dn, r.mk_ds, r.mk_pn, r.mk_ps,
                 format_pval(ni(r)), format_pval(alpha(r)),
                 format_pval(pvals[i]), format_pval(qvals[i]),

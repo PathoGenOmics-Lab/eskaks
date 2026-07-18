@@ -104,7 +104,7 @@ pub fn write_pairwise_windows(
                             format_json_f64(result.dn), format_json_f64(result.ds), format_json_f64(ratio));
                     } else {
                         let _ = writeln!(local_buffer, "{}{s}{}{s}{}{s}{}{s}{:.6}{s}{:.6}{s}{:.6}",
-                            delim_field(&ids[i], sep), delim_field(&ids[j], sep), start + 1, end,
+                            name_field(&ids[i], sep), name_field(&ids[j], sep), start + 1, end,
                             norm_zero(result.dn), norm_zero(result.ds), norm_zero(ratio), s = sep);
                     }
                 }

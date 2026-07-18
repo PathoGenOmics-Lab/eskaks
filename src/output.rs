@@ -26,7 +26,7 @@ pub use windows::write_pairwise_windows;
 // Id escaping/quoting is centralised in crate::textfmt so every writer (FASTA and
 // VCF, JSON and delimited) stays in sync. Re-exported so the output submodules reach
 // them via `use super::*`.
-pub(crate) use crate::textfmt::{delim_field, json_escape, norm_zero};
+pub(crate) use crate::textfmt::{json_escape, name_field, norm_zero};
 
 /// Format f64 for JSON: NaN/Infinity → null, -0 → 0, otherwise 6 decimal places.
 fn format_json_f64(v: f64) -> String {
