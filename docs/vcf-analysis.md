@@ -107,6 +107,8 @@ File: `<prefix>_pnps.tsv` (or `.csv` / `.json`)
 | P_value | Two-sided exact-binomial p-value for H0: pN/pS = 1 (`NA` if untested) |
 | Q_value_BH | Benjamini-Hochberg FDR q-value across all tested genes |
 | P_Bonferroni | Bonferroni-corrected p-value across all tested genes |
+| pN/pS_lo · pN/pS_hi | 95% [Wilson confidence-interval](#per-gene-confidence-intervals) bounds on pN/pS (`NA` if untested); if the interval excludes 1 the gene departs from neutrality |
+| P_GC · Q_GC_BH | [Genomic-control](#genomic-control-clonality)-corrected p-value and its BH q-value - each gene's χ² divided by the inflation factor λ, then re-tested. **`NA` unless `--genomic-control` is set** |
 
 ## Per-gene neutrality test
 

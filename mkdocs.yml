@@ -85,8 +85,11 @@ extra_css:
 extra_javascript:
   - javascripts/mathjax.js
   # MathJax is self-hosted (docs/javascripts/mathjax/) rather than pulled from a
-  # CDN, so the site contacts no third party at all — matching the font:false
-  # decision above and keeping the privacy claim honest.
+  # CDN, matching the font:false decision above. The one remaining third-party
+  # fetch is the Mermaid diagramming library, which Material lazy-loads from a CDN
+  # only on pages that contain a diagram (currently just vcf-analysis.md). It sets
+  # no cookie and runs no analytics; self-hosting mermaid@11 (~3.6 MB + dynamic
+  # chunks) is not worth it for one flowchart.
   - javascripts/mathjax/tex-mml-chtml.js
 
 plugins:
@@ -189,7 +192,9 @@ extra:
     title: Cookie consent
     description: >-
       This site uses the browser's local storage only to remember your theme
-      choice. No tracking or analytics cookies are set.
+      choice; it sets no tracking or analytics cookies. Fonts and math rendering
+      are self-hosted - the only external request is the Mermaid diagram library,
+      loaded from a CDN on pages that contain a diagram.
     actions:
       - accept
       - manage
