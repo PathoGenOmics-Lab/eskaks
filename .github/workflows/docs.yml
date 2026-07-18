@@ -43,7 +43,9 @@ jobs:
           libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev pngquant
 
       - name: Install MkDocs Material and plugins
-        run: pip install "mkdocs-material[imaging]" mkdocs-git-revision-date-localized-plugin
+        run: >-
+          pip install "mkdocs-material[imaging]"
+          mkdocs-git-revision-date-localized-plugin mkdocs-jupyter
 
       - name: Build and deploy
         run: mkdocs gh-deploy --force --strict
