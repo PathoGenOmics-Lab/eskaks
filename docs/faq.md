@@ -62,6 +62,20 @@ eskaks warns about these automatically. Common causes:
 
 Yes! Use `--genetic-code <N>` with any of the 20 supported NCBI tables. Run `eskaks --list-codes` to see all options.
 
+## How do I enable tab-completion?
+
+Print a completion script for your shell and install it, e.g. for Bash:
+
+```bash
+eskaks --completions bash | sudo tee /etc/bash_completion.d/eskaks > /dev/null
+```
+
+`zsh`, `fish`, `elvish`, and `powershell` are also supported — see [Installation](./installation.md#shell-completions).
+
+## How do I control what eskaks prints?
+
+Each run ends with a short "Done" confirmation (counts, model, output files) on stderr. Use `--quiet` to show only errors, `-v`/`-vv` for progress and debug detail, or `--summary` for the full statistics block. `RUST_LOG` overrides the log level entirely.
+
 ## How do I cite eskaks?
 
 See the [CITATION.cff](https://github.com/PathoGenOmics-Lab/eskaks/blob/main/CITATION.cff) file, or use GitHub's "Cite this repository" button.

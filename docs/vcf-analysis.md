@@ -63,9 +63,11 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--min-af <FLOAT>` | Minimum allele frequency (0.0–1.0) | none |
 | `--max-af <FLOAT>` | Maximum allele frequency, use 0.99 to exclude fixed variants | none |
 | `--min-depth <INT>` | Minimum read depth (INFO/DP) | none |
-| `--kappa <FLOAT>` | Transition/transversion rate ratio for [spectrum-aware site counting](#mutation-spectrum-aware-site-counting---kappa) | `1.0` (equal rates) |
+| `--kappa <FLOAT>` | Transition/transversion rate ratio for [spectrum-aware site counting](#kappa) | `1.0` (equal rates) |
 | `--min-snps <INT>` | Drop genes with fewer SNPs from the per-gene table, plot, and [test](#per-gene-neutrality-test) (the pooled estimate still uses all genes) | `0` |
 | `--fdr <FLOAT>` | FDR threshold for calling genes significant in the [neutrality test](#per-gene-neutrality-test) | `0.05` |
+| `--variants` | Write a [per-coding-SNP table](#per-variant-table-variants) (`<prefix>_variants.<ext>`) with position, `S315T`-style change, AF, and effect | off |
+| `--diversity` | Write per-gene [πN/πS, Watterson θ, Tajima's D](#population-diversity-diversity) (`<prefix>_diversity.<ext>`); needs a sample size | off |
 | `--mk` | Also run a per-gene [McDonald-Kreitman test](#mcdonald-kreitman-test) (writes `<prefix>_mk.<ext>`) | off |
 | `--mk-fixed-af <FLOAT>` | AF at/above which a variant is "fixed" (divergence) vs polymorphic in the MK test | `0.99` |
 | `--bootstrap <INT>` | Bootstrap replicates for a 95% CI on the genome-wide pooled pN/pS (0 = off) | `0` |
@@ -234,13 +236,16 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 
 ## Genome-wide (pooled) pN/pS
 
-After writing the per-gene table, eskaks prints a summary to stderr that ends
-with a **genome-wide** estimate pooled across every analyzed gene:
+After writing the per-gene table, eskaks prints a summary to stderr that includes
+a **genome-wide** estimate pooled across every analyzed gene (followed by the
+per-gene [neutrality-test](#per-gene-neutrality-test) tally and the list of files
+written):
 
 ```
 ── pN/pS Summary ──────────────────────────
   Genes analyzed:      2
   Genes with SNPs:     2
+  SNPs used (in CDS):  3 of 3 parsed
   Total synonymous:    2.00
   Total nonsynonymous: 1.00
   ── Genome-wide (pooled) ──────────────────
@@ -248,6 +253,7 @@ with a **genome-wide** estimate pooled across every analyzed gene:
   Overall pN / pS:     0.027335 / 0.175182
   Overall pN/pS:       0.156036
   Selection:           purifying selection (pN/pS < 1)
+  ...
 ───────────────────────────────────────────
 ```
 
@@ -272,7 +278,7 @@ Add `--bootstrap N` (with `--seed`) for a reproducible **95% confidence interval
 on the pooled ratio, obtained by resampling genes with replacement. A wide interval
 warns that a few gene-rich loci dominate the pooled estimate.
 
-## Mutation-spectrum-aware site counting (`--kappa`)
+## Mutation-spectrum-aware site counting (`--kappa`) { #kappa }
 
 By default eskaks counts synonymous (S) and nonsynonymous (N) sites the classic
 Nei-Gojobori way: every possible single-nucleotide change at a codon is treated
@@ -324,6 +330,49 @@ the classic equal-rates counting exactly (bit-for-bit).
 
 **Example**: A SNP at AF=0.3 contributes 1.0 to pN/pS but only 0.3 to πN/πS.
 
+## Per-variant table (`--variants`)
+
+A per-gene pN/pS is a summary; to act on a hit you need the individual variants.
+`--variants` writes `<output>_variants.<ext>` — one row per coding SNP:
+
+| Gene | Chrom | Pos | Ref | Alt | AA_Pos | Change | AF | Effect |
+|---|---|---|---|---|---|---|---|---|
+| katG | chr | 2155168 | G | C | 315 | S315T | 0.98 | missense |
+
+The `Change` column (`S315T`-style) is the key you join to the [WHO mutation
+catalogue] or TB-Profiler.
+
+!!! note "Nonsense mutations are included here"
+    A change that creates a stop codon (`W315*`, `nonsense`) is a loss-of-function
+    a resistance analyst must see, so it is **listed in the variants table** — even
+    though it is deliberately **excluded from the pN/pS site and SNP counts** (the
+    Nei-Gojobori exclude-nonsense convention). The two views stay consistent by design.
+
+  [WHO mutation catalogue]: https://www.who.int/publications/i/item/9789240082410
+
+## Population diversity (`--diversity`)
+
+pN/pS counts each SNP once, so it is neither a divergence dN/dS nor a diversity
+πN/πS and cannot separate selection from demography. `--diversity` adds the
+population-genetics statistics for that, writing `<output>_diversity.<ext>`:
+
+- **πN, πS** — per-site nucleotide diversity (Tajima's estimator) and their ratio.
+- **Watterson's \(\theta_W\)** — the segregating-site diversity estimator.
+- **Tajima's D** — the SFS neutrality test: \(D<0\) flags an excess of rare
+  variants (a recent sweep or expansion), \(D>0\) an excess of intermediate-frequency
+  variants (balancing selection or structure).
+
+\[ \pi = \sum_i \frac{2\,k_i\,(n-k_i)}{n\,(n-1)}, \qquad
+   \theta_W = \frac{S}{\sum_{i=1}^{n-1} 1/i}, \qquad
+   D = \frac{\pi - \theta_W}{\sqrt{\widehat{\operatorname{Var}}(\pi - \theta_W)}} \]
+
+!!! warning "Needs a sample size, assumes haploid genotypes"
+    The statistics need the number of sampled sequences \(n\), taken from the VCF's
+    genotype columns or the number of merged single-sample VCFs — an **AF-only VCF is
+    skipped with a warning**. eskaks assumes haploid calls (as for *M. tuberculosis*);
+    only genuinely **segregating** sites count (variants fixed within the sample are
+    excluded from π/θ/D).
+
 ## Examples
 
 ```bash
@@ -343,13 +392,30 @@ eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
 
 ## How it works
 
+```mermaid
+flowchart LR
+  ref[Reference FASTA]:::in --> cds[Reconstruct CDS<br/>per gene]
+  gff[GFF3 annotation]:::in --> cds
+  vcf[VCF variants]:::in --> filt[Filter<br/>PASS · AF · depth]
+  cds --> sites[Count N/S sites<br/>Nei-Gojobori]
+  filt --> class[Classify each SNP<br/>syn / missense / nonsense]
+  cds --> class
+  sites --> ratio[pN/pS + neutrality test<br/>FDR · Wilson CI]
+  class --> ratio
+  class -.-> var["--variants<br/>per-SNP S315T table"]:::out
+  class -.-> div["--diversity<br/>πN/πS · θ · Tajima's D"]:::out
+  ratio --> report[Interactive HTML report]:::out
+  classDef in fill:#d1ae0022,stroke:#d1ae00;
+  classDef out fill:#30559522,stroke:#305595;
+```
+
 1. **Load reference**: Parse FASTA into a sequence map
 2. **Parse GFF3**: Extract CDS features, group by gene (Parent/gene_id), handle multi-exon, strand, phase
 3. **Parse VCF(s)**: Extract SNPs (skip indels). Multiple per-sample VCFs are merged; AF = fraction of samples with the variant. Single VCFs use INFO/AF or GT fields.
 4. **Apply filters**: PASS-only, min/max AF, minimum depth
 5. **For each gene**:
    - Extract the CDS sequence from the reference (handling exon order, reverse complement for minus strand, phase offset)
-   - **Count sites**: For each reference codon, enumerate all 9 possible single-nucleotide changes, *excluding* changes to stop codons, and classify each as synonymous or nonsynonymous. Each codon contributes exactly 3 sites, split proportionally: S_sites = 3 × syn/(syn+nonsyn). With [`--kappa`](#mutation-spectrum-aware-site-counting---kappa) each change is weighted by its transition/transversion rate before this split.
+   - **Count sites**: For each reference codon, enumerate all 9 possible single-nucleotide changes, *excluding* changes to stop codons, and classify each as synonymous or nonsynonymous. Each codon contributes exactly 3 sites, split proportionally: S_sites = 3 × syn/(syn+nonsyn). With [`--kappa`](#kappa) each change is weighted by its transition/transversion rate before this split.
    - **Classify SNPs**: For each SNP within the gene's CDS, reconstruct the reference and alternate codons. Look up amino acids → synonymous or nonsynonymous.
    - **Compute**: pN = nonsyn_SNPs / N_sites, pS = syn_SNPs / S_sites, pN/pS = pN / pS
 

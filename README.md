@@ -14,7 +14,7 @@
 **Pairwise dN/dS (Ka/Ks) and per-gene pN/pS from codon-aligned sequences or VCF files.**
 **Pure Rust · no C dependencies · self-contained interactive HTML reports.**
 
-[Tutorial](docs/tutorial.md) · [Get started](#get-started) · [Docs](docs/) · [Citation](#citation)
+[Tutorial](docs/tutorial.md) · [Get started](#get-started) · [Docs](https://pathogenomics-lab.github.io/eskaks/) · [Citation](#citation)
 
 </div>
 
@@ -81,10 +81,15 @@ internet needed). The [tutorial](docs/tutorial.md) walks through reading the out
 
 ## Documentation
 
-Full docs live in **[`docs/`](docs/)**: [tutorial](docs/tutorial.md) ·
-[CLI reference](docs/cli-reference.md) · [VCF analysis](docs/vcf-analysis.md) ·
-[interpreting results](docs/interpreting-results.md) · [glossary](docs/glossary.md) ·
-[performance](docs/performance.md) · [FAQ](docs/faq.md).
+Full documentation lives at **<https://pathogenomics-lab.github.io/eskaks/>**
+(built with MkDocs Material from [`docs/`](docs/)):
+[tutorial](https://pathogenomics-lab.github.io/eskaks/tutorial/) ·
+[CLI reference](https://pathogenomics-lab.github.io/eskaks/cli-reference/) ·
+[VCF analysis](https://pathogenomics-lab.github.io/eskaks/vcf-analysis/) ·
+[interpreting results](https://pathogenomics-lab.github.io/eskaks/interpreting-results/) ·
+[glossary](https://pathogenomics-lab.github.io/eskaks/glossary/) ·
+[performance](https://pathogenomics-lab.github.io/eskaks/performance/) ·
+[FAQ](https://pathogenomics-lab.github.io/eskaks/faq/).
 
 ## Citation
 

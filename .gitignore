@@ -4,3 +4,7 @@ benchmark_results/fasta/
 benchmarks/data/
 benchmarks/results/
 docs/book/
+
+# MkDocs build output
+/site/
+/.cache/

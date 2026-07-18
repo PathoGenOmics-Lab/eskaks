@@ -19,9 +19,9 @@ The dN/dS ratio (also called ω or Ka/Ks) measures the balance between nonsynony
 
 ## Special values
 
-- **NaN**: The Jukes-Cantor or Kimura correction reached saturation. This means the sequences are too divergent for reliable estimation. Typical when `p ≥ 0.75` (more than 75% of sites differ).
+- **NaN**: undefined. Either the Jukes-Cantor / Kimura correction reached saturation (the sequences are too divergent to estimate reliably, typical when `p ≥ 0.75` — more than 75% of sites differ), or the pair has no comparable codons at all (e.g. an all-`N` / all-gap sequence). Reported as `null` in JSON.
 - **0.0 / 0.0 = 0.0**: Identical sequences. No substitutions observed.
-- **dN > 0, dS = 0**: All observed changes are nonsynonymous. The ratio is technically infinity, reported as `Inf` (TSV/CSV) or `null` (JSON).
+- **dN > 0, dS = 0**: All observed changes are nonsynonymous. The ratio is technically infinity, reported as `inf` (TSV/CSV) or `null` (JSON).
 
 ## Caveats
 

@@ -1,0 +1,91 @@
+/* eskaks docs — PathoGenOmics-Lab mycolorsTB brand, matched to the HTML report. */
+
+/* Custom primary (accent blue) + accent (gold) for both light and dark. */
+[data-md-color-primary="custom"] {
+  --md-primary-fg-color:        #305595;
+  --md-primary-fg-color--light: #4a6ba8;
+  --md-primary-fg-color--dark:  #244170;
+  --md-primary-bg-color:        #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+}
+[data-md-color-accent="custom"] {
+  --md-accent-fg-color:         #b8990a; /* gold, darkened for AA contrast on white */
+  --md-accent-fg-color--transparent: #d1ae001a;
+}
+
+/* Light scheme: warm off-white canvas from the report. */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color:  #f9f9f7;
+  --md-code-bg-color:     #fcfcfb;
+  --md-typeset-a-color:   #305595;
+}
+
+/* Dark scheme: near-black canvas + light-blue accent, mirroring the report. */
+[data-md-color-scheme="slate"] {
+  --md-hue: 220;
+  --md-primary-fg-color:  #1d2026;
+  --md-default-bg-color:  #0d0d0d;
+  --md-default-fg-color:  #ffffff;
+  --md-code-bg-color:     #1a1a19;
+  --md-typeset-a-color:   #9ec4e8;
+  --md-accent-fg-color:   #d1ae00;
+}
+
+/* Slightly tighter, more editorial headings. */
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Brand-tinted admonition for the recurring "watch out" caveat. */
+.md-typeset .admonition.watch-out,
+.md-typeset details.watch-out {
+  border-color: #d1ae00;
+}
+.md-typeset .watch-out > .admonition-title,
+.md-typeset .watch-out > summary {
+  background-color: #d1ae001a;
+}
+.md-typeset .watch-out > .admonition-title::before,
+.md-typeset .watch-out > summary::before {
+  background-color: #d1ae00;
+  -webkit-mask-image: var(--md-admonition-icon--warning);
+          mask-image: var(--md-admonition-icon--warning);
+}
+
+/* Grid cards: a touch of lift + a brand accent bar on hover. */
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.6rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: var(--md-accent-fg-color);
+  box-shadow: 0 6px 20px -12px var(--md-default-fg-color--light);
+}
+.md-typeset .grid.cards > ul > li > hr {
+  margin: 0.6rem 0;
+}
+
+/* The home hero. */
+.eskaks-hero {
+  text-align: center;
+  padding: 1.4rem 0 0.4rem;
+}
+.eskaks-hero img {
+  height: 96px;
+}
+.eskaks-hero .tagline {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.95rem;
+  max-width: 42rem;
+  margin: 0.4rem auto 1rem;
+}
+
+/* Give tables from the report/benchmarks a little more breathing room. */
+.md-typeset table:not([class]) th {
+  background-color: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+}

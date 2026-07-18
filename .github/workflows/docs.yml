@@ -1,0 +1,49 @@
+name: Docs
+
+# Build the MkDocs Material site and deploy it to GitHub Pages (gh-pages branch).
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CI: "true" # enables Material's social-card generation
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so git-revision-date-localized works
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # Cache Material's incremental build artifacts (social cards, etc.).
+      - run: echo "cache_id=$(date --utc '+%V')" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          key: mkdocs-material-${{ env.cache_id }}
+          path: .cache
+          restore-keys: |
+            mkdocs-material-
+
+      # System libraries required by the social plugin (cairo/pango/…).
+      - name: Install imaging system dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev pngquant
+
+      - name: Install MkDocs Material and plugins
+        run: pip install "mkdocs-material[imaging]" mkdocs-git-revision-date-localized-plugin
+
+      - name: Build and deploy
+        run: mkdocs gh-deploy --force --strict

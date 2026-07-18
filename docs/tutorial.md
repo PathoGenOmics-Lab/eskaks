@@ -55,6 +55,17 @@ pair:
 eskaks fasta examples/genes.fasta -o first_run
 ```
 
+eskaks confirms what it did and where the output went (add `--quiet` to hide this):
+
+```text
+── Done ───────────────────────────────────
+  Sequences:  6 (6 unique) from examples/genes.fasta
+  Model:      Nei-Gojobori
+  Output:
+    first_run_pairwise_results.tsv
+────────────────────────────────────────────
+```
+
 Open `first_run_pairwise_results.tsv`: one row per pair of strains (order may vary,
 the values don't):
 
@@ -132,13 +143,18 @@ eskaks vcf \
 ```
 
 `--genetic-code 11` is the bacterial code (run `eskaks --list-codes` for the list).
-eskaks prints a summary to the screen:
+eskaks prints a summary to the screen, then the list of files written:
 
 ```text
 ── pN/pS Summary ──────────────────────────
   Genes analyzed:      12
   Genes with SNPs:     12
+  SNPs used (in CDS):  264 of 264 parsed
+  Total synonymous:    115.00
+  Total nonsynonymous: 149.00
   ── Genome-wide (pooled) ──────────────────
+  N / S sites:         3200.3 / 1101.7
+  Overall pN / pS:     0.046558 / 0.104384
   Overall pN/pS:       0.446028
   Selection:           purifying selection (pN/pS < 1)
   ── Neutrality test (pN/pS = 1) ───────────
@@ -147,7 +163,9 @@ eskaks prints a summary to the screen:
 ```
 
 The **genome-wide** pN/pS is 0.45, the genome as a whole is under purifying
-selection, and 7 of 12 genes reject the "no selection" null.
+selection, and 7 of 12 genes reject the "no selection" null. The `264 of 264`
+accounting confirms every SNP landed inside a CDS: if many were dropped, that line
+would flag a contig-name or coordinate mismatch between your VCF, GFF and reference.
 
 ## 4. Read the per-gene table
 
@@ -203,7 +221,7 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 ```
 
 - `--kappa 2` corrects for the transition-heavy mutation spectrum of TB
-  ([why](vcf-analysis.md#mutation-spectrum-aware-site-counting---kappa)).
+  ([why](vcf-analysis.md#kappa)).
 - `--min-snps 5` drops genes with too few SNPs to test.
 - `--mk` adds a McDonald-Kreitman test; `--bootstrap 1000` adds a confidence
   interval on the genome-wide estimate.

@@ -35,13 +35,13 @@ eskaks --list-codes
 
 ```bash
 # Standard code (default, same as --genetic-code 1)
-eskaks genes.fasta
+eskaks fasta genes.fasta
 
 # Vertebrate mitochondrial
-eskaks mito_genes.fasta --genetic-code 2
+eskaks fasta mito_genes.fasta --genetic-code 2
 
 # Bacterial
-eskaks prokaryote_genes.fasta --genetic-code 11
+eskaks fasta prokaryote_genes.fasta --genetic-code 11
 ```
 
 ## How it works

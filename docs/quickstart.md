@@ -53,6 +53,19 @@ gene_A  gene_C  0.0891  0.4102  0.2172
 ...
 ```
 
+Each run ends with a confirmation of what was done and where the output went:
+
+```
+── Done ───────────────────────────────────
+  Sequences:  6 (6 unique) from aligned_genes.fasta
+  Model:      Nei-Gojobori
+  Output:
+    results_pairwise_results.tsv
+────────────────────────────────────────────
+```
+
+Add `--summary` for the full statistics block, or `--quiet` to suppress this.
+
 ## Common workflows
 
 ### Positive selection scan
