@@ -47,9 +47,9 @@ theme:
       toggle:
         icon: material/weather-night
         name: Switch to light mode
-  font:
-    text: Inter
-    code: JetBrains Mono
+  # Use the system font stack — no Google Fonts request, so the site contacts no
+  # third party for typography (keeps the privacy claim honest).
+  font: false
   features:
     # Navigation
     - navigation.instant
@@ -182,9 +182,6 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/PathoGenOmics-Lab/eskaks
       name: eskaks on GitHub
-    - icon: fontawesome/brands/rust
-      link: https://crates.io/crates/eskaks
-      name: eskaks on crates.io
   consent:
     title: Cookie consent
     description: >-

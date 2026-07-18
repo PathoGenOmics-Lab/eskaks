@@ -89,3 +89,41 @@
   background-color: var(--md-primary-fg-color);
   color: var(--md-primary-bg-color);
 }
+
+/* Dark mode: --md-primary-fg-color is dark (#1d2026, for a dark header), but
+   Material reuses it for button fills/borders — which then vanish on the near-black
+   canvas (~1.2:1). Re-style the hero/content buttons with the light-blue accent. */
+[data-md-color-scheme="slate"] .md-button {
+  color: #9ec4e8 !important;
+  border-color: #9ec4e8 !important;
+}
+[data-md-color-scheme="slate"] .md-button:hover,
+[data-md-color-scheme="slate"] .md-button:focus,
+[data-md-color-scheme="slate"] .md-button--primary {
+  background-color: #9ec4e8 !important;
+  border-color: #9ec4e8 !important;
+  color: #0d0d0d !important;
+}
+[data-md-color-scheme="slate"] .md-button--primary:hover,
+[data-md-color-scheme="slate"] .md-button--primary:focus {
+  background-color: #bcd8ef !important;
+  border-color: #bcd8ef !important;
+  color: #0d0d0d !important;
+}
+
+/* The wordmark is painted in dark red/blue, so it disappears on the blue header
+   and in dark mode. Sit it on a small white chip (as the HTML report does) so it
+   reads on any background, in either theme. */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  background: #fff;
+  border-radius: 4px;
+  padding: 2px 4px;
+  box-sizing: content-box;
+}
+.eskaks-hero img {
+  background: #fff;
+  border-radius: 12px;
+  padding: 8px 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}

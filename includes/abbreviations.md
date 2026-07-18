@@ -2,7 +2,7 @@
 *[dN]: Nonsynonymous substitutions per nonsynonymous site
 *[dS]: Synonymous substitutions per synonymous site
 *[pN/pS]: Ratio of nonsynonymous to synonymous polymorphism (within-species)
-*[piN/piS]: Ratio of nonsynonymous to synonymous nucleotide diversity
+*[πN/πS]: Ratio of nonsynonymous to synonymous nucleotide diversity (within-species)
 *[SNP]: Single-nucleotide polymorphism
 *[SFS]: Site-frequency spectrum
 *[VCF]: Variant Call Format

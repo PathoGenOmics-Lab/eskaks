@@ -12,6 +12,7 @@ eskaks --version
 
 | Flag | Description |
 |---|---|
+| `--demo` | Run a quick demo on the bundled example data (no input files needed) and exit |
 | `--list-codes` | List available NCBI genetic code tables and exit |
 | `--completions <SHELL>` | Print a shell completion script and exit (`bash`, `zsh`, `fish`, `elvish`, `powershell`) |
 | `-v, --verbose` | Increase log verbosity: `-v` shows info, `-vv` shows debug. Data-quality warnings show by default |
@@ -128,10 +129,13 @@ eskaks vcf --ref <FASTA> --gff <GFF3> --vcf <VCF> [OPTIONS]
 | `--genomic-control` | Divide each χ² by the inflation factor λ and re-test | off |
 | `--exclude-repetitive` | Drop PE/PPE/PGRS/IS genes from the pooled estimate and test | off |
 
-**Reporting**
+**Output & reporting**
 
 | Flag | Description | Default |
 |---|---|---|
+| `--variants` | Write a per-coding-SNP table (`<prefix>_variants.<ext>`): position, base and amino-acid change (e.g. `S315T`), AF, and effect (synonymous/missense/nonsense/stop_loss) | off |
+| `--diversity` | Write per-gene πN/πS, Watterson θ and Tajima's D (`<prefix>_diversity.<ext>`); needs the sample size, so a multi-sample VCF or `--vcf-list` | off |
+| `--summary` | Print the pN/pS summary block to stderr | off |
 | `--plot` | Generate Manhattan / p-value SVG plots | off |
 | `--report` | Write a self-contained interactive HTML report | off |
 | `--divergence <FILE>` | Per-gene dN/dS TSV for the report's polymorphism-vs-divergence panel | none |

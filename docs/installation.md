@@ -1,38 +1,36 @@
 # Installation
 
-## Conda (bioconda)
-
-```bash
-conda install -c bioconda eskaks
-```
-
-Or with mamba:
-
-```bash
-mamba install -c bioconda eskaks
-```
-
 ## From source
+
+eskaks currently installs by building from source with a
+[Rust](https://www.rust-lang.org/tools/install) toolchain (Rust ≥ 1.70):
 
 ```bash
 git clone https://github.com/PathoGenOmics-Lab/eskaks.git
 cd eskaks
-make release
+make release          # or: cargo build --release
 ```
 
-The binary will be at `target/release/eskaks`. Copy it to your PATH:
+The binary is written to `target/release/eskaks`. Put it on your `PATH`:
 
 ```bash
 cp target/release/eskaks ~/.local/bin/
 ```
 
+!!! info "Packages are coming"
+    `cargo install eskaks`, pre-built binaries, and a bioconda recipe
+    (`conda install -c bioconda eskaks`) will ship with the first tagged release.
+    Until then, build from source as above.
+
 ## Requirements
 
-- [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70.0
+- [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70.0 — for the source build.
 
 ## Performance tip
 
-The `make release` target automatically enables native CPU optimizations (`-C target-cpu=native`). This uses CPU-specific SIMD instructions for maximum performance on your hardware.
+The `make release` target enables native-CPU optimizations (`-C target-cpu=native`):
+CPU-specific SIMD instructions for maximum speed on *your* hardware. For a portable
+binary you can run on a different CPU, build with `cargo build --release` instead.
 
 ## Verify installation
 
