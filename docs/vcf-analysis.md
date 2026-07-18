@@ -394,17 +394,17 @@ eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
 
 ```mermaid
 flowchart LR
-  ref[Reference FASTA]:::in --> cds[Reconstruct CDS<br/>per gene]
-  gff[GFF3 annotation]:::in --> cds
-  vcf[VCF variants]:::in --> filt[Filter<br/>PASS · AF · depth]
-  cds --> sites[Count N/S sites<br/>Nei-Gojobori]
-  filt --> class[Classify each SNP<br/>syn / missense / nonsense]
-  cds --> class
-  sites --> ratio[pN/pS + neutrality test<br/>FDR · Wilson CI]
-  class --> ratio
-  class -.-> var["--variants<br/>per-SNP S315T table"]:::out
-  class -.-> div["--diversity<br/>πN/πS · θ · Tajima's D"]:::out
-  ratio --> report[Interactive HTML report]:::out
+  ref["Reference FASTA"]:::in --> cds["Reconstruct CDS<br/>per gene"]
+  gff["GFF3 annotation"]:::in --> cds
+  vcf["VCF variants"]:::in --> filt["Filter<br/>PASS · AF · depth"]
+  cds --> sites["Count N/S sites<br/>Nei-Gojobori"]
+  filt --> snp["Classify each SNP<br/>syn / missense / nonsense"]
+  cds --> snp
+  sites --> ratio["pN/pS + neutrality test<br/>FDR · Wilson CI"]
+  snp --> ratio
+  snp -.-> var["--variants<br/>per-SNP S315T table"]:::out
+  snp -.-> div["--diversity<br/>πN/πS · θ · Tajima's D"]:::out
+  ratio --> report["Interactive HTML report"]:::out
   classDef in fill:#d1ae0022,stroke:#d1ae00;
   classDef out fill:#30559522,stroke:#305595;
 ```
