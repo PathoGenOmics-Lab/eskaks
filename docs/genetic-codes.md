@@ -1,3 +1,9 @@
+---
+description: >-
+  The 20 NCBI translation tables eskaks supports via `--genetic-code <N>`, and how
+  to pick the right one for your organism.
+---
+
 # Genetic Codes
 
 eskaks supports 20 NCBI translation tables via `--genetic-code <N>`.

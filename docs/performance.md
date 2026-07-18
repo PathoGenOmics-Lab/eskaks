@@ -1,3 +1,9 @@
+---
+description: >-
+  How eskaks compares to KaKs_Calculator, BioPython and PAML on speed and accuracy
+  — precomputed lookup tables, benchmark numbers and R² validation.
+---
+
 # Performance & Accuracy
 
 eskaks implements the classical substitution models with precomputed lookup tables,

@@ -1,3 +1,9 @@
+---
+description: >-
+  Common eskaks questions and errors — getting started, codon alignment, genetic
+  codes, NaN/inf values, VCF/GFF contig mismatches and interpreting the ratios.
+---
+
 # FAQ
 
 ## I'm new: where do I start?

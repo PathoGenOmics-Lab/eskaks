@@ -1,3 +1,9 @@
+---
+description: >-
+  The Nei-Gojobori (1986) and Li/LPB93 (1993) substitution models eskaks uses for
+  dN/dS, plus the Ina (1995) transition-bias-aware site-counting correction.
+---
+
 # Models
 
 eskaks implements two classical models for estimating synonymous (dS) and nonsynonymous (dN) substitution rates.
@@ -50,4 +56,24 @@ A more sophisticated model that accounts for transition/transversion bias:
 | Accuracy | Good for similar sequences | Better for divergent sequences |
 | Reference tool | KaKs_Calculator NG | KaKs_Calculator LPB |
 
-Both models handle all 20 NCBI genetic code tables via `--genetic-code`.
+Both models handle all 20 NCBI genetic code tables via `--genetic-code` (see
+[Genetic codes](genetic-codes.md) for the full list and how to pick one).
+
+## Transition-bias-aware site counting (Ina 1995) { #ina-1995 }
+
+Classic Nei-Gojobori counts synonymous and nonsynonymous **sites** by treating all
+nine single-nucleotide changes at a codon as equally likely. Real mutational
+spectra are not uniform — most genomes, and *M. tuberculosis* especially, are
+strongly **transition-biased** (A↔G, C↔T changes dominate). Because the synonymous
+change at a 2-fold degenerate third position is almost always a transition,
+equal-rate counting **under-counts synonymous sites** and biases pN/pS downward.
+
+[Ina (1995)](https://doi.org/10.1007/BF00173196) generalised the Nei-Gojobori
+site count to weight each candidate change by its relative mutation rate — `κ` for
+a transition, `1` for a transversion. eskaks exposes this in the VCF path through
+`--kappa`: a 2-fold synonymous site's contribution moves from `1/3` (κ=1) to
+`κ/(κ+2)`, 4-fold degenerate sites stay synonymous regardless (κ-invariant), and
+each codon still contributes exactly three sites — only the **S/N split** shifts.
+`--kappa 1` reproduces the classic equal-rate count bit-for-bit. See
+[Mutation-spectrum-aware site counting](vcf-analysis.md#kappa) for the full
+derivation and worked direction.

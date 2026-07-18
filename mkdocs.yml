@@ -84,7 +84,10 @@ extra_css:
 
 extra_javascript:
   - javascripts/mathjax.js
-  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+  # MathJax is self-hosted (docs/javascripts/mathjax/) rather than pulled from a
+  # CDN, so the site contacts no third party at all — matching the font:false
+  # decision above and keeping the privacy claim honest.
+  - javascripts/mathjax/tex-mml-chtml.js
 
 plugins:
   - search:

@@ -1,3 +1,10 @@
+---
+description: >-
+  Compute per-gene pN/pS from a VCF, reference and GFF3 — the neutrality test, FDR
+  correction, McDonald-Kreitman, genomic control, diversity statistics and the
+  interactive report.
+---
+
 # VCF Analysis (pN/pS)
 
 eskaks can compute **pN/pS per gene** directly from a VCF file, a reference genome, and a GFF3 annotation.
@@ -156,6 +163,12 @@ summary card carries an **"i"** button explaining how to read it.
 **Conditional panels:** a **McDonald-Kreitman** panel with `--mk`, and a
 **polymorphism-vs-divergence** reconciliation with `--divergence`.
 
+!!! tip "See it live"
+    The [**example report**](example-report.md) embeds a real dashboard (built from
+    the bundled toy genome) right in this site — click through the panels there, and
+    read [interpreting results](interpreting-results.md#reading-the-interactive-report)
+    for a panel-by-panel guide.
+
 **Controls:** a global **FDR ↔ Bonferroni** stringency toggle, **↑/↓** to step
 through genes, light/dark theme, a **Print / Save-PDF** button, and a **colour-blind
 (CVD) mode** that swaps to a validated Okabe-Ito palette and adds direction shapes
@@ -293,7 +306,7 @@ potentially making genuinely conserved genes look neutral and masking selection.
 
 `--kappa <ratio>` corrects this by weighting each candidate change by its
 relative mutation rate (`kappa` for a transition, `1` for a transversion)
-when counting sites (the [modified Nei-Gojobori / Ina 1995 correction](models.md)):
+when counting sites (the [modified Nei-Gojobori / Ina 1995 correction](models.md#ina-1995)):
 
 ```bash
 # Transition/transversion ratio of ~2 (a typical bacterial value)

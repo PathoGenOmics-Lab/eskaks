@@ -127,3 +127,15 @@
   padding: 8px 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
+
+/* The embedded example report is tall (84vh). On a phone a full-height scrolling
+   iframe traps the touch gesture, so the reader can't scroll the page past it.
+   Shorten it on small screens — there's an "Open full-screen" button above it —
+   so there's always page to grab, and let the whole frame scroll if it overflows. */
+@media screen and (max-width: 44.9375em) {
+  .example-report-frame {
+    height: 62vh !important;
+    min-height: 360px !important;
+    -webkit-overflow-scrolling: touch;
+  }
+}

@@ -1,3 +1,9 @@
+---
+description: >-
+  Contributing to eskaks — repository layout, building and testing, the docs
+  workflow, and how the CLI and library fit together.
+---
+
 # Development
 
 The CLI and library live in `src/`; the user-facing documentation is in `docs/`.

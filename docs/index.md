@@ -1,5 +1,9 @@
 ---
 title: eskaks
+description: >-
+  Fast pairwise dN/dS and per-gene pN/pS for molecular evolution and
+  Mycobacterium tuberculosis selection analysis — Nei-Gojobori & Li (1993),
+  1000× faster than existing tools.
 hide:
   - navigation
   - toc
@@ -48,7 +52,7 @@ hide:
 
     A single self-contained HTML dashboard — Manhattan, volcano, QQ, MK — with a colour-blind mode and CSV/JSON/Print export. No internet needed.
 
-    [:octicons-arrow-right-24: Interpreting results](interpreting-results.md)
+    [:octicons-arrow-right-24: See the live report](example-report.md)
 
 -   :material-lightning-bolt:{ .lg .middle } **Fast & pipeline-ready**
 

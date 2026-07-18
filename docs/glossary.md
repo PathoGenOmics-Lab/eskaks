@@ -1,3 +1,9 @@
+---
+description: >-
+  Plain-language definitions of every term used across eskaks and its output —
+  dN/dS, pN/pS, synonymous vs nonsynonymous, FDR, Tajima's D and more.
+---
+
 # Glossary
 
 Plain-language definitions of the terms used across eskaks and its output. If a

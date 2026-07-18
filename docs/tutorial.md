@@ -1,9 +1,21 @@
+---
+description: >-
+  A zero-to-results, no-background-assumed walkthrough of eskaks on its bundled
+  example data — pairwise dN/dS, group averages, per-gene pN/pS from a VCF and the
+  interactive report.
+---
+
 # Getting started: a hands-on tutorial
 
 New to eskaks? This walkthrough takes you from zero to a finished analysis using
 **example data that ships with the tool**: no biology background assumed. Copy and
 paste each command; your numbers should match the ones shown here (rows may appear
 in a different order).
+
+!!! tip "In a hurry? Run the demo"
+    `eskaks --demo` runs a complete analysis on bundled example data — no input
+    files, no flags — and tells you exactly which files it wrote. It's the fastest
+    way to confirm your build works before following the steps below.
 
 !!! tip "Prefer a notebook?"
     The same analysis is available as a runnable [**Jupyter notebook**](tutorial-notebook.ipynb)
@@ -235,6 +247,7 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 
 - [Interpreting results](interpreting-results.md), what the numbers mean, and the pitfalls
 - [VCF analysis](vcf-analysis.md), every pN/pS option, the neutrality test, the report
+- [Output formats](output-formats.md), every file eskaks writes and how to parse it
 - [Glossary](glossary.md), every term in one place
 - [CLI reference](cli-reference.md), all flags
 - [FAQ](faq.md), common questions and errors

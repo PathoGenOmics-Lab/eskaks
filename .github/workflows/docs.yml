@@ -1,21 +1,69 @@
 name: Docs
 
-# Build the MkDocs Material site and deploy it to GitHub Pages (gh-pages branch).
+# Build the MkDocs Material site: validate every pull request with --strict, and
+# deploy to GitHub Pages (gh-pages branch) on push to main.
 on:
   push:
     branches: [main]
     paths:
       - docs/**
+      - includes/**
+      - mkdocs.yml
+      - .github/workflows/docs.yml
+  pull_request:
+    paths:
+      - docs/**
+      - includes/**
       - mkdocs.yml
       - .github/workflows/docs.yml
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  deploy:
+  # PR gate: a strict build that fails on broken links, a page missing from the
+  # nav, or unrecognised config — but never deploys.
+  validate:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      CI: "true" # enables Material's social-card generation
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so git-revision-date-localized works
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - run: echo "cache_id=$(date --utc '+%V')" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          key: mkdocs-material-${{ env.cache_id }}
+          path: .cache
+          restore-keys: |
+            mkdocs-material-
+
+      - name: Install imaging system dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev pngquant
+
+      - name: Install MkDocs Material and plugins
+        run: >-
+          pip install "mkdocs-material[imaging]"
+          mkdocs-git-revision-date-localized-plugin mkdocs-jupyter
+
+      - name: Build (strict)
+        run: mkdocs build --strict
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh-deploy pushes the built site to the gh-pages branch
     env:
       CI: "true" # enables Material's social-card generation
     steps:

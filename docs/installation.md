@@ -1,3 +1,9 @@
+---
+description: >-
+  Install eskaks by building from source with a Rust toolchain, verify the binary,
+  and set up shell tab-completion.
+---
+
 # Installation
 
 ## From source

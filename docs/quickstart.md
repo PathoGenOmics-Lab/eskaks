@@ -1,3 +1,10 @@
+---
+description: >-
+  Copy-paste commands for the common eskaks runs — pairwise dN/dS from FASTA,
+  per-gene pN/pS from a VCF, sliding windows, group comparisons and JSON for
+  pipelines.
+---
+
 # Quick Start
 
 ## Pairwise dN/dS (FASTA)
@@ -107,3 +114,11 @@ pos = [r for r in data if r['dN_dS'] and r['dN_dS'] > 1]
 print(f'{len(pos)} pairs under positive selection')
 "
 ```
+
+## Next steps
+
+- [Getting started tutorial](tutorial.md) — the same runs explained end to end on bundled data
+- [VCF analysis (pN/pS)](vcf-analysis.md) — every per-gene option, the neutrality test and report
+- [Output formats](output-formats.md) — every file eskaks writes, in TSV / CSV / JSON
+- [CLI reference](cli-reference.md) — the complete flag list for both subcommands
+- [Interpreting results](interpreting-results.md) — what the numbers mean and the traps to avoid

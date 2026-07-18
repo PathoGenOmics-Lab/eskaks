@@ -1,5 +1,9 @@
 ---
 title: Example report
+description: >-
+  A live, fully-interactive eskaks pN/pS report embedded in the docs — Manhattan,
+  volcano, QQ, McDonald-Kreitman and a per-gene table, built from the bundled toy
+  genome.
 hide:
   - toc
 ---
@@ -19,6 +23,7 @@ a per-gene table. Below is a **live example** built from the bundled toy genome.
     each panel. [Open it full-screen :material-open-in-new:](assets/example-report.html){ target="_blank" rel="noopener" }
 
 <iframe
+  class="example-report-frame"
   src="../assets/example-report.html"
   title="eskaks interactive pN/pS report — toy genome example"
   loading="lazy"

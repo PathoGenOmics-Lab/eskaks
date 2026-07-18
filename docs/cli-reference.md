@@ -1,3 +1,9 @@
+---
+description: >-
+  The complete eskaks flag reference — global options, `eskaks fasta` (pairwise
+  dN/dS) and `eskaks vcf` (per-gene pN/pS), exit codes and environment variables.
+---
+
 # CLI Reference
 
 eskaks uses subcommands for its two modes of operation:
