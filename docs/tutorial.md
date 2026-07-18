@@ -5,6 +5,11 @@ New to eskaks? This walkthrough takes you from zero to a finished analysis using
 paste each command; your numbers should match the ones shown here (rows may appear
 in a different order).
 
+!!! tip "Prefer a notebook?"
+    The same analysis is available as a runnable [**Jupyter notebook**](tutorial-notebook.ipynb)
+    that loads the outputs with `pandas` and plots them with `matplotlib` — read it
+    online or download the `.ipynb` and run it yourself.
+
 ## What does eskaks actually measure?
 
 Genes are written in **codons** (triplets of DNA). A mutation in a codon is either:

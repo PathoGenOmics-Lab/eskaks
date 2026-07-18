@@ -90,6 +90,13 @@ plugins:
   - search:
       separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
   - tags
+  # Render the .ipynb tutorial as a native page (with its saved outputs) and a
+  # download button. execute:false — outputs are committed with the notebook.
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+      ignore_h1_titles: true
+      theme: auto
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
@@ -154,6 +161,7 @@ nav:
   - User Guide:
       - Installation: installation.md
       - Getting started (tutorial): tutorial.md
+      - Tutorial notebook: tutorial-notebook.ipynb
       - Quick start: quickstart.md
       - Models: models.md
       - Genetic codes: genetic-codes.md

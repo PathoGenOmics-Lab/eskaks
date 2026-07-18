@@ -8,3 +8,4 @@ docs/book/
 # MkDocs build output
 /site/
 /.cache/
+/nb_out/
