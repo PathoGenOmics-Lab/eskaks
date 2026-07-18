@@ -168,6 +168,7 @@ nav:
       - Output formats: output-formats.md
       - Interpreting results: interpreting-results.md
       - VCF analysis (pN/pS): vcf-analysis.md
+      - Example report (live): example-report.md
   - Reference:
       - Glossary: glossary.md
       - CLI reference: cli-reference.md
