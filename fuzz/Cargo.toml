@@ -1,0 +1,33 @@
+[package]
+name = "eskaks-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Stand-alone workspace so `cargo build`/`cargo test` at the repo root never pull the
+# fuzz crate (and its nightly-only sanitizer deps) into a normal build.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tempfile = "3"
+
+[dependencies.eskaks]
+path = ".."
+
+[[bin]]
+name = "parse_vcf"
+path = "fuzz_targets/parse_vcf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_gff3"
+path = "fuzz_targets/parse_gff3.rs"
+test = false
+doc = false
+bench = false

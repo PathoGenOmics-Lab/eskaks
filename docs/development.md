@@ -33,6 +33,38 @@ committing:
 BLESS=1 cargo test --test golden
 ```
 
+## Quality tooling
+
+`cargo test` already runs, beyond the unit and integration suites:
+
+- **Property tests** (`tests/property_tests.rs`, proptest) that assert invariants over
+  generated inputs: the dN/dS models, the diversity statistics (pi is
+  polarization-invariant, Tajima's D is finite-or-NaN), the distribution helpers
+  (Wilson, binomial, Benjamini-Hochberg), and that the VCF and GFF3 parsers never
+  panic on arbitrary bytes.
+- **A docs-code contract** (`tests/docs_contract.rs`): every pN/pS output column and
+  every `eskaks vcf`/`eskaks fasta --help` flag must be documented, so the docs
+  cannot silently drift from the binary.
+
+Two deeper tools run out of band (their CI workflows are scheduled weekly, never a
+PR gate):
+
+```bash
+# Coverage-guided fuzzing of the parsers (needs a nightly toolchain + cargo-fuzz).
+cargo +nightly fuzz run parse_vcf     # or parse_gff3
+```
+
+```bash
+# Mutation testing: inject bugs and confirm the suite kills them (cargo install cargo-mutants).
+cargo mutants --file src/stats/diversity.rs   # one module, fast
+cargo mutants                                 # whole scientific core (slow)
+```
+
+Mutation testing surfaces *test gaps* (a surviving mutant is a bug the suite did not
+catch); review each survivor, but expect some to be genuinely *equivalent* mutants
+(e.g. flipping `||` to `&&` between two logically equivalent guards) that no test can
+kill.
+
 ## Source layout
 
 ```text

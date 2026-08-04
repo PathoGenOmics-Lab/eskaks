@@ -9,3 +9,7 @@ docs/book/
 /site/
 /.cache/
 /nb_out/
+
+# cargo-mutants output
+/mutants.out/
+/mutants.out.old/
