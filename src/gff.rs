@@ -158,7 +158,7 @@ pub fn parse_gff3(path: &Path) -> anyhow::Result<Vec<Gene>> {
             // Sort exons by position
             match strand {
                 Strand::Plus => exons.sort_by_key(|e| e.start),
-                Strand::Minus => exons.sort_by(|a, b| b.start.cmp(&a.start)),
+                Strand::Minus => exons.sort_by_key(|e| std::cmp::Reverse(e.start)),
             }
 
             let length_bp: usize = exons.iter().map(|e| e.end - e.start + 1).sum();

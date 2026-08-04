@@ -202,11 +202,7 @@ impl SummaryStats {
             eprintln!();
             eprintln!("  dN/dS Distribution:");
             for (i, &count) in bins.iter().enumerate() {
-                let bar_len = if max_count > 0 {
-                    (count * MAX_BAR_WIDTH) / max_count
-                } else {
-                    0
-                };
+                let bar_len = (count * MAX_BAR_WIDTH).checked_div(max_count).unwrap_or(0);
                 let bar: String = "\u{2588}".repeat(bar_len);
                 let pad: String = " ".repeat(MAX_BAR_WIDTH - bar_len);
                 let pct = 100.0 * count as f64 / valid as f64;

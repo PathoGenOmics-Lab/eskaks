@@ -11,10 +11,26 @@ The CLI and library live in `src/`; the user-facing documentation is in `docs/`.
 ## Build & test
 
 ```bash
-cargo test                                  # run the full test suite
-cargo clippy --all-targets -- -D warnings   # lint
+cargo test                                  # full test suite (incl. the golden snapshot)
+cargo clippy --all-targets -- -D warnings   # lint (CI denies warnings)
 make release                                # optimized (native-CPU) build
-make docs                                   # build the docs with mdbook
+make docs                                   # build the docs with MkDocs Material
+```
+
+Enable the repo git hooks once per clone. A pre-commit check then blocks common
+slips (em-dashes, a leftover `dbg!`, a conflict marker) before they land:
+
+```bash
+make hooks   # sets core.hooksPath to .githooks
+```
+
+`tests/golden.rs` freezes the exact `eskaks vcf` output on the bundled toy genome
+(every table, TSV and JSON), so any silent drift fails CI with an exact diff. After
+an *intended* output change, regenerate the snapshot and review the diff before
+committing:
+
+```bash
+BLESS=1 cargo test --test golden
 ```
 
 ## Source layout

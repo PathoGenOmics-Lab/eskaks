@@ -2,7 +2,7 @@
 CARGO := cargo
 RUSTFLAGS_NATIVE := RUSTFLAGS="-C target-cpu=native"
 
-.PHONY: all build release test clippy clean benchmark bench-generate bench-run bench-plot docs docs-serve check
+.PHONY: all build release test clippy clean benchmark bench-generate bench-run bench-plot docs docs-serve check hooks
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 
@@ -20,9 +20,15 @@ test:
 	$(CARGO) test
 
 clippy:
-	$(CARGO) clippy -- -D warnings
+	$(CARGO) clippy --all-targets -- -D warnings
 
 check: clippy test
+
+# Install the repo git hooks (pre-commit hygiene: no em-dashes, no leftover dbg!,
+# no conflict markers). Run once per clone.
+hooks:
+	git config core.hooksPath .githooks
+	@echo "git hooks enabled (core.hooksPath = .githooks)"
 
 # ─── Benchmarks ───────────────────────────────────────────────────────────────
 # Requirements: python3, KaKs_Calculator (optional), BioPython (optional)

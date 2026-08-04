@@ -302,7 +302,7 @@ mod tests {
         let t = get_table(1).unwrap();
         let syn = compute_syn_sites(&li_to_nei_aa(&t.aa_table));
         // Nei index → bases: inverse of remap (A→2 C→1 G→3 T→0) ⇒ 0→T 1→C 2→A 3→G.
-        let inv = [b'T', b'C', b'A', b'G'];
+        let inv = b"TCAG";
         for (idx, &s_fasta) in syn.iter().enumerate() {
             let (s0, s1, s2) = (idx / 16, (idx / 4) % 4, idx % 4);
             let codon = [inv[s1], inv[s0], inv[s2]]; // (b1, b2, b3)

@@ -168,7 +168,7 @@ pub fn lineage_bar_svg(data: &[LineagePlotData], path: &str) -> std::io::Result<
             x, y, bar_width, bar_h, color);
 
         // Label (truncated for readability)
-        let label = format!("{}/{}", &d.genome, &d.lineage);
+        let label = format!("{}/{}", d.genome, d.lineage);
         let label_short: String = if label.len() > 16 {
             format!("{}..", label.chars().take(14).collect::<String>())
         } else {

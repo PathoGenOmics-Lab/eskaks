@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Block a commit that adds an em-dash, a leftover dbg!(), or a conflict marker.
+# Enable once per clone with:  make hooks   (git config core.hooksPath .githooks)
+set -eu
+root="$(git rev-parse --show-toplevel)"
+exec "$root/scripts/check-hygiene.sh" --cached
