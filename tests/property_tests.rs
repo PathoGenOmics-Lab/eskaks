@@ -144,3 +144,150 @@ mod cross_model {
         }
     }
 }
+
+// ─── Population-genetics diversity properties ─────────────────────────────────
+
+mod diversity {
+    use super::*;
+    use eskaks::stats::{tajimas_d, theta_pi, theta_watterson};
+
+    proptest! {
+        // Nucleotide diversity is invariant to which allele is called "derived":
+        // folding every site's count k -> n-k must give the identical value.
+        #[test]
+        fn pi_is_polarization_invariant(
+            n in 2usize..40,
+            raw in prop::collection::vec(0usize..40, 0..25),
+        ) {
+            let counts: Vec<usize> = raw.iter().map(|&k| k % (n + 1)).collect();
+            let folded: Vec<usize> = counts.iter().map(|&k| n - k).collect();
+            prop_assert!(approx_eq(theta_pi(n, &counts), theta_pi(n, &folded)));
+        }
+
+        // pi is a finite, non-negative quantity for any segregating-count vector.
+        #[test]
+        fn pi_is_finite_non_negative(
+            n in 2usize..50,
+            raw in prop::collection::vec(0usize..50, 0..30),
+        ) {
+            let counts: Vec<usize> = raw.iter().map(|&k| k % (n + 1)).collect();
+            let pi = theta_pi(n, &counts);
+            prop_assert!(pi.is_finite() && pi >= 0.0, "pi = {pi}");
+        }
+
+        // Watterson theta is linear in the number of segregating sites and >= 0.
+        #[test]
+        fn watterson_is_linear_in_s(n in 2usize..40, s in 0usize..200) {
+            let base = theta_watterson(n, s);
+            let double = theta_watterson(n, 2 * s);
+            prop_assert!(base >= 0.0);
+            prop_assert!((double - 2.0 * base).abs() <= 1e-9 * (1.0 + double.abs()));
+        }
+
+        // Tajima's D is never an infinity: it is a finite number, or NaN when
+        // undefined (n < 2, or no segregating sites), never garbage.
+        #[test]
+        fn tajimas_d_is_finite_or_nan(n in 0usize..60, s in 0usize..200, pi in 0.0f64..50.0) {
+            prop_assert!(!tajimas_d(n, s, pi).is_infinite());
+        }
+
+        #[test]
+        fn tajimas_d_undefined_regimes_are_nan(pi in 0.0f64..10.0) {
+            prop_assert!(tajimas_d(1, 5, pi).is_nan(), "n < 2 must be NaN");
+            prop_assert!(tajimas_d(10, 0, pi).is_nan(), "s = 0 must be NaN");
+        }
+    }
+}
+
+// ─── Statistical-distribution properties ──────────────────────────────────────
+
+mod distributions {
+    use super::*;
+    use eskaks::stats::{benjamini_hochberg, binomial_two_sided_p, wilson_interval};
+
+    proptest! {
+        // A Wilson interval stays inside [0, 1] and brackets the point estimate.
+        #[test]
+        fn wilson_brackets_point_estimate(k in 0u64..1000, extra in 0u64..1000) {
+            let n = k + extra + 1; // n >= 1 and k <= n
+            let (lo, hi) = wilson_interval(k, n, 0.95);
+            let phat = k as f64 / n as f64;
+            prop_assert!(0.0 <= lo && lo <= hi && hi <= 1.0, "interval [{lo}, {hi}]");
+            prop_assert!(lo - 1e-9 <= phat && phat <= hi + 1e-9, "phat {phat} outside [{lo}, {hi}]");
+        }
+
+        // A two-sided binomial p-value is a probability (or NaN at a degenerate p0).
+        #[test]
+        fn binomial_p_is_a_probability(k in 0u64..400, extra in 0u64..400, p0 in 0.01f64..0.99) {
+            let p = binomial_two_sided_p(k, k + extra, p0);
+            prop_assert!(p.is_nan() || (0.0..=1.0).contains(&p), "p = {p}");
+        }
+
+        // Benjamini-Hochberg adjustment preserves length, stays in [0, 1], and never
+        // reports a q-value below its raw p-value (the adjustment only inflates).
+        #[test]
+        fn bh_q_values_are_valid(pvals in prop::collection::vec(0.0f64..=1.0, 1..60)) {
+            let q = benjamini_hochberg(&pvals);
+            prop_assert_eq!(q.len(), pvals.len());
+            for (qi, pi) in q.iter().zip(&pvals) {
+                prop_assert!((0.0..=1.0).contains(qi), "q out of range: {qi}");
+                prop_assert!(*qi >= *pi - 1e-9, "BH q {qi} below raw p {pi}");
+            }
+        }
+    }
+}
+
+// ─── Parser robustness: no input may ever panic ───────────────────────────────
+
+mod parser_robustness {
+    use super::*;
+    use std::io::Write;
+
+    fn write_tmp(bytes: &[u8]) -> tempfile::NamedTempFile {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(bytes).unwrap();
+        f.flush().unwrap();
+        f
+    }
+
+    // A VCF data line with adversarial-but-plausible fields (huge/empty/negative POS,
+    // odd REF/ALT, malformed AF) to probe the field parsing deeply.
+    fn arb_vcf_line() -> impl Strategy<Value = String> {
+        (
+            "[A-Za-z0-9_.]{0,10}",
+            "-?[0-9]{0,12}",
+            "[ACGTN.,<>*]{0,6}",
+            "[ACGTN.,*]{0,6}",
+            "[A-Za-z0-9.,=;eE+-]{0,20}",
+        )
+            .prop_map(|(c, p, r, a, info)| format!("{c}\t{p}\t.\t{r}\t{a}\t60\tPASS\t{info}"))
+    }
+
+    proptest! {
+        // Arbitrary bytes must never panic the VCF parser: a clean Ok or Err only.
+        #[test]
+        fn parse_vcf_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let f = write_tmp(&bytes);
+            let _ = eskaks::vcf::parse_vcf(f.path());
+        }
+
+        #[test]
+        fn parse_gff3_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let f = write_tmp(&bytes);
+            let _ = eskaks::gff::parse_gff3(f.path());
+        }
+
+        // Structured-but-hostile VCF records exercise POS/AF/allele parsing paths.
+        #[test]
+        fn parse_vcf_structured_never_panics(lines in prop::collection::vec(arb_vcf_line(), 0..40)) {
+            let mut body =
+                String::from("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n");
+            for l in &lines {
+                body.push_str(l);
+                body.push('\n');
+            }
+            let f = write_tmp(body.as_bytes());
+            let _ = eskaks::vcf::parse_vcf(f.path());
+        }
+    }
+}
