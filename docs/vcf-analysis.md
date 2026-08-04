@@ -377,7 +377,7 @@ population-genetics statistics for that, writing `<output>_diversity.<ext>`:
   variants (a recent sweep or expansion), \(D>0\) an excess of intermediate-frequency
   variants (balancing selection or structure).
 
-\[ \pi = \sum_i \frac{2\,k_i\,(n-k_i)}{n\,(n-1)}, \qquad
+\[ \pi = \sum_i \frac{2\,k_i\,(n_i-k_i)}{n_i\,(n_i-1)}, \qquad
    \theta_W = \frac{S}{\sum_{i=1}^{n-1} 1/i}, \qquad
    D = \frac{\pi - \theta_W}{\sqrt{\widehat{\operatorname{Var}}(\pi - \theta_W)}} \]
 
@@ -389,7 +389,10 @@ population-genetics statistics for that, writing `<output>_diversity.<ext>`:
     excluded from π/θ/D). Each site's derived-allele count is read straight from the
     **GT columns** when present, so it is exact even if the VCF's INFO/AF disagrees
     with its genotypes; it falls back to round(AF·\(n\)) only for a merged multi-VCF
-    (where AF is itself the exact carriers/\(n\)) or an AF-only VCF.
+    (where AF is itself the exact carriers/\(n\)) or an AF-only VCF. With missing
+    genotypes, π uses each site's own **called** count \(n_i\) (so a no-call site is
+    scored on the samples actually genotyped, matching its allele frequency), while
+    \(\theta_W\) and Tajima's D use a single representative sample size.
 
 !!! note "Edge cases: multiallelic and overlapping genes"
     At a **multiallelic** site each ALT is counted separately, so π and the

@@ -17,7 +17,7 @@ rules (quoting, special-value normalisation) are identical for the VCF path.
 Tab-separated values. Standard bioinformatics format.
 
 ```bash
-eskaks fasta genes.fasta -o results
+eskaks fasta alignment.fasta -o results
 # → results_pairwise_results.tsv
 ```
 
@@ -31,7 +31,7 @@ gene_A	gene_B	0.052300	0.321400	0.162700
 Comma-separated values. Compatible with Excel and pandas.
 
 ```bash
-eskaks fasta genes.fasta --format csv -o results
+eskaks fasta alignment.fasta --format csv -o results
 # → results_pairwise_results.csv
 ```
 
@@ -40,7 +40,7 @@ eskaks fasta genes.fasta --format csv -o results
 JSON array of objects. Best for programmatic parsing.
 
 ```bash
-eskaks fasta genes.fasta --format json -o results
+eskaks fasta alignment.fasta --format json -o results
 # → results_pairwise_results.json
 ```
 
