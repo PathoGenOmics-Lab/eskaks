@@ -42,7 +42,7 @@ Docs & guide: https://github.com/PathoGenOmics-Lab/eskaks";
 
 /// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None, after_help = TOP_AFTER_HELP)]
+#[command(version = env!("ESKAKS_VERSION"), about, long_about = None, after_help = TOP_AFTER_HELP)]
 pub struct Args {
     /// List all available genetic code tables and exit
     #[arg(long)]

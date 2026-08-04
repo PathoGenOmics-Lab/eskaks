@@ -12,7 +12,7 @@ authors:
     affiliation: "Institute for Integrative Systems Biology (I2SysBio), CSIC - University of Valencia"
 repository-code: "https://github.com/PathoGenOmics-Lab/eskaks"
 url: "https://github.com/PathoGenOmics-Lab/eskaks"
-license: AGPL-3.0-only
+license: GPL-3.0-only
 version: "0.1.0"
 keywords:
   - dN/dS

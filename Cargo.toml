@@ -2,6 +2,16 @@
 name = "eskaks"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.74"
+authors = ["Paula Ruiz-Rodriguez", "Mireia Coscolla"]
+description = "Fast pairwise dN/dS and per-gene pN/pS for molecular-evolution and Mycobacterium tuberculosis selection analysis"
+repository = "https://github.com/PathoGenOmics-Lab/eskaks"
+homepage = "https://pathogenomics-lab.github.io/eskaks/"
+documentation = "https://pathogenomics-lab.github.io/eskaks/"
+readme = "README.md"
+license = "GPL-3.0-only"
+keywords = ["dnds", "pnps", "bioinformatics", "molecular-evolution", "genomics"]
+categories = ["command-line-utilities", "science"]
 
 [dependencies]
 
