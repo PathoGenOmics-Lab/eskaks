@@ -70,7 +70,7 @@ fn cov_finite_pair(a: usize, b: usize) -> DsDn {
 
 // Some pairs saturate (NaN), exercising the saturation counter/info path.
 fn cov_nan_pair(a: usize, b: usize) -> DsDn {
-    if (a + b).is_multiple_of(2) {
+    if (a + b) % 2 == 0 {
         DsDn { dn: f64::NAN, ds: 0.2 }
     } else {
         DsDn { dn: 0.1, ds: 0.2 }

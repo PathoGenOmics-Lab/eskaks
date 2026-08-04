@@ -14,7 +14,7 @@ pub fn histogram_svg(stats: &SummaryStats, path: &str) -> std::io::Result<()> {
 
     // Y-axis grid lines and labels — use integer steps to avoid duplicate "0" ticks
     let num_y_ticks = max_count.clamp(1, 5);
-    let step = max_count.div_ceil(num_y_ticks).max(1);
+    let step = ((max_count + num_y_ticks - 1) / num_y_ticks).max(1);
     let mut tick_val = 0usize;
     while tick_val <= max_count {
         let frac = tick_val as f64 / max_count as f64;

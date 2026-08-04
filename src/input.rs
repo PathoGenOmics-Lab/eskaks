@@ -123,7 +123,7 @@ pub fn load_sequences(
                 seqs_with_gaps += 1;
                 gap_count_total += gaps;
             }
-            if !seq.len().is_multiple_of(3) {
+            if seq.len() % 3 != 0 {
                 warn!(
                     "Sequence '{}' length {} is not divisible by 3; {} trailing base(s) ignored.",
                     String::from_utf8_lossy(rec.id()),

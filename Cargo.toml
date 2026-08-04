@@ -2,7 +2,7 @@
 name = "eskaks"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.70"
 authors = ["Paula Ruiz-Rodriguez", "Mireia Coscolla"]
 description = "Fast pairwise dN/dS and per-gene pN/pS for molecular-evolution and Mycobacterium tuberculosis selection analysis"
 repository = "https://github.com/PathoGenOmics-Lab/eskaks"

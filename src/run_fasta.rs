@@ -224,7 +224,7 @@ fn collect_report_pairwise(
             };
             summary.record_pair_atomic(dn, ds, ratio);
             local.record(dn, ds, ratio);
-            if k.is_multiple_of(stride) && scatter.len() < scatter_cap {
+            if k % stride == 0 && scatter.len() < scatter_cap {
                 scatter.push((dn, ds));
             }
             k += 1;
@@ -257,7 +257,7 @@ fn collect_window_profile(data: &input::SequenceData, engine: &ComputeEngine) ->
     let mut k = 0usize;
     for i in 0..n {
         for j in (i + 1)..n {
-            if k.is_multiple_of(stride) {
+            if k % stride == 0 {
                 pairs.push((i, j));
             }
             k += 1;
