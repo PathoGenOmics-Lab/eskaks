@@ -30,18 +30,27 @@ pub fn filter_snps(
             if min_af.is_some() || max_af.is_some() {
                 let lo = min_af.unwrap_or(f64::NEG_INFINITY);
                 let hi = max_af.unwrap_or(f64::INFINITY);
-                let (alts, freqs): (Vec<u8>, Vec<f64>) = snp
-                    .alt_alleles
-                    .iter()
-                    .zip(&snp.alt_freqs)
-                    .filter(|(_, &af)| af >= lo && af <= hi)
-                    .map(|(&a, &f)| (a, f))
-                    .unzip();
-                if alts.is_empty() {
+                // Which ALT positions survive the frequency window.
+                let keep: Vec<bool> =
+                    snp.alt_freqs.iter().map(|&af| af >= lo && af <= hi).collect();
+                if !keep.iter().any(|&k| k) {
                     return None;
                 }
-                snp.alt_alleles = alts;
-                snp.alt_freqs = freqs;
+                // Prune EVERY per-ALT vector in lockstep. gt_counts.alt is documented to
+                // be parallel to alt_alleles; leaving it stale shifts the surviving ALTs
+                // out of sync with their genotype counts and silently corrupts the
+                // diversity statistics (piN/piS, theta_W, Tajima's D) at multi-allelic
+                // sites, since the diversity path reads gt_counts by ALT index.
+                let mut it = keep.iter();
+                snp.alt_alleles.retain(|_| *it.next().unwrap());
+                let mut it = keep.iter();
+                snp.alt_freqs.retain(|_| *it.next().unwrap());
+                if let Some(gc) = snp.gt_counts.as_mut() {
+                    if gc.alt.len() == keep.len() {
+                        let mut it = keep.iter();
+                        gc.alt.retain(|_| *it.next().unwrap());
+                    }
+                }
             }
             Some(snp)
         })

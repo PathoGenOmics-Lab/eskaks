@@ -377,6 +377,27 @@ fn af_filter_is_per_allele_at_multiallelic_sites() {
 
 
 #[test]
+fn af_filter_keeps_gt_counts_aligned_at_multiallelic_sites() {
+    // gt_counts.alt is parallel to alt_alleles. Pruning a NON-last ALT by frequency must
+    // prune gt_counts.alt in lockstep; otherwise the diversity path (which reads
+    // gt_counts by ALT index) reads the wrong survivor's derived-allele count and
+    // silently corrupts piN/piS/theta_W/Tajima's D at multi-allelic sites.
+    let snp = VcfSnp {
+        chrom: "chr1".into(), pos: 100, ref_allele: b'A',
+        alt_alleles: vec![b'G', b'C', b'T'],
+        alt_freqs: vec![0.0, 0.5, 0.995], // G phantom (0.0), C kept (0.5), T fixed (0.995)
+        gt_counts: Some(GtCounts { alt: vec![0, 2, 7], called: 9 }),
+        filter: "PASS".into(), depth: None,
+    };
+    let out = filter_snps(vec![snp], false, Some(0.1), Some(0.99), None);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].alt_alleles, vec![b'C']);
+    // The survivor C must carry ITS genotype count (2), not G's (0) or T's (7).
+    assert_eq!(out[0].gt_counts.as_ref().unwrap().alt, vec![2]);
+}
+
+
+#[test]
 fn fasta_content_as_vcf_reports_wrong_format() {
     let f = write_temp_vcf(">strain_A\nATGGCTGCT\n>strain_B\nATGGCTGCT\n");
     let err = parse_vcf(f.path()).unwrap_err().to_string();
