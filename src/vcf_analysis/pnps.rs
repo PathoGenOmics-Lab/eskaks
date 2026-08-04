@@ -229,6 +229,7 @@ pub fn compute_pn_ps(
                                     .gt_counts
                                     .as_ref()
                                     .and_then(|gc| gc.alt.get(alt_idx).copied()),
+                                gt_called: snp.gt_counts.as_ref().map(|gc| gc.called),
                                 effect,
                             });
 

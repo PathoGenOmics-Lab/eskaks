@@ -24,11 +24,12 @@ pub use parse::{parse_vcf, sample_count};
 /// Used by the diversity statistics, which need the true per-site allele counts
 /// rather than a count reconstructed from a (possibly imprecise) INFO/AF frequency.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // `called` is recorded for provenance; the diversity path uses `alt`.
 pub struct GtCounts {
     /// Derived-allele count per *valid* ALT (same order as `VcfSnp::alt_alleles`).
     pub alt: Vec<usize>,
-    /// Total called alleles at the site (the haploid sample size actually observed).
+    /// Total called alleles at the site (the haploid sample size actually observed);
+    /// the diversity path uses it as the per-site denominator so no-calls do not
+    /// dilute the frequency, matching the AF path.
     pub called: usize,
 }
 

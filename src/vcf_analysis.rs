@@ -161,6 +161,11 @@ pub struct Variant {
     /// The diversity path uses this over `round(af * n)`, which loses precision when
     /// `af` came from an INFO/AF that disagrees with the genotypes.
     pub gt_derived: Option<usize>,
+    /// Total called alleles at this site from the GT columns (the observed sample
+    /// size), when available. The diversity path uses it as the per-site denominator
+    /// so a no-call-heavy site is scored on the samples actually genotyped (matching
+    /// the AF path) instead of being diluted by the full column count.
+    pub gt_called: Option<usize>,
     pub effect: SnpEffect,
 }
 

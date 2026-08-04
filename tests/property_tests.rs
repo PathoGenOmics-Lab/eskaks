@@ -149,7 +149,13 @@ mod cross_model {
 
 mod diversity {
     use super::*;
-    use eskaks::stats::{tajimas_d, theta_pi, theta_watterson};
+    use eskaks::stats::{tajimas_d, theta_pi_varn, theta_watterson};
+
+    // Uniform-n sites for the fixed-sample-size property tests: pair every derived
+    // count with the same n, the (k, n_i) shape theta_pi_varn consumes.
+    fn uniform_sites(n: usize, counts: &[usize]) -> Vec<(usize, usize)> {
+        counts.iter().map(|&k| (k, n)).collect()
+    }
 
     // An explicit haploid genotype matrix: `n` samples over `sites` sites, flattened
     // row-major into a bit vector (0 = ancestral, 1 = derived).
@@ -175,7 +181,7 @@ mod diversity {
                     counts.push(k);
                 }
             }
-            let tool = theta_pi(n, &counts);
+            let tool = theta_pi_varn(&uniform_sites(n, &counts));
 
             // Oracle: total pairwise differences / number of pairs.
             let mut diffs = 0usize;
@@ -197,7 +203,10 @@ mod diversity {
         ) {
             let counts: Vec<usize> = raw.iter().map(|&k| k % (n + 1)).collect();
             let folded: Vec<usize> = counts.iter().map(|&k| n - k).collect();
-            prop_assert!(approx_eq(theta_pi(n, &counts), theta_pi(n, &folded)));
+            prop_assert!(approx_eq(
+                theta_pi_varn(&uniform_sites(n, &counts)),
+                theta_pi_varn(&uniform_sites(n, &folded))
+            ));
         }
 
         // pi is a finite, non-negative quantity for any segregating-count vector.
@@ -207,7 +216,7 @@ mod diversity {
             raw in prop::collection::vec(0usize..50, 0..30),
         ) {
             let counts: Vec<usize> = raw.iter().map(|&k| k % (n + 1)).collect();
-            let pi = theta_pi(n, &counts);
+            let pi = theta_pi_varn(&uniform_sites(n, &counts));
             prop_assert!(pi.is_finite() && pi >= 0.0, "pi = {pi}");
         }
 

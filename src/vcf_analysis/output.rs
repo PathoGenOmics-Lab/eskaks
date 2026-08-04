@@ -133,16 +133,6 @@ pub fn write_variants(
     Ok(output_path)
 }
 
-/// Recover a *segregating* derived-allele count from an allele frequency and the
-/// sample size. Returns None for a site that is monomorphic within the sample —
-/// `k` rounds to 0 (absent) or `n` (fixed for the ALT) — so it is EXCLUDED from
-/// π / θ_W / Tajima's D (Tajima 1989 counts only segregating sites), never clamped
-/// into range. In a clade-fixed *M. tuberculosis* SNP set this exclusion matters:
-/// clamping fixed substitutions in would swamp the statistics.
-fn derived_count(af: f64, n: usize) -> Option<usize> {
-    segregating((af * n as f64).round() as usize, n)
-}
-
 /// Keep a derived count only if the site is genuinely *segregating*: `None` when it is
 /// monomorphic (`k == 0` absent, or `k >= n` fixed for the ALT), so it is excluded
 /// from π / θ_W / Tajima's D, never clamped into range.
@@ -154,9 +144,21 @@ fn segregating(k: usize, n: usize) -> Option<usize> {
     }
 }
 
-/// Segregating derived-allele counts of a variant set, split into (synonymous,
-/// missense). Monomorphic sites and nonsense/stop-loss are dropped.
-fn segregating_counts(variants: &[Variant], n: usize) -> (Vec<usize>, Vec<usize>) {
+/// A segregating site: its derived-allele count paired with the sample size actually
+/// observed there (the per-site called count, or the nominal n for an AF-only record).
+type SegSite = (usize, usize);
+
+/// Segregating derived-allele counts of a variant set, each paired with the sample
+/// size actually observed at its site (per-site called count from the GT columns, or
+/// the nominal `n` for an AF-only / merged record). Split into (synonymous, missense);
+/// monomorphic sites (absent or fixed for the ALT) and nonsense/stop-loss are dropped.
+/// The per-site denominator is what makes a no-call-heavy site score as fixed or
+/// segregating consistently with the AF path, instead of diluting its frequency with
+/// samples that were never genotyped.
+fn segregating_counts(
+    variants: &[Variant],
+    n: usize,
+) -> (Vec<SegSite>, Vec<SegSite>) {
     let (mut syn, mut mis) = (Vec::new(), Vec::new());
     for v in variants {
         let bucket = match v.effect {
@@ -164,19 +166,31 @@ fn segregating_counts(variants: &[Variant], n: usize) -> (Vec<usize>, Vec<usize>
             SnpEffect::Missense => &mut mis,
             _ => continue, // nonsense/stop-loss excluded, as in the pN/pS counts
         };
-        // Prefer the exact GT-derived count; fall back to round(af * n) only when the
-        // record had no genotypes (a merged multi-VCF, where af = count / n is already
-        // exact, or an AF-only VCF). This is what makes the diversity statistics robust
-        // to an INFO/AF that disagrees with the genotype columns.
-        let k = match v.gt_derived {
-            Some(g) => segregating(g, n),
-            None => derived_count(v.af, n),
+        // Exact GT-derived count over its own called sample size; fall back to
+        // round(af * n) over the nominal n only when the record had no genotypes (a
+        // merged multi-VCF, where af = count / n is exact, or an AF-only VCF).
+        let (derived, ni) = match v.gt_derived {
+            Some(g) => (g, v.gt_called.unwrap_or(n)),
+            None => ((v.af * n as f64).round() as usize, n),
         };
-        if let Some(k) = k {
-            bucket.push(k);
+        if let Some(k) = segregating(derived, ni) {
+            bucket.push((k, ni));
         }
     }
     (syn, mis)
+}
+
+/// The most common per-site called sample size among the given sites, ties broken
+/// toward the larger n. `None` for an empty set. Used as the single representative
+/// sample size for θ_W and Tajima's D, which (unlike π) are not defined per-site.
+fn modal_called<'a>(sites: impl Iterator<Item = &'a SegSite>) -> Option<usize> {
+    let mut freq: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    for &(_, ni) in sites {
+        *freq.entry(ni).or_insert(0) += 1;
+    }
+    freq.into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)))
+        .map(|(ni, _)| ni)
 }
 
 /// A computed diversity summary from split segregating counts and site totals.
@@ -189,15 +203,27 @@ struct DiversityRow {
     tajima_d: f64,
 }
 
-fn diversity_row(syn: &[usize], mis: &[usize], n_sites: f64, s_sites: f64, n: usize) -> DiversityRow {
+fn diversity_row(
+    syn: &[SegSite],
+    mis: &[SegSite],
+    n_sites: f64,
+    s_sites: f64,
+    n: usize,
+) -> DiversityRow {
     let s_seg = syn.len() + mis.len();
-    let all: Vec<usize> = syn.iter().chain(mis.iter()).copied().collect();
-    let pi_n = if n_sites > 0.0 { crate::stats::theta_pi(n, mis) / n_sites } else { f64::NAN };
-    let pi_s = if s_sites > 0.0 { crate::stats::theta_pi(n, syn) / s_sites } else { f64::NAN };
+    // π keeps each site's own sample size n_i. θ_W and Tajima's D take a single sample
+    // size, so use the most common per-site called count (n_eff), falling back to the
+    // nominal n when nothing segregates. With no missing data every n_i == n, so this
+    // reduces exactly to the fixed-n formulas.
+    let n_eff = modal_called(syn.iter().chain(mis.iter())).unwrap_or(n);
+    let pi_n = if n_sites > 0.0 { crate::stats::theta_pi_varn(mis) / n_sites } else { f64::NAN };
+    let pi_s = if s_sites > 0.0 { crate::stats::theta_pi_varn(syn) / s_sites } else { f64::NAN };
     let pi_ratio = if pi_s > 0.0 { pi_n / pi_s } else { f64::NAN };
     let total = n_sites + s_sites;
-    let theta_w = if total > 0.0 { crate::stats::theta_watterson(n, s_seg) / total } else { f64::NAN };
-    let tajima_d = crate::stats::tajimas_d(n, s_seg, crate::stats::theta_pi(n, &all));
+    let theta_w =
+        if total > 0.0 { crate::stats::theta_watterson(n_eff, s_seg) / total } else { f64::NAN };
+    let all: Vec<SegSite> = syn.iter().chain(mis.iter()).copied().collect();
+    let tajima_d = crate::stats::tajimas_d(n_eff, s_seg, crate::stats::theta_pi_varn(&all));
     DiversityRow { s_seg, pi_n, pi_s, pi_ratio, theta_w, tajima_d }
 }
 
@@ -399,5 +425,35 @@ pub fn write_mk_results(
     }
 
     Ok(output_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn var(effect: SnpEffect, gt_derived: Option<usize>, gt_called: Option<usize>, af: f64) -> Variant {
+        Variant {
+            pos: 1, ref_allele: b'A', alt_allele: b'C', aa_pos: 1,
+            ref_aa: b'A', alt_aa: b'C', af, gt_derived, gt_called, effect,
+        }
+    }
+
+    #[test]
+    fn diversity_scores_no_calls_on_their_called_sample() {
+        // 2 derived of 2 CALLED (the other 2 of a 4-sample cohort are no-calls) is fixed
+        // among the genotyped samples, exactly as its AF = 1.0 says, so it must NOT count
+        // as segregating even though the nominal cohort is n = 4. This is Bug B.
+        let (syn, mis) = segregating_counts(&[var(SnpEffect::Synonymous, Some(2), Some(2), 1.0)], 4);
+        assert!(syn.is_empty() && mis.is_empty(), "no-call-fixed site must be dropped");
+
+        // Its genuinely-called counterpart (2 derived of 4 called) IS segregating, and
+        // carries its own per-site sample size.
+        let (syn, _) = segregating_counts(&[var(SnpEffect::Synonymous, Some(2), Some(4), 0.5)], 4);
+        assert_eq!(syn, vec![(2usize, 4usize)]);
+
+        // No genotype columns (AF-only / merged): fall back to round(af * nominal n).
+        let (_, mis) = segregating_counts(&[var(SnpEffect::Missense, None, None, 0.5)], 4);
+        assert_eq!(mis, vec![(2usize, 4usize)]);
+    }
 }
 
