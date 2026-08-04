@@ -42,7 +42,7 @@ const isUp = g => (g.ratio!=null&&isFinite(g.ratio)) ? g.ratio>1 : ((g.nonsyn||0
 // Returns null only when there is genuinely no ratio (no SNPs at all).
 const RINF = 1e12;
 const ratioEff = g => (g.ratio!=null&&isFinite(g.ratio)) ? g.ratio : (isUp(g) ? RINF : null);
-const fmtRatio = g => (g.ratio!=null&&isFinite(g.ratio)) ? fmt(g.ratio,2) : (isUp(g) ? "∞" : "NA");
+const fmtRatio = (g,d=2) => (g.ratio!=null&&isFinite(g.ratio)) ? fmt(g.ratio,d) : (isUp(g) ? "∞" : "NA");
 // Direction as a marker shape (used in CVD mode so colour is never the only cue).
 const dirShape = g => !isSig(g) ? "dot" : (isUp(g) ? "up" : "down");
 // Selection regime from polymorphism + significance. Genes that fail the test are
@@ -255,7 +255,7 @@ const rSize = g => Math.min(9,Math.max(2.6,Math.sqrt((g.total||1))*1.1));
 // hex, so we must never colour "significance" red independently of direction.)
 const dirColor = g => isSig(g) ? (isUp(g) ? "var(--pos)" : "var(--accent)") : "var(--ns)";
 const sigColor = dirColor;
-const ciTip = g => (g.ratioLo!=null&&isFinite(g.ratioLo)) ? ` [${fmt(g.ratioLo,2)}–${isFinite(g.ratioHi)?fmt(g.ratioHi,2):'∞'}]` : '';
+const ciTip = g => (g.ratioLo!=null&&isFinite(g.ratioLo)) ? ` [${fmt(g.ratioLo,2)}–${(g.ratioHi!=null&&isFinite(g.ratioHi))?fmt(g.ratioHi,2):'∞'}]` : '';
 // Tooltip HTML must NOT be round-tripped through a data-* attribute: the HTML parser
 // decodes the attribute value once, which would undo hesc() and let a gene named
 // `<img onerror=…>` execute when the tip is later assigned via innerHTML. Instead we
@@ -263,7 +263,7 @@ const ciTip = g => (g.ratioLo!=null&&isFinite(g.ratioLo)) ? ` [${fmt(g.ratioLo,2
 // attribute; the hover handler reads it back from the array, unchanged.
 const TIPS=[];
 const tipData = h => `data-tip="${TIPS.push(h)-1}"`;
-const baseTip = g => `<b>${hesc(g.name)}</b> (${hesc(g.chrom)}:${g.start} ${g.strand})<br>pN/pS ${fmt(g.ratio,3)}${ciTip(g)} · p ${fmtP(g.p)} · ${stringency==='q'?(M.genomicControl?'q(GC)':'q'):'p(Bonf)'} ${fmtP(sigVal(g))}<br>${g.nonsyn}N / ${g.syn}S of ${g.total} SNPs${quar(g)?' · ⚠ repetitive':''}`;
+const baseTip = g => `<b>${hesc(g.name)}</b> (${hesc(g.chrom)}:${g.start} ${g.strand})<br>pN/pS ${fmtRatio(g,3)}${ciTip(g)} · p ${fmtP(g.p)} · ${stringency==='q'?(M.genomicControl?'q(GC)':'q'):'p(Bonf)'} ${fmtP(sigVal(g))}<br>${g.nonsyn}N / ${g.syn}S of ${g.total} SNPs${quar(g)?' · ⚠ repetitive':''}`;
 const log2c = (v,lo,hi) => v==null||!isFinite(v)?null : Math.max(lo,Math.min(hi, Math.log2(v<=0?1e-3:v)));
 
 // ── Manhattan ─────────────────────────────────────────────────────────
@@ -307,7 +307,7 @@ function panelFunnel(){
     svg: scatter({rows,
       x:g=>Math.log10(g.total),y:g=>Math.min(ratioEff(g),cap),xlabel:"total SNPs (log10)",ylabel:"pN/pS",
       xfmt:v=>Math.round(Math.pow(10,v)),color:dirColor,shape:dirShape,size:rSize,tip:baseTip,y0:true,
-      yerr:g=>(g.ratioLo!=null&&isFinite(g.ratioLo))?[g.ratioLo, Math.min(cap, isFinite(g.ratioHi)?g.ratioHi:cap)]:null,
+      yerr:g=>(g.ratioLo!=null&&isFinite(g.ratioLo))?[g.ratioLo, Math.min(cap, (g.ratioHi!=null&&isFinite(g.ratioHi))?g.ratioHi:cap)]:null,
       refs:[{y:1,label:"pN/pS=1",c:"var(--muted)"},{y:S.gwRatio,label:"pooled",c:"var(--line)"}].concat(M.minSnps>1?[{x:Math.log10(M.minSnps),label:"min-snps",c:"var(--muted)"}]:[])})};
 }
 // ── Observed vs expected nonsyn fraction ──────────────────────────────
@@ -557,7 +557,7 @@ $("#tbl thead").innerHTML="<tr>"+cols.map(c=>`<th data-k="${c[0]}" scope="col">$
 function cellText(g,k){
   if(k==="dir"){ if(g.ratio!=null&&isFinite(g.ratio)) return g.ratio>1?"▲":(g.ratio<1?"▼":"·");
     return (g.total>0&&(g.nonsyn||0)!==(g.syn||0)) ? (g.nonsyn>g.syn?"▲":"▼") : "·"; }
-  if(k==="ci"){ return (g.ratioLo!=null&&isFinite(g.ratioLo)) ? `${fmt(g.ratioLo,2)}–${isFinite(g.ratioHi)?fmt(g.ratioHi,2):"∞"}` : "NA"; }
+  if(k==="ci"){ return (g.ratioLo!=null&&isFinite(g.ratioLo)) ? `${fmt(g.ratioLo,2)}–${(g.ratioHi!=null&&isFinite(g.ratioHi))?fmt(g.ratioHi,2):"∞"}` : "NA"; }
   let v=g[k]; if(typeof v==="string") return k==="name"?hesc(v)+(quar(g)?'<span class="badge">rep</span>':""):hesc(v);
   if(icols.has(k)) return v==null?"NA":v;
   return pcols.has(k)?fmtP(v):fmt(v,(k==="ratio"||k==="ni"||k==="alpha"||k==="pn"||k==="ps"||k==="expN")?4:2);
