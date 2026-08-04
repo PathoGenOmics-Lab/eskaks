@@ -356,6 +356,34 @@ chr1\t100\t.\tA\tG\t30\tPASS\tDP=4000000000\n";
     assert_eq!(merged[0].depth, Some(4_000_000_000));
 }
 
+#[test]
+fn merge_ignores_non_carrier_records_when_computing_frequency() {
+    // A per-sample VCF that RECORDS a non-carrier site (GT 0, as gVCF / all-sites callers
+    // do) must not be counted as a carrier. Sample 1 carries G; sample 2 is homozygous
+    // REF at the same site: merged AF(G) = 1/2, not the inflated 2/2 that would drop this
+    // real polymorphism as "fixed" in the diversity / MK / AF-filtered paths.
+    let carrier = "\
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"GT\">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS
+chr1\t100\t.\tA\tG\t30\tPASS\t.\tGT\t1\n";
+    let non_carrier = "\
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"GT\">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS
+chr1\t100\t.\tA\tG\t30\tPASS\t.\tGT\t0\n";
+    let files = [write_temp_vcf(carrier), write_temp_vcf(non_carrier)];
+    let paths = merge_paths(&files);
+    let merged = merge_vcfs(&paths, false, None).unwrap();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].alt_alleles, vec![b'G']);
+    assert!(
+        (merged[0].alt_freqs[0] - 0.5).abs() < 1e-9,
+        "AF should be 0.5 (1 of 2 carriers), got {}",
+        merged[0].alt_freqs[0]
+    );
+}
+
 
 #[test]
 fn af_filter_is_per_allele_at_multiallelic_sites() {

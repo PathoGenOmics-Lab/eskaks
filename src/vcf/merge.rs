@@ -29,7 +29,18 @@ pub fn merge_vcfs(
     let per_file: Vec<Vec<VcfSnp>> = vcf_paths
         .par_iter()
         .map(|path| {
-            let snps = parse_vcf(std::path::Path::new(path))?;
+            let p = std::path::Path::new(path);
+            // The merge model is one sample per file (AF = carriers / n_files). A file
+            // with multiple sample columns would be miscounted as a single presence
+            // unit, so warn rather than silently produce a wrong frequency.
+            if sample_count(p).unwrap_or(0) > 1 {
+                warn!(
+                    "{}: multiple sample columns; the merge treats each --vcf file as ONE \
+                     sample, so per-sample genotypes are not used. Split to one sample per file.",
+                    path
+                );
+            }
+            let snps = parse_vcf(p)?;
             Ok(filter_snps(snps, pass_only, None, None, min_depth))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -58,7 +69,15 @@ pub fn merge_vcfs(
                 entry.1 += 1;
             }
 
-            for alt_base in &snp.alt_alleles {
+            for (i, alt_base) in snp.alt_alleles.iter().enumerate() {
+                // Count a sample as a carrier only when it actually carries the ALT. A
+                // per-sample VCF that records non-carrier sites (GT 0/0, ./., or INFO
+                // AF=0.0, as gVCF / all-sites callers do) has alt_freqs[i] == 0.0 there;
+                // counting those as carriers would inflate the merged allele frequency
+                // and, downstream, drop a real polymorphism as "fixed".
+                if snp.alt_freqs.get(i).copied().unwrap_or(1.0) <= 0.0 {
+                    continue;
+                }
                 let key = (snp.chrom.clone(), snp.pos, *alt_base);
                 if seen_this_sample.insert(key.clone()) {
                     variant_counts.entry(key).or_insert((snp.ref_allele, 0.0)).1 += 1.0;
