@@ -175,11 +175,11 @@ fn fasta_examples_pairwise_golden() {
     // site counting), looked up by BOTH ids so a future ordering change surfaces
     // as "pair not found".
     let ab = find_pair(&rows, "strain_A", "strain_B");
-    assert!((f(&ab[2]) - 0.022990).abs() < EPS, "A/B dN {}", ab[2]);
+    assert!((f(&ab[2]) - 0.023531).abs() < EPS, "A/B dN {}", ab[2]);
     assert!((f(&ab[3]) - 0.164075).abs() < EPS, "A/B dS {}", ab[3]);
-    assert!((f(&ab[4]) - 0.140120).abs() < EPS, "A/B dN/dS {}", ab[4]);
+    assert!((f(&ab[4]) - 0.143418).abs() < EPS, "A/B dN/dS {}", ab[4]);
     let ac = find_pair(&rows, "strain_A", "strain_C");
-    assert!((f(&ac[4]) - 0.077805).abs() < EPS, "A/C dN/dS {}", ac[4]);
+    assert!((f(&ac[4]) - 0.079614).abs() < EPS, "A/C dN/dS {}", ac[4]);
 
     // Every pair is under purifying selection (dN/dS < 1).
     for p in &rows[1..] {
@@ -215,12 +215,58 @@ fn fasta_examples_li_model() {
     let rows = tsv(&format!("{}_pairwise_results.tsv", r.prefix));
     assert_eq!(rows[0], ["Seq1", "Seq2", "dN(Ka)", "dS(Ks)", "dN/dS"]);
     let ab = find_pair(&rows, "strain_A", "strain_B");
-    assert!((f(&ab[2]) - 0.024933).abs() < EPS, "Ka {}", ab[2]);
+    assert!((f(&ab[2]) - 0.025579).abs() < EPS, "Ka {}", ab[2]);
     assert!((f(&ab[3]) - 0.164551).abs() < EPS, "Ks {}", ab[3]);
     // The purifying-selection headline must also hold on the Li (1993) code path.
     for p in &rows[1..] {
         assert!(f(&p[4]) < 1.0, "li pair {}/{} not purifying: {}", p[0], p[1], p[4]);
     }
+}
+
+#[test]
+fn fasta_terminal_stop_codon_does_not_change_dnds() {
+    // A stop codon contributes no sites (as the vcf count_sites does), so appending a
+    // terminal stop to every sequence must leave dN/dS unchanged. Regression for the bug
+    // where stops were counted as nonsynonymous sites and deflated dN and the ratio.
+    let dir = tempfile::tempdir().unwrap();
+    let base_a = "ATGAAATTTGGG";
+    let base_b = "ATGCAATTCGGG"; // codon2 AAA->CAA (nonsyn), codon3 TTT->TTC (syn)
+    let with = dir.path().join("with_stop.fasta");
+    let without = dir.path().join("without_stop.fasta");
+    std::fs::write(&with, format!(">a\n{base_a}TAA\n>b\n{base_b}TAA\n")).unwrap();
+    std::fs::write(&without, format!(">a\n{base_a}\n>b\n{base_b}\n")).unwrap();
+    let dnds = |path: &std::path::Path| {
+        let r = new_run();
+        run_ok(&["fasta", path.to_str().unwrap(), "-o", &r.prefix]);
+        let rows = tsv(&format!("{}_pairwise_results.tsv", r.prefix));
+        f(&rows[1][4]) // the single pair's dN/dS
+    };
+    let (d_with, d_without) = (dnds(&with), dnds(&without));
+    assert!(d_without.is_finite() && d_without > 0.0, "control dN/dS should be finite/positive");
+    assert!((d_with - d_without).abs() < EPS, "terminal stop changed dN/dS: {d_with} vs {d_without}");
+}
+
+#[test]
+fn group_average_excludes_infinite_ratios_from_the_mean() {
+    // A between-group cell mixing finite (dS>0) and +inf (dS=0) pairs must report a FINITE
+    // mean over the finite pairs, not an inf/NaN poisoned by the infinite ones.
+    let dir = tempfile::tempdir().unwrap();
+    let t = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 11x AAA (Lys)
+    // Group A: 3 identical. Group B: B_1 differs synonymously (ratio 0.0), B_2
+    // nonsynonymously only (ratio +inf). The A-B cell = 3 finite 0.0 pairs + 3 +inf pairs.
+    let fasta = dir.path().join("grp.fasta");
+    std::fs::write(
+        &fasta,
+        format!(">A_1\nTTT{t}\n>A_2\nTTT{t}\n>A_3\nTTT{t}\n>B_1\nTTC{t}\n>B_2\nATT{t}\n"),
+    )
+    .unwrap();
+    let r = new_run();
+    run_ok(&["fasta", fasta.to_str().unwrap(), "--group-average", "-o", &r.prefix]);
+    let rows = tsv(&format!("{}_group_avg_dn_ds.tsv", r.prefix));
+    let ab = find_group(&rows, "A", "B");
+    let mean = f(&ab[5]);
+    assert!(mean.is_finite(), "A-B mean must be finite (finite pairs only), got {}", ab[5]);
+    assert!(mean.abs() < EPS, "mean over the three finite 0.0 pairs should be 0, got {mean}");
 }
 
 #[test]
@@ -308,9 +354,9 @@ fn fasta_examples_lineage() {
     // All six IDs split on '_' to the single lineage "strain".
     let a = row(&rows, "strain_A");
     assert_eq!(a[1], "strain");
-    assert!((f(&a[2]) - 0.026091).abs() < EPS, "Mean_dN {}", a[2]);
+    assert!((f(&a[2]) - 0.026706).abs() < EPS, "Mean_dN {}", a[2]);
     assert!((f(&a[3]) - 0.155925).abs() < EPS, "Mean_dS {}", a[3]);
-    assert!((f(&a[4]) - 0.167333).abs() < EPS, "dN/dS {}", a[4]);
+    assert!((f(&a[4]) - 0.171277).abs() < EPS, "dN/dS {}", a[4]);
 }
 
 // ─────────────────────────── eskaks vcf (examples/toy_genome) ───────────────────────────
@@ -708,7 +754,7 @@ fn fasta_lineages_group_average_default_split() {
     // Between-group comparison: 2 x 2 isolates = 4 pairwise comparisons.
     let l2_l4 = find_group(&rows, "Lineage2", "Lineage4");
     assert_eq!(l2_l4[4], "4", "NumComparisons for a between-lineage cell");
-    assert!((f(&l2_l4[5]) - 0.621198).abs() < EPS, "Lineage2-Lineage4 mean {}", l2_l4[5]);
+    assert!((f(&l2_l4[5]) - 0.636488).abs() < EPS, "Lineage2-Lineage4 mean {}", l2_l4[5]);
     // Within-lineage cell: C(2,2) = 1 comparison, SE reported as N/A.
     let bovis = find_group(&rows, "Bovis", "Bovis");
     assert_eq!(bovis[4], "1");

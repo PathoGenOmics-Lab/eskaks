@@ -21,6 +21,10 @@ pub struct NeiTables {
     /// Synonymous SITES per codon (Nei indexing), Nei-Gojobori exclude-changes-to-stop
     /// convention (S = 3·syn/(syn+nonsyn); N = 3 − S). Matches `count_sites` in the vcf path.
     syn_site_array: [f64; 64],
+    /// Whether each codon index is a stop. Stop codons are excluded from both site and
+    /// diff counting (as the vcf `count_sites` does), so a terminal stop does not add
+    /// phantom nonsynonymous sites and deflate dN and the dN/dS ratio.
+    is_stop: [bool; 64],
 }
 
 /// Reconstruct a Nei codon index from 3 slot values.
@@ -41,11 +45,13 @@ impl NeiTables {
     pub fn with_genetic_code(gc: &GeneticCode) -> Box<NeiTables> {
         let aa_array = genetic_code::li_to_nei_aa(&gc.aa_table);
         let syn_site_array = genetic_code::compute_syn_sites(&aa_array);
+        let is_stop: [bool; 64] = std::array::from_fn(|i| aa_array[i] == '*');
 
         let mut tables = Box::new(NeiTables {
             diff_table: [(0.0f32, 0.0f32); 4096],
             aa_array,
             syn_site_array,
+            is_stop,
         });
 
         let aa = &tables.aa_array;
@@ -234,7 +240,14 @@ impl NeiTables {
             let b1 = ch2[0] as usize; let b2 = ch2[1] as usize;
             let b3 = ch2[2] as usize; let b4 = ch2[3] as usize;
 
-            if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize {
+            let all_valid = (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize;
+            // Fast path only when all 8 codons are valid AND none is a stop; the `&&`
+            // short-circuits so the is_stop reads happen only once every index is < 64.
+            // A chunk containing a stop falls to the scalar loop below, which skips it.
+            let fast = all_valid
+                && !(self.is_stop[a1] || self.is_stop[a2] || self.is_stop[a3] || self.is_stop[a4]
+                    || self.is_stop[b1] || self.is_stop[b2] || self.is_stop[b3] || self.is_stop[b4]);
+            if fast {
                 // SAFETY: All indices verified < 64 (INVALID_CODON) by the bitwise OR check above.
                 // syn_site_array has 64 entries, diff_table has 4096 entries (max index = 63*64+63 = 4095).
                 unsafe {
@@ -257,6 +270,7 @@ impl NeiTables {
                     let i1 = c1 as usize;
                     let i2 = c2 as usize;
                     if i1 >= INVALID_CODON as usize || i2 >= INVALID_CODON as usize { continue; }
+                    if self.is_stop[i1] || self.is_stop[i2] { continue; } // exclude stop codons
                     count_valid_codons += 1;
                     sum_syn_sites_seq1 += self.syn_site_array[i1];
                     sum_syn_sites_seq2 += self.syn_site_array[i2];
@@ -274,6 +288,7 @@ impl NeiTables {
             let idx1 = c1 as usize;
             let idx2 = c2 as usize;
             if idx1 >= INVALID_CODON as usize || idx2 >= INVALID_CODON as usize { continue; }
+            if self.is_stop[idx1] || self.is_stop[idx2] { continue; } // exclude stop codons
             count_valid_codons += 1;
             sum_syn_sites_seq1 += self.syn_site_array[idx1];
             sum_syn_sites_seq2 += self.syn_site_array[idx2];

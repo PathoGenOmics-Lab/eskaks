@@ -263,19 +263,27 @@ pub fn write_group_average(
         // plot paths share one source of truth.
         let g1n = &group_names[g1];
         let g2n = &group_names[g2];
-        let (n_comp, mean, se, ci_lo, ci_hi) = if pair_dn_ds_ratios.is_empty() {
-            (0usize, f64::NAN, f64::NAN, f64::NAN, f64::NAN)
+        // Mean / SE / CI over the FINITE ratios only. A +inf ratio (dS = 0, dN > 0, i.e.
+        // strong positive selection) is a real per-pair value but would poison an
+        // arithmetic mean to inf and its variance to NaN, so it is excluded here exactly
+        // as the pairwise summary excludes non-finite ratios. NumComparisons still counts
+        // every defined pair; when no pair is finite the mean is N/A (NaN).
+        let finite: Vec<f64> =
+            pair_dn_ds_ratios.iter().copied().filter(|r| r.is_finite()).collect();
+        let n_all = pair_dn_ds_ratios.len();
+        let (n_comp, mean, se, ci_lo, ci_hi) = if finite.is_empty() {
+            (n_all, f64::NAN, f64::NAN, f64::NAN, f64::NAN)
         } else {
-            let n = pair_dn_ds_ratios.len();
-            let mean: f64 = pair_dn_ds_ratios.iter().sum::<f64>() / n as f64;
+            let n = finite.len();
+            let mean: f64 = finite.iter().sum::<f64>() / n as f64;
             if n == 1 {
-                (n, mean, f64::NAN, f64::NAN, f64::NAN)
+                (n_all, mean, f64::NAN, f64::NAN, f64::NAN)
             } else {
                 let variance: f64 =
-                    pair_dn_ds_ratios.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+                    finite.iter().map(|&v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
                 let se = (variance / n as f64).sqrt();
                 let ci_hw = Z_95_CONFIDENCE * se;
-                (n, mean, se, mean - ci_hw, mean + ci_hw)
+                (n_all, mean, se, mean - ci_hw, mean + ci_hw)
             }
         };
         let plot_data = GroupPlotData {

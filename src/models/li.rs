@@ -226,6 +226,15 @@ impl LiTables {
                 let cod1 = decode_codon(i);
                 let cod2 = decode_codon(j);
 
+                // Exclude stop codons from site and substitution counting (as the vcf
+                // count_sites and the Nei model do). A stop's positions all classify as
+                // 0-fold, so counting them would add phantom 0-fold (nonsynonymous) sites
+                // and deflate Ka and Ka/Ks. The table is zero-initialized, so skipping the
+                // pair leaves it (and, on the diagonal, same_l) contributing nothing.
+                if is_stop_codon(gc, &cod1) || is_stop_codon(gc, &cod2) {
+                    continue;
+                }
+
                 // Step 1: Count sites from original codons (KaKs_Calculator approach)
                 // Each codon contributes its classification; average of both (each × 0.5)
                 let mut l_accum = [0.0; 3];

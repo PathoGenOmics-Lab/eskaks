@@ -230,3 +230,33 @@ fn lineage_bar_caps_at_fifty_bars() {
     let bar_count = svg.matches(r#"rx="2""#).count(); // data bars carry rx="2"
     assert_eq!(bar_count, 50, "should cap at 50 bars, got {bar_count}");
 }
+
+#[test]
+fn group_bar_labels_infinite_and_no_data_distinctly() {
+    // +inf (dS=0, dN>0) draws a full-height "inf" bar; a no-data group (NaN, e.g. a
+    // single-member group's diagonal) draws an "N/A" marker and no bar -- it must never
+    // become a full-height red "inf" bar that reads as extreme positive selection.
+    let groups = vec![
+        GroupPlotData { label: "A vs B".into(), mean: 0.4, ci_low: 0.2, ci_high: 0.6 },
+        GroupPlotData { label: "sat".into(), mean: f64::INFINITY, ci_low: f64::NAN, ci_high: f64::NAN },
+        GroupPlotData { label: "empty".into(), mean: f64::NAN, ci_low: f64::NAN, ci_high: f64::NAN },
+    ];
+    let svg = render(|p| group_bar_svg(&groups, p));
+    assert_well_formed(&svg);
+    assert!(svg.contains(">inf</text>"), "an infinite group must be labelled inf");
+    assert!(svg.contains(">N/A</text>"), "a no-data group must be labelled N/A, not inf");
+}
+
+#[test]
+fn lineage_bar_draws_infinite_as_positive_not_zero_purifying() {
+    // A +inf lineage ratio must be a full-height positive-selection (red) "inf" bar, not
+    // the zero-height purifying (blue) bar of the earlier inverted rendering.
+    let data = vec![
+        LineagePlotData { genome: "g1".into(), lineage: "L1".into(), ratio: 0.3 },
+        LineagePlotData { genome: "g2".into(), lineage: "L2".into(), ratio: f64::INFINITY },
+    ];
+    let svg = render(|p| lineage_bar_svg(&data, p));
+    assert_well_formed(&svg);
+    assert!(svg.contains(">inf</text>"), "an infinite ratio must be labelled inf");
+    assert!(svg.contains(COLOR_POSITIVE), "an infinite ratio must use the positive-selection colour");
+}

@@ -52,21 +52,32 @@ pub fn group_bar_svg(groups: &[GroupPlotData], path: &str) -> std::io::Result<()
     for (i, group) in groups.iter().enumerate() {
         let cx = MARGIN_LEFT + (i as f64 + 0.5) * bar_spacing;
         let x = cx - bar_width / 2.0;
-        let mean_clamped = if group.mean.is_finite() { group.mean.max(0.0) } else { max_y };
+        let is_inf = group.mean.is_infinite(); // +inf: dS = 0, dN > 0 (genuinely unbounded)
+        let is_na = group.mean.is_nan(); // no valid comparison (e.g. a single-member group)
+        // A genuinely infinite ratio draws a full-height "inf" bar; a group with no data
+        // (NaN) draws no bar and an "N/A" marker, so the two are never conflated and a
+        // no-data group cannot read as extreme positive selection.
+        let mean_clamped = if is_na { 0.0 } else if is_inf { max_y } else { group.mean.max(0.0) };
         let bar_h = PLOT_H * (mean_clamped / max_y);
         let y = to_y(mean_clamped);
         let color = if group.mean.is_finite() && group.mean < 1.0 { COLOR_PURIFYING } else { COLOR_POSITIVE };
 
-        // Bar
-        let _ = writeln!(svg,
-            r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="{}" rx="2"/>"#,
-            x, y, bar_width, bar_h, color);
+        // Bar (omitted for an N/A group)
+        if !is_na {
+            let _ = writeln!(svg,
+                r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="{}" rx="2"/>"#,
+                x, y, bar_width, bar_h, color);
+        }
 
-        // Label for infinite values
-        if !group.mean.is_finite() {
+        // Marker for non-finite values: distinct "inf" vs "N/A".
+        if is_inf {
             let _ = writeln!(svg,
                 r#"<text x="{:.1}" y="{:.1}" class="tick-label" text-anchor="middle" font-weight="bold">inf</text>"#,
                 cx, y - 5.0);
+        } else if is_na {
+            let _ = writeln!(svg,
+                r#"<text x="{:.1}" y="{:.1}" class="tick-label" text-anchor="middle" fill="{}">N/A</text>"#,
+                cx, to_y(0.0) - 5.0, COLOR_AXIS);
         }
 
         // Error bars (whiskers)
@@ -158,14 +169,30 @@ pub fn lineage_bar_svg(data: &[LineagePlotData], path: &str) -> std::io::Result<
     for (i, d) in data.iter().take(num_bars).enumerate() {
         let cx = MARGIN_LEFT + (i as f64 + 0.5) * bar_spacing;
         let x = cx - bar_width / 2.0;
-        let ratio = if d.ratio.is_finite() { d.ratio.max(0.0) } else { 0.0 };
-        let bar_h = PLOT_H * (ratio / max_y);
-        let y = to_y(ratio);
-        let color = if ratio < 1.0 { COLOR_PURIFYING } else { COLOR_POSITIVE };
+        let is_inf = d.ratio.is_infinite(); // +inf: dS = 0, dN > 0 (strong positive selection)
+        let is_na = d.ratio.is_nan();
+        // +inf draws a full-height "inf" bar and NaN an "N/A" marker, consistent with the
+        // group plot. Never collapse +inf to 0, which would paint strong positive selection
+        // as a zero-height purifying (blue) bar (the exact inverse of its meaning).
+        let ratio_clamped = if is_na { 0.0 } else if is_inf { max_y } else { d.ratio.max(0.0) };
+        let bar_h = PLOT_H * (ratio_clamped / max_y);
+        let y = to_y(ratio_clamped);
+        let color = if d.ratio.is_finite() && d.ratio < 1.0 { COLOR_PURIFYING } else { COLOR_POSITIVE };
 
-        let _ = writeln!(svg,
-            r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="{}" rx="2"/>"#,
-            x, y, bar_width, bar_h, color);
+        if !is_na {
+            let _ = writeln!(svg,
+                r#"<rect x="{:.1}" y="{:.1}" width="{:.1}" height="{:.1}" fill="{}" rx="2"/>"#,
+                x, y, bar_width, bar_h, color);
+        }
+        if is_inf {
+            let _ = writeln!(svg,
+                r#"<text x="{:.1}" y="{:.1}" class="tick-label" text-anchor="middle" font-weight="bold">inf</text>"#,
+                cx, y - 5.0);
+        } else if is_na {
+            let _ = writeln!(svg,
+                r#"<text x="{:.1}" y="{:.1}" class="tick-label" text-anchor="middle" fill="{}">N/A</text>"#,
+                cx, to_y(0.0) - 5.0, COLOR_AXIS);
+        }
 
         // Label (truncated for readability)
         let label = format!("{}/{}", d.genome, d.lineage);
