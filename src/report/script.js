@@ -3,6 +3,11 @@ const $ = s => document.querySelector(s);
 const genes = DATA.genes, S = DATA.summary, M = DATA.meta;
 const fmt = (v,d=4) => v==null||!isFinite(v) ? "NA" : Number(v).toFixed(d);
 const fmtP = v => v==null||!isFinite(v) ? "NA" : (v!==0 && Math.abs(v)<1e-3 ? v.toExponential(2) : v.toFixed(4));
+// HTML-escape data-derived strings (gene/chrom names) before putting them in
+// innerHTML / SVG text / attributes, so a name with < > & " can't break markup.
+// Defined up here (not next to the other tip helpers) because the Methods panel
+// below runs hesc() at top level, before those later definitions are reached.
+const hesc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 const tip = $("#tip");
 genes.forEach((g,i)=>{ g._i=i;
   // Power-aware effect size: binomial z of observed nonsyn SNPs vs the neutral expectation total*expN.
@@ -31,6 +36,13 @@ const quar   = g => (g.rep!=null ? g.rep : RE_QUAR.test(g.name||""));
 // is serialized as null, so fall back to the counts — that gene is the STRONGEST
 // diversifying signal and must not be mislabelled purifying.
 const isUp = g => (g.ratio!=null&&isFinite(g.ratio)) ? g.ratio>1 : ((g.nonsyn||0) > (g.syn||0));
+// pN/pS for POSITIONING a gene on a ratio axis. A gene with syn=0, nonsyn>0 has pN/pS
+// = +∞ (serialized as null); it is the STRONGEST diversifying signal, so return a large
+// finite sentinel that each panel clamps to its axis, instead of dropping the gene.
+// Returns null only when there is genuinely no ratio (no SNPs at all).
+const RINF = 1e12;
+const ratioEff = g => (g.ratio!=null&&isFinite(g.ratio)) ? g.ratio : (isUp(g) ? RINF : null);
+const fmtRatio = g => (g.ratio!=null&&isFinite(g.ratio)) ? fmt(g.ratio,2) : (isUp(g) ? "∞" : "NA");
 // Direction as a marker shape (used in CVD mode so colour is never the only cue).
 const dirShape = g => !isSig(g) ? "dot" : (isUp(g) ? "up" : "down");
 // Selection regime from polymorphism + significance. Genes that fail the test are
@@ -244,9 +256,6 @@ const rSize = g => Math.min(9,Math.max(2.6,Math.sqrt((g.total||1))*1.1));
 const dirColor = g => isSig(g) ? (isUp(g) ? "var(--pos)" : "var(--accent)") : "var(--ns)";
 const sigColor = dirColor;
 const ciTip = g => (g.ratioLo!=null&&isFinite(g.ratioLo)) ? ` [${fmt(g.ratioLo,2)}–${isFinite(g.ratioHi)?fmt(g.ratioHi,2):'∞'}]` : '';
-// HTML-escape data-derived strings (gene/chrom names) before putting them in
-// innerHTML / SVG text / attributes, so a name with < > & " can't break markup.
-const hesc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 // Tooltip HTML must NOT be round-tripped through a data-* attribute: the HTML parser
 // decodes the attribute value once, which would undo hesc() and let a gene named
 // `<img onerror=…>` execute when the tip is later assigned via innerHTML. Instead we
@@ -280,20 +289,25 @@ function panelVolcano(){
   const thr=pThreshold();
   return {title:"Volcano — effect vs significance", help:"volcano",
     legend:`<span><i style="background:var(--pos)"></i>sig. diversifying (right)</span><span><i style="background:var(--accent)"></i>sig. purifying (left)</span><span><i style="background:var(--ns)"></i>not significant</span>`,
-    svg: scatter({rows:genes.filter(g=>pStat(g)!=null&&isFinite(pStat(g))&&g.ratio!=null),
-      x:g=>log2c(g.ratio,-6,6), y:g=>-Math.log10(Math.max(pStat(g),1e-300)),
+    svg: scatter({rows:genes.filter(g=>pStat(g)!=null&&isFinite(pStat(g))&&ratioEff(g)!=null),
+      x:g=>log2c(ratioEff(g),-6,6), y:g=>-Math.log10(Math.max(pStat(g),1e-300)),
       xlabel:"log2(pN/pS)  ←purifying · positive→", ylabel:(M.genomicControl&&stringency==="q")?"−log10(p, GC)":"−log10(p)",
       color:sigColor,shape:dirShape,size:rSize,tip:baseTip,y0:true,
       refs:[{x:0,label:"pN/pS=1",c:"var(--muted)"}].concat(thr!=null?[{y:-Math.log10(Math.max(thr,1e-300)),label:(stringency==="q"?"BH":"Bonf"),c:"var(--line)"}]:[])})};
 }
 // ── Power funnel ──────────────────────────────────────────────────────
 function panelFunnel(){
+  const rows=genes.filter(g=>g.total>0&&ratioEff(g)!=null);
+  // +∞ genes (syn=0) have no finite ratio; cap the y-axis just above the finite max so
+  // they plot at the top edge instead of blowing the scale or vanishing.
+  let cap=1.2; for(const g of rows) if(g.ratio!=null&&isFinite(g.ratio)&&g.ratio>cap) cap=g.ratio;
+  cap*=1.15;
   return {title:"Power funnel — pN/pS vs SNP count", help:"funnel",
     legend:`<span><i style="background:var(--pos)"></i>sig. diversifying</span><span><i style="background:var(--accent)"></i>sig. purifying</span><span><i style="background:var(--ns)"></i>not significant</span><span>· low-count genes scatter widely</span>`,
-    svg: scatter({rows:genes.filter(g=>g.total>0&&g.ratio!=null&&isFinite(g.ratio)),
-      x:g=>Math.log10(g.total),y:g=>g.ratio,xlabel:"total SNPs (log10)",ylabel:"pN/pS",
+    svg: scatter({rows,
+      x:g=>Math.log10(g.total),y:g=>Math.min(ratioEff(g),cap),xlabel:"total SNPs (log10)",ylabel:"pN/pS",
       xfmt:v=>Math.round(Math.pow(10,v)),color:dirColor,shape:dirShape,size:rSize,tip:baseTip,y0:true,
-      yerr:g=>(g.ratioLo!=null&&isFinite(g.ratioLo))?[g.ratioLo, isFinite(g.ratioHi)?g.ratioHi:g.ratio*4]:null,
+      yerr:g=>(g.ratioLo!=null&&isFinite(g.ratioLo))?[g.ratioLo, Math.min(cap, isFinite(g.ratioHi)?g.ratioHi:cap)]:null,
       refs:[{y:1,label:"pN/pS=1",c:"var(--muted)"},{y:S.gwRatio,label:"pooled",c:"var(--line)"}].concat(M.minSnps>1?[{x:Math.log10(M.minSnps),label:"min-snps",c:"var(--muted)"}]:[])})};
 }
 // ── Observed vs expected nonsyn fraction ──────────────────────────────
@@ -319,9 +333,9 @@ function panelMK(){
 }
 // ── pN/pS distribution ────────────────────────────────────────────────
 function panelDist(){
-  const vals=genes.map(g=>g.ratio).filter(v=>v!=null&&isFinite(v));
+  const vals=genes.map(g=>ratioEff(g)).filter(v=>v!=null);
   if(!vals.length) return null;
-  const edges=[0,0.2,0.4,0.6,0.8,1.0,1.5,2.0,1e9], labels=["<.2",".2-.4",".4-.6",".6-.8",".8-1","1-1.5","1.5-2","≥2"];
+  const edges=[0,0.2,0.4,0.6,0.8,1.0,1.5,2.0,Infinity], labels=["<.2",".2-.4",".4-.6",".6-.8",".8-1","1-1.5","1.5-2","≥2"];
   const counts=labels.map((_,k)=>vals.filter(v=>v>=edges[k]&&v<edges[k+1]).length);
   const cmax=Math.max(1,...counts),W=520,H=300,ml=54,mr=18,mt=16,mb=54,pw=W-ml-mr,ph=H-mt-mb,bw=pw/counts.length;
   let s=`<svg viewBox="0 0 ${W} ${H}">`;
@@ -388,8 +402,9 @@ function panelCensus(){
   const counts={positive:0,purifying:0,ns:0}; genes.forEach(g=>counts[regime(g)]++);
   const chip=(k,n)=>`<button class="chip regime ${regimeFilter===k?'on':''}" data-regime="${k}"><i style="background:${REGIMES[k]}"></i>${RLAB[k]} <b>${n}</b></button>`;
   const all=`<button class="chip regime ${regimeFilter==null?'on':''}" data-regime="">all <b>${genes.length}</b></button>`;
+  const dropped=Math.max(0,S.totalGenes-genes.length);
   return {title:"Selection regimes", help:"census", span:true,
-    legend:`<span>click a regime to filter the table below · "not significant" = insufficient SNPs to reject neutrality (may still be selected)</span>`,
+    legend:`<span>click a regime to filter the table below · "not significant" = insufficient SNPs to reject neutrality (may still be selected)${dropped?` · ${dropped} gene(s) below --min-snps ${M.minSnps} not shown`:''}</span>`,
     extra:`<div class="census">${all}${chip("positive",counts.positive)}${chip("purifying",counts.purifying)}${chip("ns",counts.ns)}</div>`,
     svg:""};
 }
@@ -399,7 +414,7 @@ function panelHits(){
   const hits=genes.filter(isSig).slice().sort((a,b)=>{ const sa=sigVal(a),sb=sigVal(b);
     const na=(sa==null||!isFinite(sa)),nb=(sb==null||!isFinite(sb)); if(na&&nb)return 0; if(na)return 1; if(nb)return -1; return sa-sb; });
   const body = hits.length
-    ? `<div class="candlist">`+hits.map(g=>`<span class="cand" data-i="${g._i}">${isUp(g)?"▲":"▼"} ${hesc(g.name)} <small>${fmt(g.ratio,2)} · ${stringency==="q"?"q":"pB"} ${fmtP(sigVal(g))}${quar(g)?" ⚠":""}</small></span>`).join("")+`</div>`
+    ? `<div class="candlist">`+hits.map(g=>`<span class="cand" data-i="${g._i}">${isUp(g)?"▲":"▼"} ${hesc(g.name)} <small>${fmtRatio(g)} · ${stringency==="q"?"q":"pB"} ${fmtP(sigVal(g))}${quar(g)?" ⚠":""}</small></span>`).join("")+`</div>`
     : `<div class="candlist muted">No gene rejects neutrality at ${stringency==="q"?"BH-FDR":"Bonferroni"} &lt; ${M.fdr}. In clonal M. tuberculosis this is common — most genes are underpowered rather than neutral.</div>`;
   return {title:`Significant hits (${hits.length})`, help:"hits", span:true, legend:"", extra:body, svg:""};
 }
@@ -420,9 +435,9 @@ function panelQQ(){
 }
 // ── Ranked lollipop of top genes by selection signal ──────────────────
 function panelLollipop(){
-  const tested=genes.filter(g=>g.ratio!=null&&isFinite(g.ratio)&&g.total>0);
+  const tested=genes.filter(g=>ratioEff(g)!=null&&g.total>0);
   if(!tested.length) return null;
-  const absl=g=>Math.abs(Math.log2(g.ratio<=0?1e-3:g.ratio));
+  const absl=g=>Math.abs(Math.log2(ratioEff(g)<=0?1e-3:ratioEff(g)));
   const ranked=tested.slice().sort((a,b)=>{ const sa=sigVal(a),sb=sigVal(b);
     const na=(sa==null||!isFinite(sa)),nb=(sb==null||!isFinite(sb));
     if(!na&&!nb&&sa!==sb) return sa-sb; if(na!==nb) return na?1:-1; return absl(b)-absl(a); }).slice(0,18);
@@ -431,11 +446,11 @@ function panelLollipop(){
   let s=`<svg viewBox="0 0 ${W} ${H}">`;
   [-2,-1,0,1,2].forEach(t=>{ const x=X(t); s+=`<line x1="${x.toFixed(1)}" y1="${mt}" x2="${x.toFixed(1)}" y2="${mt+n*rowH}" stroke="${t===0?'var(--muted)':'var(--grid)'}" stroke-width="${t===0?1:0.5}"${t===0?' stroke-dasharray="4,3"':''}/>`;
     s+=`<text x="${x.toFixed(1)}" y="${mt+n*rowH+15}" font-size="9" fill="var(--muted)" text-anchor="middle">${Math.pow(2,t).toFixed(t<0?2:0)}</text>`; });
-  ranked.forEach((g,i)=>{ const y=mt+i*rowH+rowH/2, lv=Math.log2(g.ratio<=0?1e-3:g.ratio), x=X(lv), col=REGIMES[regime(g)], sel=(g._i===selected);
+  ranked.forEach((g,i)=>{ const y=mt+i*rowH+rowH/2, lv=Math.log2(ratioEff(g)<=0?1e-3:ratioEff(g)), x=X(lv), col=REGIMES[regime(g)], sel=(g._i===selected);
     s+=`<line x1="${x0.toFixed(1)}" y1="${y}" x2="${x.toFixed(1)}" y2="${y}" stroke="${col}" stroke-width="2" opacity="0.45"/>`;
     s+=`<circle class="mark" data-i="${g._i}" ${tipData(baseTip(g))} cx="${x.toFixed(1)}" cy="${y}" r="${sel?6:4.5}" fill="${col}"${sel?' stroke="var(--sel)" stroke-width="2"':''}/>`;
     s+=`<text x="${ml-8}" y="${y}" font-size="10" fill="var(--fg)" text-anchor="end" dominant-baseline="middle">${hesc(g.name)}${quar(g)?" ⚠":""}</text>`;
-    s+=`<text x="${(ml+pw+8).toFixed(1)}" y="${y}" font-size="9" fill="var(--muted)" dominant-baseline="middle">${fmt(g.ratio,2)} · ${isSig(g)?(stringency==="q"?"q":"pB")+" "+fmtP(sigVal(g)):"ns"}</text>`; });
+    s+=`<text x="${(ml+pw+8).toFixed(1)}" y="${y}" font-size="9" fill="var(--muted)" dominant-baseline="middle">${fmtRatio(g)} · ${isSig(g)?(stringency==="q"?"q":"pB")+" "+fmtP(sigVal(g)):"ns"}</text>`; });
   s+=`<text x="${(ml+pw/2).toFixed(1)}" y="${H-6}" font-size="11" fill="var(--muted)" text-anchor="middle">pN/pS (log2 scale) — stem anchored at neutral (1)</text></svg>`;
   return {title:"Top genes by selection signal", help:"lollipop", span:true,
     legend:`<span><i style="background:var(--pos)"></i>positive</span><span><i style="background:var(--accent)"></i>purifying</span><span><i style="background:var(--ns)"></i>not significant</span><span>⚠ repetitive/PE-PPE</span>`,
@@ -580,7 +595,8 @@ function renderTable(){
     if(typeof x==="string")return sortDesc?y.localeCompare(x):x.localeCompare(y); return sortDesc?y-x:x-y; });
   tableRows=rows; renderTableWindow();
   document.querySelectorAll("#tbl thead th").forEach(th=>{ th.classList.toggle("sorted",th.dataset.k===sortKey); th.classList.toggle("desc",th.dataset.k===sortKey&&sortDesc); });
-  $("#tableCount").textContent=`${rows.length} / ${genes.length} genes`+(rows.length>VIRT_MIN?" (virtualized)":"");
+  const dropped=Math.max(0,S.totalGenes-genes.length);
+  $("#tableCount").textContent=`${rows.length} / ${genes.length} genes`+(dropped?` (+${dropped} below --min-snps ${M.minSnps}, not shown)`:"")+(rows.length>VIRT_MIN?" (virtualized)":"");
 }
 // Re-materialise the visible window as the table scrolls (virtualized mode only).
 $("#tblwrap").addEventListener("scroll", ()=>{ if(tableRows.length>VIRT_MIN) renderTableWindow(); }, {passive:true});

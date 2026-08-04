@@ -136,6 +136,21 @@ fn assert_report_html(path: &str) {
     assert!(s.contains("<title>eskaks report</title>"), "{path}: missing title");
     assert!(s.contains("<script"), "{path}: report has no embedded script");
     assert!(s.len() > 3000, "{path}: report suspiciously small ({} bytes)", s.len());
+    // Temporal-dead-zone guard. The report's inline script runs the Methods panel
+    // (`$("#methods").innerHTML = [...].map(...hesc(v)...)`) at top level, as the
+    // script loads. If the `const hesc` escaper is defined LATER in the file, that
+    // top-level access throws "Cannot access 'hesc' before initialization", aborts
+    // the entire script, and renders a blank report. No output-string test catches
+    // that (the markup is all present), so assert the definition precedes its
+    // top-level call site here. Only checked when both markers exist (vcf report).
+    if let (Some(def), Some(call)) = (s.find("const hesc "), s.find("$(\"#methods\")")) {
+        assert!(
+            def < call,
+            "{path}: `const hesc` (offset {def}) is defined AFTER the top-level Methods \
+             panel that calls it (offset {call}); a temporal-dead-zone error \
+             that renders the report blank. Define hesc before its first top-level use."
+        );
+    }
 }
 
 // ─────────────────────────── eskaks fasta (examples/genes.fasta) ───────────────────────────
