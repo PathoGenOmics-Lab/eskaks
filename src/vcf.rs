@@ -20,6 +20,18 @@ pub use filter::filter_snps;
 pub use merge::merge_vcfs;
 pub use parse::{parse_vcf, sample_count};
 
+/// Exact derived-allele counts read from the per-sample GT columns, when present.
+/// Used by the diversity statistics, which need the true per-site allele counts
+/// rather than a count reconstructed from a (possibly imprecise) INFO/AF frequency.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // `called` is recorded for provenance; the diversity path uses `alt`.
+pub struct GtCounts {
+    /// Derived-allele count per *valid* ALT (same order as `VcfSnp::alt_alleles`).
+    pub alt: Vec<usize>,
+    /// Total called alleles at the site (the haploid sample size actually observed).
+    pub called: usize,
+}
+
 /// A single SNP record parsed from a VCF file.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -34,6 +46,9 @@ pub struct VcfSnp {
     pub alt_alleles: Vec<u8>,
     /// Allele frequencies for each ALT allele (if available)
     pub alt_freqs: Vec<f64>,
+    /// Exact GT-derived allele counts, `Some` only when the record carries genotype
+    /// columns. The diversity path prefers these over `round(AF * n)`.
+    pub gt_counts: Option<GtCounts>,
     /// FILTER field value
     pub filter: String,
     /// Read depth from INFO/DP (if available)

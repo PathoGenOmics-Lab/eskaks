@@ -225,6 +225,10 @@ pub fn compute_pn_ps(
                                 ref_aa: r,
                                 alt_aa: a,
                                 af,
+                                gt_derived: snp
+                                    .gt_counts
+                                    .as_ref()
+                                    .and_then(|gc| gc.alt.get(alt_idx).copied()),
                                 effect,
                             });
 

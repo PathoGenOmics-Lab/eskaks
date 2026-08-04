@@ -105,6 +105,9 @@ pub fn merge_vcfs(
                 ref_allele: ref_base,
                 alt_alleles,
                 alt_freqs,
+                // A merged record has no per-sample genotypes; its af is already the
+                // exact carriers / n_samples, so round(af * n) recovers the count.
+                gt_counts: None,
                 filter: "PASS".to_string(),
                 depth: avg_depth,
             })

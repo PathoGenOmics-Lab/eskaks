@@ -151,7 +151,43 @@ mod diversity {
     use super::*;
     use eskaks::stats::{tajimas_d, theta_pi, theta_watterson};
 
+    // An explicit haploid genotype matrix: `n` samples over `sites` sites, flattened
+    // row-major into a bit vector (0 = ancestral, 1 = derived).
+    fn arb_genotype_matrix() -> impl Strategy<Value = (usize, usize, Vec<u8>)> {
+        (2usize..8, 1usize..12).prop_flat_map(|(n, sites)| {
+            prop::collection::vec(0u8..2, n * sites).prop_map(move |bits| (n, sites, bits))
+        })
+    }
+
     proptest! {
+        // Differential oracle: nucleotide diversity from the tool's site-frequency
+        // formula must equal the brute-force average number of pairwise differences
+        // over the same explicit genotype matrix (two independent computations).
+        #[test]
+        fn pi_matches_brute_force_pairwise((n, sites, bits) in arb_genotype_matrix()) {
+            let gt = |sample: usize, site: usize| bits[sample * sites + site];
+
+            // Tool: per-site derived count -> theta_pi over the segregating sites.
+            let mut counts = Vec::new();
+            for site in 0..sites {
+                let k = (0..n).filter(|&s| gt(s, site) == 1).count();
+                if k > 0 && k < n {
+                    counts.push(k);
+                }
+            }
+            let tool = theta_pi(n, &counts);
+
+            // Oracle: total pairwise differences / number of pairs.
+            let mut diffs = 0usize;
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    diffs += (0..sites).filter(|&site| gt(i, site) != gt(j, site)).count();
+                }
+            }
+            let oracle = diffs as f64 / (n * (n - 1) / 2) as f64;
+            prop_assert!((tool - oracle).abs() < 1e-9, "pi: tool={tool} oracle={oracle}");
+        }
+
         // Nucleotide diversity is invariant to which allele is called "derived":
         // folding every site's count k -> n-k must give the identical value.
         #[test]

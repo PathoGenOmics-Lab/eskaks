@@ -709,6 +709,7 @@ fn cov_core_snp(chrom: &str, pos: usize, ref_allele: u8, alt: u8, af: f64) -> Vc
         ref_allele,
         alt_alleles: vec![alt],
         alt_freqs: vec![af],
+        gt_counts: None,
         filter: "PASS".to_string(),
         depth: None,
     }

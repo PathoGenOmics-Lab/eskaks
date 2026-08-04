@@ -111,6 +111,21 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
         let depth = parse_info_field(info, "DP")
             .and_then(|v| v.parse::<u32>().ok());
 
+        // Exact GT-derived allele counts, computed whenever the record carries
+        // genotype columns, regardless of whether INFO/AF is also present. The
+        // diversity path prefers these over round(AF * n); the AF path below (used
+        // for pN/pS and --af-weighted) is deliberately left unchanged.
+        let gt_counts = if fields.len() > 9 {
+            fields
+                .get(8)
+                .and_then(|f| f.split(':').position(|k| k == "GT"))
+                .and_then(|gi| {
+                    gt_allele_counts(&fields[9..], gi, alt_alleles_raw.len(), &valid_alt_indices)
+                })
+        } else {
+            None
+        };
+
         // Parse allele frequencies
         let alt_freqs = if let Some(af_str) = parse_info_field(info, "AF") {
             // AF from INFO field (Number=A: one per ALT). Keep positional alignment —
@@ -147,6 +162,7 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
             ref_allele: ref_base,
             alt_alleles,
             alt_freqs,
+            gt_counts,
             filter,
             depth,
         });
@@ -186,6 +202,44 @@ fn parse_info_field<'a>(info: &'a str, key: &str) -> Option<&'a str> {
         }
     }
     None
+}
+
+/// Exact derived-allele counts per valid ALT (plus the total called alleles) from the
+/// GT columns. `None` when no allele is called at the site. Kept separate from
+/// [`calculate_af_from_gt`] so the frequency path stays byte-identical while the
+/// diversity path can use true counts instead of round(AF * n).
+fn gt_allele_counts(
+    samples: &[&str],
+    gt_idx: usize,
+    total_alt_count: usize,
+    valid_indices: &[usize],
+) -> Option<GtCounts> {
+    let mut allele_counts = vec![0usize; total_alt_count + 1]; // index 0 = REF
+    let mut total = 0usize;
+    for sample in samples {
+        let fields: Vec<&str> = sample.split(':').collect();
+        if let Some(gt) = fields.get(gt_idx) {
+            for allele_str in gt.split(['/', '|']) {
+                if allele_str == "." {
+                    continue;
+                }
+                if let Ok(idx) = allele_str.parse::<usize>() {
+                    if idx < allele_counts.len() {
+                        allele_counts[idx] += 1;
+                        total += 1;
+                    }
+                }
+            }
+        }
+    }
+    if total == 0 {
+        return None;
+    }
+    let alt = valid_indices
+        .iter()
+        .map(|&i| allele_counts.get(i + 1).copied().unwrap_or(0))
+        .collect();
+    Some(GtCounts { alt, called: total })
 }
 
 /// Calculate allele frequencies from GT (genotype) fields.

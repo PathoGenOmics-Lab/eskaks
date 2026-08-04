@@ -157,6 +157,10 @@ pub struct Variant {
     pub alt_aa: u8,
     /// Allele frequency of this ALT.
     pub af: f64,
+    /// Exact derived-allele count for this ALT from the GT columns, when available.
+    /// The diversity path uses this over `round(af * n)`, which loses precision when
+    /// `af` came from an INFO/AF that disagrees with the genotypes.
+    pub gt_derived: Option<usize>,
     pub effect: SnpEffect,
 }
 

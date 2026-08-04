@@ -26,6 +26,28 @@ chr1\t300\t.\tAT\tA\t30\tPASS\tDP=40\n";
 }
 
 #[test]
+fn gt_counts_capture_genotype_truth_over_disagreeing_info_af() {
+    // A record whose INFO/AF (0.50) disagrees with its genotypes: only 1 of 4 haploid
+    // samples carries the ALT (true derived count = 1). The frequency path keeps the
+    // declared INFO/AF (used for pN/pS), but the diversity path must see the exact GT
+    // count, not round(0.50 * 4) = 2.
+    let vcf = "\
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\tS4
+chr1\t100\t.\tA\tG\t30\tPASS\tAF=0.50\tGT\t1\t0\t0\t0\n";
+    let f = write_temp_vcf(vcf);
+    let snps = parse_vcf(f.path()).unwrap();
+    assert_eq!(snps.len(), 1);
+    // Frequency path: unchanged, still the declared INFO/AF.
+    assert!((snps[0].alt_freqs[0] - 0.50).abs() < 1e-9, "alt_freqs should keep INFO/AF");
+    // Diversity path: the exact GT-derived count, independent of the disagreeing AF.
+    let gc = snps[0].gt_counts.as_ref().expect("gt_counts present when GT columns exist");
+    assert_eq!(gc.alt, vec![1], "GT-derived count must be 1, not the AF-implied 2");
+    assert_eq!(gc.called, 4, "all four haploid samples were called");
+}
+
+#[test]
 fn parse_multi_allelic() {
     let vcf = "\
 ##fileformat=VCFv4.2
@@ -344,6 +366,7 @@ fn af_filter_is_per_allele_at_multiallelic_sites() {
         chrom: "chr1".into(), pos: 100, ref_allele: b'A',
         alt_alleles: vec![b'G', b'C', b'T'],
         alt_freqs: vec![0.05, 0.5, 0.995],
+        gt_counts: None,
         filter: "PASS".into(), depth: None,
     };
     let out = filter_snps(vec![snp], false, Some(0.1), Some(0.99), None);

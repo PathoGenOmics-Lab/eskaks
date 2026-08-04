@@ -140,7 +140,13 @@ pub fn write_variants(
 /// into range. In a clade-fixed *M. tuberculosis* SNP set this exclusion matters:
 /// clamping fixed substitutions in would swamp the statistics.
 fn derived_count(af: f64, n: usize) -> Option<usize> {
-    let k = (af * n as f64).round() as usize;
+    segregating((af * n as f64).round() as usize, n)
+}
+
+/// Keep a derived count only if the site is genuinely *segregating*: `None` when it is
+/// monomorphic (`k == 0` absent, or `k >= n` fixed for the ALT), so it is excluded
+/// from π / θ_W / Tajima's D, never clamped into range.
+fn segregating(k: usize, n: usize) -> Option<usize> {
     if k == 0 || k >= n {
         None
     } else {
@@ -158,7 +164,15 @@ fn segregating_counts(variants: &[Variant], n: usize) -> (Vec<usize>, Vec<usize>
             SnpEffect::Missense => &mut mis,
             _ => continue, // nonsense/stop-loss excluded, as in the pN/pS counts
         };
-        if let Some(k) = derived_count(v.af, n) {
+        // Prefer the exact GT-derived count; fall back to round(af * n) only when the
+        // record had no genotypes (a merged multi-VCF, where af = count / n is already
+        // exact, or an AF-only VCF). This is what makes the diversity statistics robust
+        // to an INFO/AF that disagrees with the genotype columns.
+        let k = match v.gt_derived {
+            Some(g) => segregating(g, n),
+            None => derived_count(v.af, n),
+        };
+        if let Some(k) = k {
             bucket.push(k);
         }
     }
@@ -232,14 +246,13 @@ pub fn genome_wide_diversity(results: &[GenePnPs], n: usize) -> Option<GenomeDiv
 /// within-species analogue of pN/pS) and their ratio, per-site Watterson θ, and
 /// Tajima's D — the SFS neutrality test (D < 0: excess of rare variants; D > 0:
 /// intermediate-frequency excess). Requires the sample size `n ≥ 2`, and assumes
-/// haploid genotypes (as for *M. tuberculosis*): a site's derived count is recovered
-/// as round(AF·n). This is exact for the recommended input (per-sample VCFs, where
-/// AF = carriers / n) and for a single VCF whose INFO/AF equals its genotype
-/// frequencies; with an INFO/AF that disagrees with the GT columns (INFO/AF is
-/// preferred when present) or with incomplete calls, the count is approximate.
-/// Multiallelic sites contribute one entry per ALT rather than a single site-spectrum
-/// term, so π and the segregating-site count are mildly inflated at such sites (rare
-/// in clonal genomes); overlapping genes count a shared SNP once per gene.
+/// haploid genotypes (as for *M. tuberculosis*): a site's derived count is taken
+/// straight from the GT columns when present (exact, and independent of any INFO/AF
+/// that disagrees with them), falling back to round(AF·n) only for a merged multi-VCF
+/// (where AF = carriers / n is itself exact) or an AF-only VCF. Multiallelic sites
+/// contribute one entry per ALT rather than a single site-spectrum term, so π and the
+/// segregating-site count are mildly inflated at such sites (rare in clonal genomes);
+/// overlapping genes count a shared SNP once per gene.
 pub fn write_diversity(
     results: &[GenePnPs],
     n: usize,
