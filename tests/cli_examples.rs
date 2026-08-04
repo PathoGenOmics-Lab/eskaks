@@ -136,20 +136,27 @@ fn assert_report_html(path: &str) {
     assert!(s.contains("<title>eskaks report</title>"), "{path}: missing title");
     assert!(s.contains("<script"), "{path}: report has no embedded script");
     assert!(s.len() > 3000, "{path}: report suspiciously small ({} bytes)", s.len());
-    // Temporal-dead-zone guard. The report's inline script runs the Methods panel
-    // (`$("#methods").innerHTML = [...].map(...hesc(v)...)`) at top level, as the
-    // script loads. If the `const hesc` escaper is defined LATER in the file, that
-    // top-level access throws "Cannot access 'hesc' before initialization", aborts
-    // the entire script, and renders a blank report. No output-string test catches
-    // that (the markup is all present), so assert the definition precedes its
-    // top-level call site here. Only checked when both markers exist (vcf report).
-    if let (Some(def), Some(call)) = (s.find("const hesc "), s.find("$(\"#methods\")")) {
-        assert!(
-            def < call,
-            "{path}: `const hesc` (offset {def}) is defined AFTER the top-level Methods \
-             panel that calls it (offset {call}); a temporal-dead-zone error \
-             that renders the report blank. Define hesc before its first top-level use."
-        );
+    // Temporal-dead-zone guard for BOTH report scripts. Each inline script runs a
+    // header block at top level as it loads and calls the `hesc` escaper there: the
+    // vcf report's Methods panel (`$("#methods").innerHTML = [...].map(...hesc(v)...)`)
+    // and the fasta report's summary cards (`$("#cards").innerHTML = ...hesc(...)`).
+    // If `const hesc` is defined LATER in the file, that top-level access throws
+    // "Cannot access 'hesc' before initialization", aborts the whole script, and
+    // renders a blank report. No output-string test catches that (the markup is all
+    // present), so assert the definition precedes every top-level call site present.
+    // This is exactly the bug that shipped in script.js once.
+    if let Some(def) = s.find("const hesc ") {
+        for anchor in ["$(\"#methods\")", "$(\"#cards\")"] {
+            if let Some(call) = s.find(anchor) {
+                assert!(
+                    def < call,
+                    "{path}: `const hesc` (offset {def}) is defined AFTER the top-level \
+                     block {anchor} that calls it (offset {call}); a temporal-dead-zone \
+                     error that renders the report blank. Define hesc before its first \
+                     top-level use."
+                );
+            }
+        }
     }
 }
 
