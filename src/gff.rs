@@ -260,11 +260,15 @@ fn url_decode(s: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '%' {
             let hex: String = chars.by_ref().take(2).collect();
-            if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                bytes.push(byte);
-            } else {
-                bytes.push(b'%');
-                bytes.extend_from_slice(hex.as_bytes());
+            // Decode only a COMPLETE two-hex-digit escape; a truncated tail (`%4`, a bare
+            // `%`) or a non-hex pair (`%ZZ`) is kept literal instead of decoding to a
+            // stray control byte. `from_str_radix` alone would accept a single digit.
+            match u8::from_str_radix(&hex, 16) {
+                Ok(byte) if hex.len() == 2 => bytes.push(byte),
+                _ => {
+                    bytes.push(b'%');
+                    bytes.extend_from_slice(hex.as_bytes());
+                }
             }
         } else {
             let mut buf = [0u8; 4];
@@ -366,6 +370,12 @@ chr1\t.\tCDS\t100\t200\t.\t-\t0\tParent=gene1;gene=geneA\n";
         assert_eq!(url_decode("a%20b"), "a b");
         assert_eq!(url_decode("plain"), "plain");
         assert_eq!(url_decode("bad%ZZ"), "bad%ZZ"); // invalid escape kept literally
+        // A truncated single-hex-digit tail must stay literal too, not decode to a stray
+        // control byte (from_str_radix accepts one digit, so the length must be checked).
+        assert_eq!(url_decode("z%4"), "z%4");
+        assert_eq!(url_decode("end%A"), "end%A");
+        assert_eq!(url_decode("tail%"), "tail%");
+        assert_eq!(url_decode("mid%4z"), "mid%4z"); // '%' + '4' + 'z': non-hex pair, literal
     }
 
     // ---- gene-id / gene-name attribute fallbacks -------------------------
