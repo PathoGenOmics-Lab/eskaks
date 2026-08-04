@@ -384,6 +384,21 @@ chr1\t100\t.\tA\tG\t30\tPASS\t.\tGT\t0\n";
     );
 }
 
+#[test]
+fn parse_rejects_empty_or_headerless_file_but_accepts_variant_free() {
+    // A truly empty / header-less file is not a usable VCF and must error, so a merge does
+    // not count it as a phantom sample that deflates every allele frequency. A valid
+    // variant-free VCF (has the #CHROM header, no data rows) stays accepted as 0 SNPs.
+    assert!(parse_vcf(write_temp_vcf("").path()).is_err(), "0-byte file should error");
+    assert!(
+        parse_vcf(write_temp_vcf("##fileformat=VCFv4.2\n").path()).is_err(),
+        "meta-only file should error"
+    );
+    let header_only = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+    let snps = parse_vcf(write_temp_vcf(header_only).path()).unwrap();
+    assert!(snps.is_empty(), "a variant-free VCF is a valid 0-SNP sample");
+}
+
 
 #[test]
 fn af_filter_is_per_allele_at_multiallelic_sites() {

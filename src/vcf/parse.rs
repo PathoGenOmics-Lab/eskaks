@@ -31,6 +31,7 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
     let mut data_lines = 0usize;
     let mut malformed_lines = 0usize;
     let mut first_bad: Option<String> = None;
+    let mut saw_header = false;
 
     for (line_no, line) in reader.lines().enumerate() {
         let line = line.with_context(|| format!("Failed to read line {} of VCF", line_no + 1))?;
@@ -46,6 +47,9 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
 
         // Parse header line to determine sample columns
         if line.starts_with('#') {
+            if line.starts_with("#CHROM") {
+                saw_header = true;
+            }
             let fields: Vec<&str> = line.split('\t').collect();
             if fields.len() > 9 {
                 sample_count = fields.len() - 9;
@@ -179,6 +183,18 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
             "{}: {} data line(s) but 0 valid VCF records — none had 8+ tab-separated columns. \
              Is this really a tab-delimited VCF?{}",
             path.display(), data_lines, hint
+        );
+    }
+
+    // A file with no #CHROM header line and no records at all (0 bytes, whitespace, or
+    // meta-only) is not a usable VCF, unlike a valid variant-free sample which still
+    // carries the header. Fail loudly rather than counting it as a phantom sample that
+    // would silently deflate every merged allele frequency.
+    if snps.is_empty() && !saw_header && data_lines == 0 {
+        anyhow::bail!(
+            "{}: not a valid VCF: no #CHROM header line and no records. An empty or \
+             header-less file cannot be treated as a variant-free sample.",
+            path.display()
         );
     }
 
