@@ -281,6 +281,19 @@ fn fasta_examples_summary_stderr() {
 }
 
 #[test]
+fn fasta_group_average_summary_reports_dnds_lines() {
+    // --group-average --summary must report the same dN/dS min/max/mean and pooled lines
+    // the pairwise and lineage summaries do; the group path previously recorded fake 0.0
+    // dN/dS into the accumulator, so those lines were silently omitted.
+    let r = new_run();
+    let out = run_ok(&["fasta", FASTA_GENES, "-o", &r.prefix, "--group-average", "--summary"]);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("dN/dS Summary"), "no summary block:\n{err}");
+    assert!(err.contains("dN/dS (pooled"), "group summary omits the pooled dN/dS line:\n{err}");
+    assert!(err.contains("dN:") && err.contains("dS:"), "group summary omits dN/dS min/max/mean:\n{err}");
+}
+
+#[test]
 fn fasta_examples_csv_and_json_formats() {
     let r = new_run();
     run_ok(&["fasta", FASTA_GENES, "-o", &r.prefix, "--format", "csv"]);

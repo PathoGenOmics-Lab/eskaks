@@ -237,7 +237,9 @@ pub fn write_group_average(
         let members1 = &group_members[g1];
         let members2 = &group_members[g2];
         let mut pair_dn_ds_ratios = Vec::new();
-        let mut nan_pair_count = 0usize;
+        // Local dN/dS accumulator so `--group-average --summary` reports the same dN/dS
+        // min/max/mean and pooled lines that the pairwise and lineage summaries do.
+        let mut local_stats = FloatAccum::new();
 
         for (pos, &id1_idx) in members1.iter().enumerate() {
             let u1 = uidx_by_id[id1_idx];
@@ -252,8 +254,12 @@ pub fn write_group_average(
                         result.dn / result.ds
                     };
                     pair_dn_ds_ratios.push(ratio);
-                } else {
-                    nan_pair_count += 1;
+                    if let Some(stats) = summary {
+                        stats.record_pair_atomic(result.dn, result.ds, ratio);
+                        local_stats.record(result.dn, result.ds, ratio);
+                    }
+                } else if let Some(stats) = summary {
+                    stats.record_pair_atomic(f64::NAN, f64::NAN, f64::NAN);
                 }
             }
         }
@@ -314,12 +320,7 @@ pub fn write_group_average(
         };
 
         if let Some(stats) = summary {
-            for _ in 0..nan_pair_count {
-                stats.record_pair_atomic(f64::NAN, f64::NAN, f64::NAN);
-            }
-            for &r in &pair_dn_ds_ratios {
-                stats.record_pair_atomic(0.0, 0.0, r);
-            }
+            stats.flush_local(&local_stats);
         }
 
         if let Some(ref plot_s) = ps {
