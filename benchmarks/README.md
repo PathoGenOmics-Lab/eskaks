@@ -4,7 +4,7 @@ eskaks was benchmarked against three established dN/dS tools on synthetic datase
 
 ## Accuracy
 
-Numerical accuracy validated against [KaKs_Calculator](https://github.com/kullrich/kakscalculator2), [BioPython](https://biopython.org/), and [PAML yn00](http://abacus.gene.ucl.ac.uk/software/paml.html) on 20 sequences (300 codons, 190 pairs).
+Numerical accuracy validated against [KaKs_Calculator](https://github.com/kullrich/kakscalculator2), [BioPython](https://biopython.org/), and [PAML yn00](http://abacus.gene.ucl.ac.uk/software/paml.html) on 20 sequences (300 bp, 190 pairs).
 
 ### Li model vs KaKs_Calculator LPB
 
@@ -43,7 +43,7 @@ Wall-clock time (ms) for pairwise dN/dS computation:
 | 100 seq × 3 kb | 12 | 6 | 17 | 10 | 7,703 | 10,860 | 697 | 111,619 |
 | 500 seq × 3 kb | 227 | 74 | 235 | 88 | 195,456 | 271,807 | — | — |
 
-On the medium dataset (100 sequences, 3,000 codons), eskaks Nei (4t) is **1,280× faster** than KaKs_Calculator NG and **18,600× faster** than BioPython. On the large dataset (500 sequences, 124,750 pairs), eskaks finishes in under 100 ms.
+On the medium dataset (100 sequences, 3,000 bp), eskaks Nei (4t) is **1,280× faster** than KaKs_Calculator NG and **18,600× faster** than BioPython. On the large dataset (500 sequences, 124,750 pairs), eskaks finishes in under 100 ms.
 
 <p align="center">
   <img src="plots/performance_bars.png" width="700" alt="Performance comparison">

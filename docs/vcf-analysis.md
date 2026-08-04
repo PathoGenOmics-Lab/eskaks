@@ -350,9 +350,9 @@ the classic equal-rates counting exactly (bit-for-bit).
 A per-gene pN/pS is a summary; to act on a hit you need the individual variants.
 `--variants` writes `<output>_variants.<ext>` — one row per coding SNP:
 
-| Gene | Chrom | Pos | Ref | Alt | AA_Pos | Change | AF | Effect |
-|---|---|---|---|---|---|---|---|---|
-| katG | chr | 2155168 | G | C | 315 | S315T | 0.98 | missense |
+| Gene | Chrom | Pos | Strand | Ref | Alt | AA_Pos | Ref_AA | Alt_AA | Change | AF | Effect |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| katG | chr | 2155168 | - | G | C | 315 | S | T | S315T | 0.98 | missense |
 
 The `Change` column (`S315T`-style) is the key you join to the [WHO mutation
 catalogue] or TB-Profiler.

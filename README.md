@@ -104,7 +104,7 @@ If you use eskaks in your research, please cite:
   year    = {2026},
   url     = {https://github.com/PathoGenOmics-Lab/eskaks},
   version = {0.1.0},
-  license = {GPL-3.0}
+  license = {GPL-3.0-only}
 }
 ```
 

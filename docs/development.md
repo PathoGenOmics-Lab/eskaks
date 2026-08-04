@@ -69,16 +69,18 @@ kill.
 
 ```text
 src/
-├── main.rs           # orchestration + subcommand dispatch
+├── main.rs           # subcommand dispatch + --demo
 ├── cli.rs            # CLI definitions (clap subcommands)
+├── run_fasta.rs      # `fasta` orchestration (pairwise / lineage / group / window)
+├── run_vcf.rs        # `vcf` orchestration (pN/pS, diversity, MK, report)
 ├── input.rs          # FASTA reading, validation, stdin
 ├── compute.rs        # ComputeEngine (Nei | Li)
 ├── genetic_code.rs   # 20 NCBI tables
-├── stats.rs          # binomial/Wilson/Fisher, FDR, bootstrap, probit
-├── vcf.rs / gff.rs   # VCF and GFF3 parsers
-├── vcf_analysis.rs   # per-gene pN/pS, neutrality test, MK, genomic control
+├── stats/            # dist.rs (binomial/Wilson/Fisher, FDR, probit), diversity.rs, accum.rs
+├── vcf/, gff.rs      # VCF (parse / merge / filter) and GFF3 parsers
+├── vcf_analysis/     # per-gene pN/pS, neutrality test, MK, genomic control, diversity
 ├── report.rs         # self-contained interactive HTML report
-├── plot.rs           # SVG generation
+├── plot/             # SVG generation (bars, histogram, window)
 └── models/           # nei.rs, li.rs
 ```
 

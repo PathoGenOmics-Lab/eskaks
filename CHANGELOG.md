@@ -193,6 +193,23 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Correctness fixes from an adversarial audit (some change outputs):**
+  - FASTA dN/dS now excludes stop codons in both the Nei and Li models (matching the VCF
+    site counting), so dN and dN/dS are slightly higher than before (dS unchanged); for a
+    short or borderline gene this can move a ratio across 1.0.
+  - Multi-VCF merge counts only actual carriers, so a recorded non-carrier site (GT 0/0,
+    ./., or INFO AF=0.0, as gVCF / all-sites callers emit) no longer inflates the merged
+    allele frequency and drops a real polymorphism as fixed.
+  - Per-gene diversity scores each site on its called sample size, consistent with the
+    allele-frequency path; Watterson theta and Tajima's D use the modal called count.
+  - An empty, whitespace, or header-less VCF now errors ("not a valid VCF: no #CHROM
+    header") instead of counting as a phantom zero-SNP sample.
+  - Interactive report: pN/pS = +inf (syn = 0) genes now plot in every panel and show an
+    infinity sign instead of "NA"; the group and lineage dN/dS bar plots handle +inf and
+    no-data cells consistently; and a load-time crash that blanked the report is fixed.
+  - `--group-average --summary` now reports the dN/dS min/max/mean and pooled lines the
+    pairwise and lineage summaries already showed.
+
 - **UX consistency & safety (from a hands-on UX evaluation):**
   - **`eskaks fasta` now errors on unequal-length (unaligned) input** instead of warning
     and returning a number computed over the truncated overlap — pairwise dN/dS requires

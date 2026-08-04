@@ -6,7 +6,7 @@ the [getting-started tutorial](../docs/tutorial.md).
 ## `genes.fasta` for `eskaks fasta` (dN/dS)
 
 Six codon-aligned versions of one gene (180 bp) from six strains. All 15 pairs come
-out well under purifying selection (dN/dS ≈ 0.08–0.33, i.e. always < 1).
+out well under purifying selection (dN/dS ≈ 0.08–0.34, i.e. always < 1).
 
 ```bash
 eskaks fasta examples/genes.fasta -o first_run

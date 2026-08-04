@@ -89,13 +89,13 @@ the values don't):
 
 ```text
 Seq1      Seq2      dN        dS        dN/dS
-strain_B  strain_C  0.038372  0.423770  0.090548
-strain_B  strain_F  0.038421  0.349819  0.109830
-strain_E  strain_F  0.054217  0.319140  0.169885
+strain_B  strain_C  0.039412  0.418424  0.094192
+strain_B  strain_F  0.039489  0.344899  0.114495
+strain_E  strain_F  0.055731  0.314840  0.177014
 ...
 ```
 
-**How to read it:** every `dN/dS` is well below 1 (≈ 0.09–0.22). These genes are
+**How to read it:** every `dN/dS` is well below 1 (≈ 0.08–0.34). These genes are
 under **purifying selection**: exactly what you expect for a functioning gene:
 silent changes accumulate freely (`dS` is high), but amino-acid changes are held
 back (`dN` is low). A value above 1 would have flagged positive selection.
@@ -120,9 +120,9 @@ against itself). The between-lineage rows are the interesting ones:
 
 ```text
 Group1    Group2    NumComparisons  Mean_dN/dS
-Lineage2  Lineage4  4               0.608113
-Lineage2  Bovis     4               0.700671
-Lineage4  Bovis     4               1.207500
+Lineage2  Lineage4  4               0.636488
+Lineage2  Bovis     4               0.737080
+Lineage4  Bovis     4               1.264591
 ```
 
 eskaks reads the group from the part of each ID before the first `_`. To group by the
@@ -199,7 +199,7 @@ gene05     0.8884    19      7    26    0.94      ...
 
 - `gene01`, `gene03`: `pN/pS` well below 1 with a **small q-value** → significant
   **purifying** selection.
-- `PPE_toy1`: `pN/pS` above 1, but its **q-value is not significant** (0.54), and
+- `PPE_toy1`: `pN/pS` above 1, but its **q-value is not significant** (0.79), and
   the name (`PPE`) marks it as a **repetitive** gene, where SNP calls are often
   mapping artefacts. Treat it with caution, not excitement.
 - `gene05`: `pN/pS ≈ 1` and not significant → no evidence of selection here.

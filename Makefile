@@ -55,13 +55,13 @@ benchmark: bench-run bench-plot
 # ─── Documentation ────────────────────────────────────────────────────────────
 
 docs:
-	mdbook build docs
+	mkdocs build
 
 docs-serve:
-	mdbook serve docs --open
+	mkdocs serve
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 
 clean:
 	$(CARGO) clean
-	rm -rf docs/book
+	rm -rf site
