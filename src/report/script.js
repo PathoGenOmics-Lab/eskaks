@@ -143,9 +143,9 @@ $("#methods").innerHTML = [
   M.genomicControl?["genomic-control","on"]:null,
   M.excludeRepetitive?["exclude-repetitive","on"]:null,
   ["eskaks",M.version]
-].filter(Boolean).map(([k,v])=>`<span class="chip">${k}: <b>${v}</b></span>`).join("")
-  + `<div class="prov">Command: <code>${(M.command||"").replace(/</g,"&lt;")}</code><br>`
-  + `Inputs: VCF <code>${M.vcfFile||"?"}</code> · ref <code>${M.refFile||"?"}</code> · GFF <code>${M.gffFile||"?"}</code></div>`;
+].filter(Boolean).map(([k,v])=>`<span class="chip">${k}: <b>${hesc(v)}</b></span>`).join("")
+  + `<div class="prov">Command: <code>${hesc(M.command||"")}</code><br>`
+  + `Inputs: VCF <code>${hesc(M.vcfFile||"?")}</code> · ref <code>${hesc(M.refFile||"?")}</code> · GFF <code>${hesc(M.gffFile||"?")}</code></div>`;
 
 // ── BH threshold p* (for the given stringency) ────────────────────────
 function pThreshold(){
@@ -232,7 +232,7 @@ function drawCanvases(){
 // so the existing hover/click delegation and selection ring work unchanged.
 function marker(cx,cy,r,shape,fill,sel,gi,tip){
   const rr=sel?r+2:r;
-  const a=`class="mark" data-i="${gi}" data-tip="${tip}" fill="${fill}" opacity="${sel?1:0.65}"${sel?' stroke="var(--sel)" stroke-width="2"':''}`;
+  const a=`class="mark" data-i="${gi}" ${tipData(tip)} fill="${fill}" opacity="${sel?1:0.65}"${sel?' stroke="var(--sel)" stroke-width="2"':''}`;
   if(shape==="up"){ const h=rr*1.5; return `<path ${a} d="M${cx.toFixed(1)},${(cy-h).toFixed(1)} L${(cx-h).toFixed(1)},${(cy+h*0.66).toFixed(1)} L${(cx+h).toFixed(1)},${(cy+h*0.66).toFixed(1)} Z"/>`; }
   if(shape==="down"){ const h=rr*1.5; return `<path ${a} d="M${cx.toFixed(1)},${(cy+h).toFixed(1)} L${(cx-h).toFixed(1)},${(cy-h*0.66).toFixed(1)} L${(cx+h).toFixed(1)},${(cy-h*0.66).toFixed(1)} Z"/>`; }
   return `<circle ${a} cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${rr.toFixed(1)}"/>`;
@@ -247,6 +247,13 @@ const ciTip = g => (g.ratioLo!=null&&isFinite(g.ratioLo)) ? ` [${fmt(g.ratioLo,2
 // HTML-escape data-derived strings (gene/chrom names) before putting them in
 // innerHTML / SVG text / attributes, so a name with < > & " can't break markup.
 const hesc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+// Tooltip HTML must NOT be round-tripped through a data-* attribute: the HTML parser
+// decodes the attribute value once, which would undo hesc() and let a gene named
+// `<img onerror=…>` execute when the tip is later assigned via innerHTML. Instead we
+// stash the tip HTML in a JS array (reset each render) and put only its index in the
+// attribute; the hover handler reads it back from the array, unchanged.
+const TIPS=[];
+const tipData = h => `data-tip="${TIPS.push(h)-1}"`;
 const baseTip = g => `<b>${hesc(g.name)}</b> (${hesc(g.chrom)}:${g.start} ${g.strand})<br>pN/pS ${fmt(g.ratio,3)}${ciTip(g)} · p ${fmtP(g.p)} · ${stringency==='q'?(M.genomicControl?'q(GC)':'q'):'p(Bonf)'} ${fmtP(sigVal(g))}<br>${g.nonsyn}N / ${g.syn}S of ${g.total} SNPs${quar(g)?' · ⚠ repetitive':''}`;
 const log2c = (v,lo,hi) => v==null||!isFinite(v)?null : Math.max(lo,Math.min(hi, Math.log2(v<=0?1e-3:v)));
 
@@ -275,7 +282,7 @@ function panelVolcano(){
     legend:`<span><i style="background:var(--pos)"></i>sig. diversifying (right)</span><span><i style="background:var(--accent)"></i>sig. purifying (left)</span><span><i style="background:var(--ns)"></i>not significant</span>`,
     svg: scatter({rows:genes.filter(g=>pStat(g)!=null&&isFinite(pStat(g))&&g.ratio!=null),
       x:g=>log2c(g.ratio,-6,6), y:g=>-Math.log10(Math.max(pStat(g),1e-300)),
-      xlabel:"log2(pN/pS)  ←purifying · positive→", ylabel:M.genomicControl?"−log10(p, GC)":"−log10(p)",
+      xlabel:"log2(pN/pS)  ←purifying · positive→", ylabel:(M.genomicControl&&stringency==="q")?"−log10(p, GC)":"−log10(p)",
       color:sigColor,shape:dirShape,size:rSize,tip:baseTip,y0:true,
       refs:[{x:0,label:"pN/pS=1",c:"var(--muted)"}].concat(thr!=null?[{y:-Math.log10(Math.max(thr,1e-300)),label:(stringency==="q"?"BH":"Bonf"),c:"var(--line)"}]:[])})};
 }
@@ -349,7 +356,7 @@ function panelSFS(){
   for(let i=0;i<=4;i++){ const v=vmax*i/4,y=mt+ph*(1-i/4); s+=`<line x1="${ml}" y1="${y.toFixed(1)}" x2="${ml+pw}" y2="${y.toFixed(1)}" stroke="var(--grid)" stroke-width="0.5"/><text x="${ml-8}" y="${y.toFixed(1)}" font-size="10" fill="var(--muted)" text-anchor="end" dominant-baseline="middle">${fmt(v,2)}</text>`; }
   s+=`<line x1="${ml}" y1="${Y(1).toFixed(1)}" x2="${ml+pw}" y2="${Y(1).toFixed(1)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="6,3"/><text x="${(ml+pw).toFixed(1)}" y="${(Y(1)-4).toFixed(1)}" font-size="9" fill="var(--muted)" text-anchor="end">neutral 1</text>`;
   bins.forEach((b,i)=>{ const x=ml+i*bw+4, bh=ph*Math.min(isFinite(b.ratio)?b.ratio:vmax,vmax)/vmax, y=mt+ph-bh, col=b.ratio>1?"var(--pos)":"var(--accent)";
-    s+=`<rect class="mark" data-tip="AF ${label(b.lo,b.hi)}<br>pN/pS ${isFinite(b.ratio)?fmt(b.ratio,3):"∞"}<br>${b.n}N / ${b.s}S SNPs" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-8).toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${col}" opacity="0.85"/>`;
+    s+=`<rect class="mark" ${tipData(`AF ${label(b.lo,b.hi)}<br>pN/pS ${isFinite(b.ratio)?fmt(b.ratio,3):"∞"}<br>${b.n}N / ${b.s}S SNPs`)} x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw-8).toFixed(1)}" height="${bh.toFixed(1)}" rx="3" fill="${col}" opacity="0.85"/>`;
     s+=`<text x="${(x+(bw-8)/2).toFixed(1)}" y="${mt+ph+15}" font-size="9" fill="var(--muted)" text-anchor="middle">${label(b.lo,b.hi)}</text>`;
     s+=`<text x="${(x+(bw-8)/2).toFixed(1)}" y="${mt+ph+29}" font-size="8" fill="var(--muted)" text-anchor="middle">n=${b.n+b.s}</text>`; });
   s+=`<text x="${(ml+pw/2).toFixed(1)}" y="${H-8}" font-size="11" fill="var(--muted)" text-anchor="middle">alt allele frequency →</text></svg>`;
@@ -426,7 +433,7 @@ function panelLollipop(){
     s+=`<text x="${x.toFixed(1)}" y="${mt+n*rowH+15}" font-size="9" fill="var(--muted)" text-anchor="middle">${Math.pow(2,t).toFixed(t<0?2:0)}</text>`; });
   ranked.forEach((g,i)=>{ const y=mt+i*rowH+rowH/2, lv=Math.log2(g.ratio<=0?1e-3:g.ratio), x=X(lv), col=REGIMES[regime(g)], sel=(g._i===selected);
     s+=`<line x1="${x0.toFixed(1)}" y1="${y}" x2="${x.toFixed(1)}" y2="${y}" stroke="${col}" stroke-width="2" opacity="0.45"/>`;
-    s+=`<circle class="mark" data-i="${g._i}" data-tip="${baseTip(g)}" cx="${x.toFixed(1)}" cy="${y}" r="${sel?6:4.5}" fill="${col}"${sel?' stroke="var(--sel)" stroke-width="2"':''}/>`;
+    s+=`<circle class="mark" data-i="${g._i}" ${tipData(baseTip(g))} cx="${x.toFixed(1)}" cy="${y}" r="${sel?6:4.5}" fill="${col}"${sel?' stroke="var(--sel)" stroke-width="2"':''}/>`;
     s+=`<text x="${ml-8}" y="${y}" font-size="10" fill="var(--fg)" text-anchor="end" dominant-baseline="middle">${hesc(g.name)}${quar(g)?" ⚠":""}</text>`;
     s+=`<text x="${(ml+pw+8).toFixed(1)}" y="${y}" font-size="9" fill="var(--muted)" dominant-baseline="middle">${fmt(g.ratio,2)} · ${isSig(g)?(stringency==="q"?"q":"pB")+" "+fmtP(sigVal(g)):"ns"}</text>`; });
   s+=`<text x="${(ml+pw/2).toFixed(1)}" y="${H-6}" font-size="11" fill="var(--muted)" text-anchor="middle">pN/pS (log2 scale) — stem anchored at neutral (1)</text></svg>`;
@@ -457,6 +464,7 @@ function panelCoreRep(){
 function renderPanels(){
   hideInfo();   // any open help popover is anchored to a button we are about to destroy
   if(typeof tip!=="undefined"&&tip) tip.style.opacity=0;   // clear any stale tooltip before rebuild
+  TIPS.length=0;         // tooltip HTML is re-collected each render; indices point into it
   canvasJobs.length=0;   // discard previous render's canvas jobs before rebuilding
   if(!S.genesWithSnps){ $("#panels").innerHTML=`<section class="panel wide"><p class="muted">No genes carried usable SNPs, so there is nothing to plot. Check the VCF/GFF contig names and filters.</p></section>`; buildToc(); return; }
   const P=[panelCensus(),panelHits(),panelManhattan(),panelVolcano(),panelQQ()];
@@ -498,7 +506,7 @@ function fixSpans(){}  // wide panels now use the .wide class
 
 // ── Interaction: hover tooltip + click-to-select (delegated) ──────────
 $("#panels").addEventListener("mousemove", e=>{ const t=e.target;
-  if(t.classList&&t.classList.contains("mark")){ tip.innerHTML=t.dataset.tip; tip.style.opacity=1; tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY+12)+"px"; } else tip.style.opacity=0; });
+  if(t.classList&&t.classList.contains("mark")){ tip.innerHTML=TIPS[+t.dataset.tip]||""; tip.style.opacity=1; tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY+12)+"px"; } else tip.style.opacity=0; });
 $("#panels").addEventListener("mouseleave", ()=>tip.style.opacity=0);
 $("#panels").addEventListener("click", e=>{ const t=e.target;
   if(t.classList&&t.classList.contains("mark")){ const i=+t.dataset.i; if(genes.some(g=>g._i===i)) selectGene(i); return; }
@@ -608,7 +616,7 @@ $("#expCsv").addEventListener("click", ()=>{ const keys=cols.map(c=>c[0]).filter
   const cell=v=>{ if(typeof v==="number") return isFinite(v)?String(v):"NA";   // numbers (incl. negatives) pass verbatim, never a formula
     let s=(v==null)?"NA":String(v);
     // Defuse formula injection in string cells, but leave a lone +/- (e.g. the strand column) intact.
-    if(/^[=@]/.test(s) || (s.length>1 && /^[+\-]/.test(s))) s="'"+s;
+    if(/^[=@\t\r\n]/.test(s) || (s.length>1 && /^[+\-]/.test(s))) s="'"+s;
     return /[",\n\r]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
   const head=keys.map(cell).join(","); const body=filtered().map(g=>keys.map(k=>cell(g[k])).join(",")).join("\n");
   dl("eskaks_genes.csv", head+"\n"+body, "text/csv"); });

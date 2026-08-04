@@ -609,6 +609,39 @@ fn vcf_examples_genome_wide_diversity_independent_of_min_snps() {
 }
 
 #[test]
+fn vcf_report_never_leaks_raw_markup_from_a_gene_name() {
+    // A gene name comes from an untrusted GFF, so it must never reach the report HTML
+    // as live markup (a stored XSS the interactive tooltips previously allowed via an
+    // attribute round-trip). Inject an HTML/script payload as a gene name and assert
+    // the raw dangerous form never appears in the output.
+    let gff = read("examples/toy_genome/genes.gff3")
+        .replacen("gene=gene01", "gene=<img src=x onerror=alert(1)><script>alert(2)</script>", 1);
+    let gff_path = std::env::temp_dir().join("eskaks_xss_test.gff3");
+    std::fs::write(&gff_path, gff).unwrap();
+
+    let r = new_run();
+    run_ok(&[
+        "vcf",
+        "--ref", "examples/toy_genome/reference.fasta",
+        "--gff", gff_path.to_str().unwrap(),
+        "--vcf", "examples/toy_genome/variants_multisample.vcf",
+        "--genetic-code", "11", "--report", "--mk",
+        "-o", r.prefix.as_str(),
+    ]);
+    let html = read(&format!("{}_report.html", r.prefix));
+
+    // The payload's markup must appear only in escaped form (Rust `esc()` turns the
+    // name's `<`/`>` into `\uXXXX` in the JSON block). The bare tags below are unique
+    // to the payload, so the report's own legitimate `<script>` tags don't false-match.
+    for raw in ["<img src=x onerror", "<script>alert(2)"] {
+        assert!(
+            !html.contains(raw),
+            "raw markup {raw:?} from a gene name leaked into the report HTML (XSS risk)"
+        );
+    }
+}
+
+#[test]
 fn vcf_examples_summary_reports_pooled_and_significant() {
     let r = new_run();
     let out = vcf_core(&r.prefix, &[]);
