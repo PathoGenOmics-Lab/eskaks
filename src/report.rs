@@ -63,6 +63,10 @@ fn esc(s: &str) -> String {
             '\t' => o.push_str("\\t"),
             '<' => o.push_str("\\u003c"),
             '>' => o.push_str("\\u003e"),
+            // U+2028/U+2029 are valid unescaped in JSON but are line terminators inside a
+            // pre-ES2019 <script> string literal, where they would be a SyntaxError.
+            '\u{2028}' => o.push_str("\\u2028"),
+            '\u{2029}' => o.push_str("\\u2029"),
             c if (c as u32) < 0x20 => {
                 let _ = write!(o, "\\u{:04x}", c as u32);
             }
@@ -75,6 +79,9 @@ fn esc(s: &str) -> String {
 /// Format a float as a JSON literal (`null` for non-finite).
 fn num(v: f64) -> String {
     if v.is_finite() {
+        // Normalize -0.0 to 0.0 so an empty class (e.g. a -0.0 divergence) does not
+        // serialize as "-0", matching the other float formatters in the crate.
+        let v = if v == 0.0 { 0.0 } else { v };
         format!("{}", v)
     } else {
         "null".to_string()
@@ -421,5 +428,23 @@ mod tests {
         let uri = logo_data_uri();
         assert!(uri.starts_with("data:image/svg+xml;base64,"));
         assert!(uri.len() > 1000, "logo data URI unexpectedly small");
+    }
+
+    #[test]
+    fn esc_neutralizes_script_break_and_line_separators() {
+        // Quote, backslash, and </script> cannot break the inline <script> DATA.
+        assert_eq!(esc(r#"a"b\c"#), r#"a\"b\\c"#);
+        assert_eq!(esc("</script>"), "\\u003c/script\\u003e");
+        // U+2028 / U+2029 are line terminators in a pre-ES2019 script string literal.
+        assert_eq!(esc("a\u{2028}b\u{2029}c"), "a\\u2028b\\u2029c");
+    }
+
+    #[test]
+    fn num_normalizes_negative_zero_and_guards_non_finite() {
+        assert_eq!(num(-0.0), "0");
+        assert_eq!(num(0.0), "0");
+        assert_eq!(num(1.5), "1.5");
+        assert_eq!(num(f64::NAN), "null");
+        assert_eq!(num(f64::INFINITY), "null");
     }
 }
