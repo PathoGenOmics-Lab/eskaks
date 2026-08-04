@@ -36,17 +36,17 @@ const DEMO_VCF_DIVERGENCE: &str = include_str!("../examples/toy_genome/divergenc
 /// only one subcommand, but `--demo` runs `eskaks fasta` and `eskaks vcf` back to back
 /// in a single process, so the second initialisation must be a no-op instead of the
 /// hard "global thread pool has already been initialized" error.
-fn init_global_pool(workers: usize) -> anyhow::Result<()> {
-    static POOL: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+fn init_global_pool(workers: usize) {
+    static POOL: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     POOL.get_or_init(|| {
-        rayon::ThreadPoolBuilder::new()
+        // build_global() fails only when a global pool already exists (in which case
+        // rayon is still fully usable), so a failure here is benign and must not abort
+        // the run. The OnceLock also means we attempt it at most once per process.
+        let _ = rayon::ThreadPoolBuilder::new()
             .num_threads(workers)
             .stack_size(4 * 1024 * 1024)
-            .build_global()
-            .map_err(|e| e.to_string())
-    })
-    .clone()
-    .map_err(|e| anyhow::anyhow!(e))
+            .build_global();
+    });
 }
 
 fn main() -> anyhow::Result<()> {

@@ -567,6 +567,48 @@ fn vcf_examples_bootstrap_reproducible() {
 }
 
 #[test]
+fn vcf_examples_genome_wide_diversity_independent_of_min_snps() {
+    // Regression: the genome-wide (pooled) diversity headline must pool over ALL
+    // genes (like the pooled pN/pS), not the --min-snps-filtered subset, so
+    // pi / theta_W / Tajima's D never silently depend on the --min-snps threshold.
+    const MS: &str = "examples/toy_genome/variants_multisample.vcf";
+    let base = [
+        "vcf", "--ref", REF, "--gff", GFF, "--vcf", MS, "--genetic-code", "11", "--diversity",
+    ];
+
+    let a = new_run();
+    let mut args_a = base.to_vec();
+    args_a.extend(["-o", a.prefix.as_str(), "--min-snps", "0"]);
+    let ea = String::from_utf8_lossy(&run_ok(&args_a).stderr).into_owned();
+
+    let b = new_run();
+    let mut args_b = base.to_vec();
+    args_b.extend(["-o", b.prefix.as_str(), "--min-snps", "20"]);
+    let eb = String::from_utf8_lossy(&run_ok(&args_b).stderr).into_owned();
+
+    for label in ["Segregating coding SNPs:", "piN/piS:", "Tajima's D:"] {
+        assert_eq!(
+            num_after(&ea, label),
+            num_after(&eb, label),
+            "genome-wide diversity '{label}' must not change with --min-snps\n\
+             --min-snps 0:\n{ea}\n--min-snps 20:\n{eb}"
+        );
+    }
+
+    // Sanity: --min-snps 20 genuinely filters the per-gene diversity table, so the
+    // two runs differ; the headline just must not depend on that filtering.
+    let rows0 = tsv(&format!("{}_diversity.tsv", a.prefix));
+    let rows20 = tsv(&format!("{}_diversity.tsv", b.prefix));
+    assert!(
+        rows20.len() < rows0.len(),
+        "--min-snps 20 should drop low-count genes from the per-gene diversity table \
+         (rows0={}, rows20={})",
+        rows0.len(),
+        rows20.len()
+    );
+}
+
+#[test]
 fn vcf_examples_summary_reports_pooled_and_significant() {
     let r = new_run();
     let out = vcf_core(&r.prefix, &[]);

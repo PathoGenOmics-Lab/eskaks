@@ -104,7 +104,7 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         );
     }
 
-    crate::init_global_pool(args.workers)?;
+    crate::init_global_pool(args.workers);
 
     let ref_path = std::path::Path::new(&args.reference);
     let gff_path = std::path::Path::new(&args.gff);
@@ -279,6 +279,16 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         None
     };
 
+    // Genome-wide (pooled) diversity, like the pooled pN/pS above, pools over ALL
+    // genes, captured here BEFORE --min-snps drops low-count genes below, so the
+    // headline π / θ_W / Tajima's D never silently depend on the --min-snps threshold.
+    let genome_wide_div: Option<vcf_analysis::GenomeDiversity> = if args.diversity && n_effective >= 2
+    {
+        vcf_analysis::genome_wide_diversity(&results, n_effective)
+    } else {
+        None
+    };
+
     // --min-snps drops unreliable low-count genes from the per-gene table,
     // plot, and neutrality test (but not from the pooled estimate above).
     let mut dropped = 0usize;
@@ -337,9 +347,9 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
                 vcf_analysis::write_diversity(&results, n_effective, &args.output, &args.format)?;
             info!("Diversity table saved to {}", div_path);
             written.push(div_path);
-            let gw: Option<vcf_analysis::GenomeDiversity> =
-                vcf_analysis::genome_wide_diversity(&results, n_effective);
-            if let Some(gw) = gw {
+            // Use the pre-filter genome-wide diversity captured above (pooled over ALL
+            // genes), not a recompute over the --min-snps-filtered `results`.
+            if let Some(gw) = genome_wide_div {
                 // Explicitly requested via --diversity, so show the headline numbers.
                 eprintln!("\n── Genome-wide diversity (n={}) ───────────", gw.n);
                 eprintln!("  Segregating coding SNPs: {}", gw.s_seg);

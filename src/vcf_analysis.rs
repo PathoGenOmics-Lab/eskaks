@@ -268,6 +268,9 @@ fn format_pval(v: f64) -> String {
 /// literal (preserves small p-values that {:.6} would flatten to 0).
 fn format_json_num(v: f64) -> String {
     if v.is_finite() {
+        // Normalise IEEE -0.0 → 0.0 (an empty diversity class sums to -0.0), so the
+        // JSON matches the delimited writers and never emits a stray "-0".
+        let v = if v == 0.0 { 0.0 } else { v };
         format!("{}", v)
     } else {
         "null".to_string()

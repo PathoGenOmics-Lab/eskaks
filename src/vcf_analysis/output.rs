@@ -232,8 +232,14 @@ pub fn genome_wide_diversity(results: &[GenePnPs], n: usize) -> Option<GenomeDiv
 /// within-species analogue of pN/pS) and their ratio, per-site Watterson θ, and
 /// Tajima's D — the SFS neutrality test (D < 0: excess of rare variants; D > 0:
 /// intermediate-frequency excess). Requires the sample size `n ≥ 2`, and assumes
-/// haploid genotypes (as for *M. tuberculosis*): the derived count is recovered
-/// as round(AF·n), exact for complete haploid calls.
+/// haploid genotypes (as for *M. tuberculosis*): a site's derived count is recovered
+/// as round(AF·n). This is exact for the recommended input (per-sample VCFs, where
+/// AF = carriers / n) and for a single VCF whose INFO/AF equals its genotype
+/// frequencies; with an INFO/AF that disagrees with the GT columns (INFO/AF is
+/// preferred when present) or with incomplete calls, the count is approximate.
+/// Multiallelic sites contribute one entry per ALT rather than a single site-spectrum
+/// term, so π and the segregating-site count are mildly inflated at such sites (rare
+/// in clonal genomes); overlapping genes count a shared SNP once per gene.
 pub fn write_diversity(
     results: &[GenePnPs],
     n: usize,

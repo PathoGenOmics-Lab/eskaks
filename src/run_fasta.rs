@@ -20,7 +20,7 @@ pub(crate) fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
         info!("Using genetic code table {}: {}", gc.id, gc.name);
     }
 
-    crate::init_global_pool(args.workers)?;
+    crate::init_global_pool(args.workers);
 
     // Warn about flags that silently do nothing (or too little) on their own.
     if args.window_step != 1 && args.window_size.is_none() {

@@ -386,7 +386,18 @@ population-genetics statistics for that, writing `<output>_diversity.<ext>`:
     genotype columns or the number of merged single-sample VCFs — an **AF-only VCF is
     skipped with a warning**. eskaks assumes haploid calls (as for *M. tuberculosis*);
     only genuinely **segregating** sites count (variants fixed within the sample are
-    excluded from π/θ/D).
+    excluded from π/θ/D). Each site's derived-allele count is recovered as
+    round(AF·\(n\)): exact for per-sample VCFs (the recommended input) and for a
+    single VCF whose INFO/AF matches its genotypes, approximate otherwise. For the
+    most accurate diversity, prefer **per-sample VCFs via `--vcf-list`**.
+
+!!! note "Edge cases: multiallelic and overlapping genes"
+    At a **multiallelic** site each ALT is counted separately, so π and the
+    segregating-site count are slightly inflated there (rare in clonal genomes). A SNP
+    inside **overlapping genes** is counted once per gene, so it contributes to each
+    gene's per-site statistics. Both are per-gene effects; the genome-wide pooled
+    diversity (like pooled pN/pS) is reported over all genes and is unaffected by
+    `--min-snps`.
 
 ## Examples
 
