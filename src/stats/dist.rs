@@ -158,7 +158,13 @@ pub fn wilson_interval(k: u64, n: u64, conf: f64) -> (f64, f64) {
     let denom = 1.0 + z2 / nf;
     let center = (phat + z2 / (2.0 * nf)) / denom;
     let half = (z / denom) * ((phat * (1.0 - phat) / nf) + z2 / (4.0 * nf * nf)).sqrt();
-    ((center - half).clamp(0.0, 1.0), (center + half).clamp(0.0, 1.0))
+    // k == 0 and k == n give bounds that are algebraically exactly 0.0 and 1.0; snap
+    // them so float rounding of center +/- half cannot land one ULP inside (0, 1). This
+    // matters for the pN/pS upper CI: a syn == 0 gene must map q -> +inf, not a finite
+    // ~1e15 when hi rounds to 0.999...9 for certain n.
+    let lo = if k == 0 { 0.0 } else { (center - half).clamp(0.0, 1.0) };
+    let hi = if k == n { 1.0 } else { (center + half).clamp(0.0, 1.0) };
+    (lo, hi)
 }
 
 /// Inverse standard-normal CDF (probit) via Acklam's rational approximation
@@ -233,28 +239,33 @@ pub fn bonferroni(pvals: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// Error function (Abramowitz & Stegun 7.1.26, max abs error ~1.5e-7).
-pub(crate) fn erf(x: f64) -> f64 {
+/// Complementary error function erfc(x) = 1 - erf(x), evaluated directly from the
+/// Abramowitz & Stegun 7.1.26 tail form (poly(t)·exp(-x²)) so the far tail does NOT
+/// collapse to 0 through `1 - erf` cancellation: erf(x) rounds to exactly 1.0 once
+/// exp(-x²) drops below ~1e-16 (x ≳ 6), which would make `1 - erf` return 0.0 for a
+/// still-positive tail. Same ~1.5e-7 absolute accuracy as [`erf`].
+pub(crate) fn erfc(x: f64) -> f64 {
     let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
-    let y = 1.0
-        - (((((1.061_405_429 * t - 1.453_152_027) * t) + 1.421_413_741) * t - 0.284_496_736) * t
-            + 0.254_829_592)
-            * t
-            * (-x * x).exp();
+    let tail = (((((1.061_405_429 * t - 1.453_152_027) * t + 1.421_413_741) * t - 0.284_496_736)
+        * t
+        + 0.254_829_592)
+        * t)
+        * (-x * x).exp();
     if x < 0.0 {
-        -y
+        2.0 - tail
     } else {
-        y
+        tail
     }
 }
 
-/// Two-sided p-value for a standard-normal Z statistic: erfc(|z|/√2).
-/// Used for the Nei-Gojobori analytic neutrality (Z) test.
+/// Two-sided p-value for a standard-normal Z statistic: erfc(|z|/√2). Uses [`erfc`]
+/// directly (not `1 - erf`) so a deep-tail Z (e.g. a strongly significant gene under
+/// genomic control) keeps its tiny-but-nonzero p instead of underflowing to exactly 0.
 pub fn normal_two_sided_p(z: f64) -> f64 {
     if !z.is_finite() {
         return f64::NAN;
     }
-    (1.0 - erf(z.abs() / std::f64::consts::SQRT_2)).clamp(0.0, 1.0)
+    erfc(z.abs() / std::f64::consts::SQRT_2).clamp(0.0, 1.0)
 }
 
 /// Two-sided Fisher's exact test p-value for the 2×2 table

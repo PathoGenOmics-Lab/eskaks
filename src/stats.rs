@@ -18,4 +18,4 @@ pub use dist::{
 pub use rng::SplitMix64;
 // Used only by the test suite.
 #[cfg(test)]
-pub(crate) use dist::{erf, inv_normal_cdf, ln_gamma};
+pub(crate) use dist::{erfc, inv_normal_cdf, ln_gamma};

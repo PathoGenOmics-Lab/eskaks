@@ -77,6 +77,13 @@ fn normal_p_known_values() {
     assert!(normal_two_sided_p(f64::NAN).is_nan());
     // Symmetric in sign
     assert!((normal_two_sided_p(1.5) - normal_two_sided_p(-1.5)).abs() < 1e-12);
+    // Deep tail must stay tiny-but-nonzero (erfc form), not underflow to exactly 0 via
+    // `1 - erf` cancellation (erf(|z|/sqrt2) rounds to 1.0 for z >~ 8.7). This is the
+    // genomic-control p_gc = normal_two_sided_p(sqrt(chi2/lambda)) path.
+    let p9 = normal_two_sided_p(9.0);
+    assert!(p9 > 0.0 && p9 < 1e-15, "deep-tail p should be small positive, got {p9}");
+    // Monotone into the tail; a more extreme Z is strictly more significant, never 0 == 0.
+    assert!(normal_two_sided_p(12.0) > 0.0 && normal_two_sided_p(12.0) < p9);
 }
 
 #[test]
@@ -171,6 +178,10 @@ fn wilson_interval_properties() {
     assert!(lo0 == 0.0 && hi0 > 0.0 && hi0 < 1.0);
     let (lo1, hi1) = wilson_interval(8, 8, 0.95);
     assert!(hi1 == 1.0 && lo1 > 0.0 && lo1 < 1.0);
+    // n == 1 is the case that used to float one ULP below 1.0, mapping a syn == 0 gene's
+    // pN/pS upper CI to a finite ~1e15 instead of +inf. Both degenerate bounds must snap.
+    assert_eq!(wilson_interval(1, 1, 0.95).1, 1.0);
+    assert_eq!(wilson_interval(0, 1, 0.95).0, 0.0);
     // More data → tighter interval.
     let (a, b) = wilson_interval(50, 100, 0.95);
     let (c, d) = wilson_interval(5, 10, 0.95);
@@ -259,14 +270,15 @@ fn cov_inv_normal_cdf_tail_branches() {
 }
 
 #[test]
-fn cov_erf_odd_negative_branch() {
-    // erf is odd: for x < 0 the code returns -y (y = erf(|x|)); construction
-    // makes erf(-a) == -erf(a) bit-for-bit for a > 0.
-    assert_eq!(erf(-1.0), -erf(1.0));
-    assert_eq!(erf(-2.5), -erf(2.5));
-    assert!(erf(-1.0) < 0.0);
-    // Sanity vs tabulated erf(1) = 0.8427007929 (A&S 7.1.26, |err| ~1.5e-7).
-    assert!((erf(1.0) - 0.842_700_792_9).abs() < 1e-6);
+fn cov_erfc_reflection_and_value() {
+    // erfc reflects as erfc(-x) = 2 - erfc(x).
+    assert!((erfc(-1.0) - (2.0 - erfc(1.0))).abs() < 1e-12);
+    // Sanity vs tabulated erfc(1) = 1 - 0.8427007929 = 0.1572992071 (A&S 7.1.26).
+    assert!((erfc(1.0) - 0.157_299_207_1).abs() < 1e-6);
+    // Complementary to erf: 1 - erfc(1) matches the tabulated erf(1) = 0.8427007929.
+    assert!(((1.0 - erfc(1.0)) - 0.842_700_792_9).abs() < 1e-6);
+    // Complementary sum: erfc(x) + erfc(-x) = 2 exactly (reflection identity).
+    assert!((erfc(2.5) + erfc(-2.5) - 2.0).abs() < 1e-12);
 }
 
 #[test]
