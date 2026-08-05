@@ -1,0 +1,41 @@
+name: Fuzz
+
+# Coverage-guided fuzzing of the VCF and GFF3 parsers. Scheduled and on-demand only
+# (never a PR gate): it needs a nightly toolchain plus libFuzzer and is time-bounded.
+# The parsers also have a stable-toolchain no-panic property test (tests/property_tests.rs)
+# that DOES run on every PR; this job is the deeper, longer, coverage-guided pass.
+on:
+  schedule:
+    - cron: "0 4 * * 1" # 04:00 UTC every Monday
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds to fuzz each target
+        default: "120"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [parse_vcf, parse_gff3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz ${{ matrix.target }}
+        run: >-
+          cargo fuzz run ${{ matrix.target }} --
+          -max_total_time=${{ github.event.inputs.seconds || '120' }}
+          -rss_limit_mb=4096
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/

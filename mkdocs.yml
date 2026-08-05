@@ -1,0 +1,201 @@
+# MkDocs Material configuration for the eskaks documentation.
+# Build:   mkdocs serve         (live preview)
+#          mkdocs build --strict (CI gate)
+site_name: eskaks
+site_description: >-
+  Fast pairwise dN/dS and per-gene pN/pS for molecular-evolution and
+  Mycobacterium tuberculosis selection analysis.
+site_url: https://pathogenomics-lab.github.io/eskaks/
+site_author: Paula Ruiz-Rodriguez
+copyright: >-
+  Copyright &copy; 2026 PathoGenOmics Lab —
+  <a href="#__consent">change cookie settings</a>
+
+repo_name: PathoGenOmics-Lab/eskaks
+repo_url: https://github.com/PathoGenOmics-Lab/eskaks
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+    admonition:
+      note: material/dna
+      abstract: material/clipboard-text
+      tip: material/lightbulb-on
+      warning: material/alert
+      danger: material/skull
+  palette:
+    # Light mode (mycolorsTB brand)
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  # Use the system font stack — no Google Fonts request, so the site contacts no
+  # third party for typography (keeps the privacy claim honest).
+  font: false
+  features:
+    # Navigation
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.path
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    # Search
+    - search.suggest
+    - search.highlight
+    - search.share
+    # Code
+    - content.code.copy
+    - content.code.annotate
+    - content.code.select
+    # Content
+    - content.tabs.link
+    - content.tooltips
+    - content.action.edit
+    - content.action.view
+    - announce.dismiss
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  # MathJax is self-hosted (docs/javascripts/mathjax/) rather than pulled from a
+  # CDN, matching the font:false decision above. The one remaining third-party
+  # fetch is the Mermaid diagramming library, which Material lazy-loads from a CDN
+  # only on pages that contain a diagram (currently just vcf-analysis.md). It sets
+  # no cookie and runs no analytics; self-hosting mermaid@11 (~3.6 MB + dynamic
+  # chunks) is not worth it for one flowchart.
+  - javascripts/mathjax/tex-mml-chtml.js
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - tags
+  # Render the .ipynb tutorial as a native page (with its saved outputs) and a
+  # download button. execute:false — outputs are committed with the notebook.
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+      ignore_h1_titles: true
+      theme: auto
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+      fallback_to_build_date: true
+  # Social cards need cairo/pango, only built in CI (see .github/workflows/docs.yml).
+  - social:
+      enabled: !ENV [CI, false]
+      cards_layout_options:
+        background_color: "#305595"
+
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      title: On this page
+      toc_depth: 3
+  # PyMdown Extensions
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.critic
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.smartsymbols
+  - pymdownx.snippets:
+      auto_append:
+        - includes/abbreviations.md
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - Installation: installation.md
+      - Getting started (tutorial): tutorial.md
+      - Tutorial notebook: tutorial-notebook.ipynb
+      - Quick start: quickstart.md
+      - Models: models.md
+      - Genetic codes: genetic-codes.md
+      - Output formats: output-formats.md
+      - Interpreting results: interpreting-results.md
+      - VCF analysis (pN/pS): vcf-analysis.md
+      - Example report (live): example-report.md
+  - Reference:
+      - Glossary: glossary.md
+      - CLI reference: cli-reference.md
+      - Performance & accuracy: performance.md
+      - FAQ: faq.md
+  - Contributing:
+      - Development: development.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/PathoGenOmics-Lab/eskaks
+      name: eskaks on GitHub
+  consent:
+    title: Cookie consent
+    description: >-
+      This site uses the browser's local storage only to remember your theme
+      choice; it sets no tracking or analytics cookies. Fonts and math rendering
+      are self-hosted - the only external request is the Mermaid diagram library,
+      loaded from a CDN on pages that contain a diagram.
+    actions:
+      - accept
+      - manage
+

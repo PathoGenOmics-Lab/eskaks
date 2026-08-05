@@ -1,0 +1,33 @@
+name: Mutants
+
+# Mutation testing of the scientific core: inject small bugs and confirm the test
+# suite kills them. Scheduled and on-demand only (it is slow and not a PR gate); it
+# surfaces test gaps to close, not per-commit failures.
+on:
+  schedule:
+    - cron: "0 5 * * 1" # 05:00 UTC every Monday
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+      - name: Mutate the scientific core
+        run: >-
+          cargo mutants --in-place
+          --file "src/stats/**/*.rs"
+          --file "src/vcf_analysis/**/*.rs"
+          --file "src/models/**/*.rs"
+      - name: Upload the mutants report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-report
+          path: mutants.out/

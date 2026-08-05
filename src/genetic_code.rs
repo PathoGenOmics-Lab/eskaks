@@ -117,7 +117,7 @@ static TABLES: &[GeneticCode] = &[
     GeneticCode {
         id: 24,
         name: "Rhabdopleuridae Mitochondrial",
-        aa_table: *b"KNKNTTTTKSKSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVV*Y*YSSSSWCWCLFLF",
+        aa_table: *b"KNKNTTTTSSKSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVV*Y*YSSSSWCWCLFLF",
     },
     GeneticCode {
         id: 25,
@@ -132,7 +132,7 @@ static TABLES: &[GeneticCode] = &[
     GeneticCode {
         id: 33,
         name: "Cephalodiscidae Mitochondrial UAA-Tyr",
-        aa_table: *b"KNKNTTTTKSKSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVYY*YSSSSWCWCLFLF",
+        aa_table: *b"KNKNTTTTSSKSIIMIQHQHPPPPRRRRLLLLEDEDAAAAGGGGVVVVYY*YSSSSWCWCLFLF",
     },
 ];
 
@@ -184,32 +184,48 @@ pub fn li_to_nei_aa(li_table: &[u8; 64]) -> [char; 64] {
     nei_table
 }
 
-/// Compute synonymous sites (×3) for each codon under a Nei-indexed AA table.
+/// Per-codon synonymous SITES under the Nei-Gojobori "exclude changes-to-stop"
+/// convention — the same rule this crate's VCF pN/pS counter
+/// ([`crate::vcf_analysis::sites::count_sites`]) and the reference tools
+/// (KaKs_Calculator, SNPGenie) use, so both eskaks paths share one convention.
 ///
-/// For each codon and each of its 3 positions, counts how many of the 3
-/// alternative bases produce the same amino acid (including stop→stop).
-pub fn compute_syn_sites(nei_aa: &[char; 64]) -> [usize; 64] {
-    let mut syn = [0usize; 64];
+/// For each codon, of its nine single-nucleotide changes we count how many are
+/// synonymous vs nonsynonymous, EXCLUDING any change that creates a stop codon,
+/// then split the codon's three sites in that ratio: `S = 3·syn/(syn+nonsyn)`
+/// (and the caller takes `N = 3 − S`). Classic Nei-Gojobori 1986 instead keeps a
+/// change-to-stop as nonsynonymous (fixed denominator 9); excluding it makes S
+/// slightly larger at stop-adjacent codons. Stop codons themselves return 0.
+pub fn compute_syn_sites(nei_aa: &[char; 64]) -> [f64; 64] {
+    let mut syn_sites = [0.0f64; 64];
 
     for idx in 0..64usize {
-        let slots = [idx / 16, (idx / 4) % 4, idx % 4];
         let aa = nei_aa[idx];
-        let mut count = 0;
+        if aa == '*' {
+            continue; // stop codons are never summed; keep 0 to mirror count_sites
+        }
+        let slots = [idx / 16, (idx / 4) % 4, idx % 4];
+        let (mut syn, mut nonsyn) = (0usize, 0usize);
         for pos in 0..3 {
             for alt in 0..4usize {
-                if alt != slots[pos] {
-                    let mut new_slots = slots;
-                    new_slots[pos] = alt;
-                    let new_idx = new_slots[0] * 16 + new_slots[1] * 4 + new_slots[2];
-                    if nei_aa[new_idx] == aa {
-                        count += 1;
-                    }
+                if alt == slots[pos] {
+                    continue;
+                }
+                let mut new_slots = slots;
+                new_slots[pos] = alt;
+                let new_idx = new_slots[0] * 16 + new_slots[1] * 4 + new_slots[2];
+                match nei_aa[new_idx] {
+                    '*' => {}                 // exclude changes to a stop codon
+                    a if a == aa => syn += 1, // synonymous
+                    _ => nonsyn += 1,         // nonsynonymous (non-stop)
                 }
             }
         }
-        syn[idx] = count;
+        let valid = (syn + nonsyn) as f64;
+        if valid > 0.0 {
+            syn_sites[idx] = 3.0 * syn as f64 / valid;
+        }
     }
-    syn
+    syn_sites
 }
 
 #[cfg(test)]
@@ -244,17 +260,62 @@ mod tests {
     }
 
     #[test]
-    fn standard_syn_sites_match_hardcoded() {
+    fn compute_syn_sites_matches_hand_derived_exclude_nonsense() {
         let t = get_table(1).unwrap();
-        let nei_aa = li_to_nei_aa(&t.aa_table);
-        let syn = compute_syn_sites(&nei_aa);
-        // This is the hardcoded SYN_SITE_ARRAY in nei.rs
-        let expected: [usize; 64] = [
-            1, 1, 2, 2, 3, 3, 4, 4, 2, 2, 2, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-            3, 3, 3, 3, 3, 3, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0,
-            3, 3, 4, 4, 1, 1, 2, 2, 3, 3, 3, 3,
-        ];
-        assert_eq!(syn, expected, "Standard code syn sites mismatch");
+        let syn = compute_syn_sites(&li_to_nei_aa(&t.aa_table));
+        // Nei index of a codon (see the module header): 16·remap(b2)+4·remap(b1)+remap(b3),
+        // remap A→2 C→1 G→3 T→0. This lets us look up specific codons by name.
+        let remap = |b: u8| match b { b'A' => 2, b'C' => 1, b'G' => 3, b'T' => 0, _ => unreachable!() };
+        let ix = |c: &[u8; 3]| 16 * remap(c[1]) + 4 * remap(c[0]) + remap(c[2]);
+        let s = |c: &[u8; 3]| syn[ix(c)];
+
+        // Hand-derived synonymous SITES = 3·syn/(syn+nonsyn), stop changes excluded:
+        //   TTT (Phe): 1 syn (TTC), 8 nonsyn, 0 stop           → 3·1/9 = 1/3
+        //   GCT (Ala): 3 syn (4-fold 3rd pos), 6 nonsyn, 0 stop → 3·3/9 = 1.0
+        //   ATG (Met): unique codon, 0 syn                       → 0.0
+        //   TGG (Trp): 2nd→TAG, 3rd→TGA stop (excluded); 7 nonsyn → 0.0
+        //   TAT (Tyr): 3rd→TAA & →TAG stop (excluded); 1 syn (TAC), 6 nonsyn → 3·1/7 = 3/7
+        //   TGC (Cys): 3rd→TGA stop (excluded); 1 syn (TGT), 7 nonsyn        → 3·1/8 = 0.375
+        // The last two are the whole point: under classic Nei-Gojobori (keep nonsense)
+        // TAT would be 3·1/9 = 1/3 and TGC 3·1/9 = 1/3, so these values prove exclusion.
+        assert!((s(b"TTT") - 1.0 / 3.0).abs() < 1e-12, "TTT {}", s(b"TTT"));
+        assert!((s(b"GCT") - 1.0).abs() < 1e-12, "GCT {}", s(b"GCT"));
+        assert!((s(b"ATG") - 0.0).abs() < 1e-12, "ATG {}", s(b"ATG"));
+        assert!((s(b"TGG") - 0.0).abs() < 1e-12, "TGG {}", s(b"TGG"));
+        assert!((s(b"TAT") - 3.0 / 7.0).abs() < 1e-12, "TAT {}", s(b"TAT"));
+        assert!((s(b"TGC") - 0.375).abs() < 1e-12, "TGC {}", s(b"TGC"));
+        // Every non-stop codon splits into exactly 3 sites (S + N = 3); a stop returns 0.
+        let nei = li_to_nei_aa(&t.aa_table);
+        for (idx, &site) in syn.iter().enumerate() {
+            assert!((0.0..=3.0).contains(&site), "codon {} S out of range: {}", idx, site);
+            if nei[idx] == '*' {
+                assert_eq!(site, 0.0, "stop codon {} must contribute 0 sites", idx);
+            }
+        }
+    }
+
+    #[test]
+    fn compute_syn_sites_agrees_with_vcf_count_sites() {
+        // Unification guard: the fasta (Nei) path's precomputed per-codon S-site table
+        // must equal, codon for codon, the vcf path's `count_sites` — one convention,
+        // two code paths. Both are Nei-Gojobori with changes-to-stop excluded.
+        let t = get_table(1).unwrap();
+        let syn = compute_syn_sites(&li_to_nei_aa(&t.aa_table));
+        // Nei index → bases: inverse of remap (A→2 C→1 G→3 T→0) ⇒ 0→T 1→C 2→A 3→G.
+        let inv = b"TCAG";
+        for (idx, &s_fasta) in syn.iter().enumerate() {
+            let (s0, s1, s2) = (idx / 16, (idx / 4) % 4, idx % 4);
+            let codon = [inv[s1], inv[s0], inv[s2]]; // (b1, b2, b3)
+            let (_n, s_cs) = crate::vcf_analysis::count_sites(&codon, t);
+            assert!(
+                (s_fasta - s_cs).abs() < 1e-12,
+                "codon {} (nei idx {}): fasta S={} vs count_sites S={}",
+                std::str::from_utf8(&codon).unwrap(),
+                idx,
+                s_fasta,
+                s_cs
+            );
+        }
     }
 
     #[test]
@@ -331,5 +392,57 @@ mod tests {
         }
         assert!(fallback_count > 0,
             "Vertebrate mito should have at least one 2-diff pair triggering fallback, got 0");
+    }
+
+    #[test]
+    fn tables_24_and_33_aga_is_ser() {
+        // Regression: NCBI transl_table 24 and 33 define AGA=Ser, AGG=Lys. The Li
+        // index for a codon is 16*b1+4*b2+b3 (A=0,C=1,G=2,T=3), so AGA=8 and AGG=10.
+        for id in [24u8, 33] {
+            let t = get_table(id).unwrap();
+            assert_eq!(t.aa_table[8], b'S', "code {id}: AGA must be Ser");
+            assert_eq!(t.aa_table[10], b'K', "code {id}: AGG must be Lys");
+            assert_eq!(t.aa_table[9], b'S', "code {id}: AGC must be Ser");
+            assert_eq!(t.aa_table[11], b'S', "code {id}: AGT must be Ser");
+        }
+    }
+
+    #[test]
+    fn cov_get_table_unknown_id_is_none() {
+        // This crate defines no NCBI tables 0, 7, 8, or 99 => lookup returns None.
+        assert!(get_table(0).is_none());
+        assert!(get_table(7).is_none());
+        assert!(get_table(8).is_none());
+        assert!(get_table(99).is_none());
+    }
+
+    #[test]
+    fn cov_stop_codon_indices_standard_li_and_nei() {
+        // Standard code (table 1) stops are TAA, TAG, TGA.
+        // Li indexing 16*b1+4*b2+b3 (A=0,C=1,G=2,T=3):
+        //   TAA = 16*3+4*0+0 = 48, TAG = 16*3+4*0+2 = 50, TGA = 16*3+4*2+0 = 56.
+        // stop_codon_indices iterates 0..64 ascending, so the order is fixed.
+        let gc = get_table(1).unwrap();
+        assert_eq!(stop_codon_indices(gc, crate::models::Model::Li), vec![48u8, 50, 56]);
+        // Nei indexing 16*remap(b2)+4*remap(b1)+remap(b3), remap A->2 C->1 G->3 T->0:
+        //   TAA -> 16*2+4*0+2 = 34, TAG -> 16*2+4*0+3 = 35, TGA -> 16*3+4*0+2 = 50.
+        assert_eq!(stop_codon_indices(gc, crate::models::Model::Nei), vec![34u8, 35, 50]);
+    }
+
+    #[test]
+    fn cov_stop_codon_indices_count_matches_star_entries() {
+        // Both model indexings must return exactly one index per '*' entry of the
+        // Li-indexed aa_table, and every Li stop index must map back to b'*'.
+        for &id in &[1u8, 2, 6, 11] {
+            let gc = get_table(id).unwrap();
+            let star = gc.aa_table.iter().filter(|&&a| a == b'*').count();
+            let li = stop_codon_indices(gc, crate::models::Model::Li);
+            let nei = stop_codon_indices(gc, crate::models::Model::Nei);
+            assert_eq!(li.len(), star, "code {id}: Li stop count");
+            assert_eq!(nei.len(), star, "code {id}: Nei stop count");
+            for i in &li {
+                assert_eq!(gc.aa_table[*i as usize], b'*', "code {id}: Li idx {i}");
+            }
+        }
     }
 }

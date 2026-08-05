@@ -7,23 +7,119 @@ mod input;
 mod models;
 mod output;
 mod plot;
+mod report;
 mod stats;
+mod textfmt;
 mod vcf;
 mod vcf_analysis;
+mod run_fasta;
+mod run_vcf;
 
-use anyhow::{bail, Context};
-use clap::Parser;
-use log::info;
-
+use clap::{CommandFactory, Parser};
+use log::LevelFilter;
 use cli::{Args, SubCmd};
-use compute::ComputeEngine;
-use models::DsDn;
-use output::OutputConfig;
-use stats::SummaryStats;
+
+/// Bundled example alignment, embedded so `--demo` works from an installed binary
+/// without the repository's `examples/` directory on disk.
+const DEMO_FASTA: &str = include_str!("../examples/genes.fasta");
+
+/// Bundled toy genome (reference + annotation + a small 20-sample genotyped VCF, plus
+/// a divergence table), embedded so `eskaks --demo` can also showcase the per-gene
+/// pN/pS path - the neutrality test, `--variants`, `--diversity` and the report -
+/// with no files on disk. The VCF is genotyped so π / θ_W / Tajima's D are defined.
+const DEMO_VCF_REF: &str = include_str!("../examples/toy_genome/reference.fasta");
+const DEMO_VCF_GFF: &str = include_str!("../examples/toy_genome/genes.gff3");
+const DEMO_VCF: &str = include_str!("../examples/toy_genome/variants_multisample.vcf");
+const DEMO_VCF_DIVERGENCE: &str = include_str!("../examples/toy_genome/divergence.tsv");
+
+/// Initialise rayon's global thread pool exactly once per process. A normal run touches
+/// only one subcommand, but `--demo` runs `eskaks fasta` and `eskaks vcf` back to back
+/// in a single process, so the second initialisation must be a no-op instead of the
+/// hard "global thread pool has already been initialized" error.
+fn init_global_pool(workers: usize) {
+    static POOL: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        // build_global() fails only when a global pool already exists (in which case
+        // rayon is still fully usable), so a failure here is benign and must not abort
+        // the run. The OnceLock also means we attempt it at most once per process.
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .stack_size(4 * 1024 * 1024)
+            .build_global();
+    });
+}
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
-    let args = Args::parse();
+    // A biologist's intuitive first try is `eskaks alignment.fasta` (no subcommand). clap
+    // reports "unrecognized subcommand '<file>'"; add a hint pointing at the right form
+    // when the offending value looks like a file path, instead of just the bare error.
+    let args = match Args::try_parse() {
+        Ok(a) => a,
+        Err(e) => {
+            if e.kind() == clap::error::ErrorKind::InvalidSubcommand {
+                if let Some(clap::error::ContextValue::String(val)) =
+                    e.get(clap::error::ContextKind::InvalidSubcommand)
+                {
+                    if val.contains('.') || val.contains('/') {
+                        eprintln!(
+                            "error: '{val}' is not a subcommand — did you forget the mode?\n  \
+                             FASTA alignment:  eskaks fasta {val} -o results\n  \
+                             variants (VCF):   eskaks vcf --ref ref.fa --gff genes.gff3 --vcf {val}\n\
+                             \nRun `eskaks --help` to see the two subcommands."
+                        );
+                        std::process::exit(2);
+                    }
+                }
+            }
+            e.exit();
+        }
+    };
+
+    // Show data-quality warnings by default (previously env_logger defaulted to
+    // "off", hiding every REF-mismatch / skipped-gene / saturation diagnostic
+    // unless the user knew to set RUST_LOG). RUST_LOG still overrides this.
+    let level = if args.quiet {
+        LevelFilter::Error
+    } else {
+        match args.verbose {
+            0 => LevelFilter::Warn,
+            1 => LevelFilter::Info,
+            _ => LevelFilter::Debug,
+        }
+    };
+    // Clean, cargo-style log lines ("warning: ...", "error: ...") instead of
+    // env_logger's default "[<ISO timestamp> LEVEL module::path] ..." — the timestamp
+    // and module path are noise for an interactive scientific CLI. Colour is applied
+    // only when stderr is a terminal (env_logger's auto write-style). Info-level lines
+    // (the -v narration) print unadorned. RUST_LOG still overrides the level.
+    env_logger::Builder::new()
+        .filter_level(level)
+        .format(|buf, record| {
+            use std::io::Write;
+            let lvl = record.level();
+            let label = match lvl {
+                log::Level::Error => "error",
+                log::Level::Warn => "warning",
+                log::Level::Info => "",
+                log::Level::Debug => "debug",
+                log::Level::Trace => "trace",
+            };
+            if label.is_empty() {
+                writeln!(buf, "{}", record.args())
+            } else {
+                let style = buf.default_level_style(lvl);
+                writeln!(buf, "{}: {}", style.value(label), record.args())
+            }
+        })
+        .parse_default_env()
+        .init();
+
+    // Generate a shell completion script and exit (top-level flag, no subcommand needed).
+    if let Some(shell) = args.completions {
+        let mut cmd = Args::command();
+        clap_complete::generate(shell, &mut cmd, "eskaks", &mut std::io::stdout());
+        return Ok(());
+    }
 
     // Handle --list-codes (top-level flag)
     if args.list_codes {
@@ -31,15 +127,20 @@ fn main() -> anyhow::Result<()> {
         for (id, name) in genetic_code::list_tables() {
             eprintln!("  {:>2}  {}", id, name);
         }
+        eprintln!("\nApply one with --genetic-code <N>, e.g. `eskaks fasta aln.fasta --genetic-code 11`.");
         return Ok(());
     }
 
+    // Quick demo on the bundled example data (top-level flag, no input files needed).
+    if args.demo {
+        return run_demo();
+    }
+
     match args.command {
-        Some(SubCmd::Fasta(fasta_args)) => run_fasta(fasta_args),
-        Some(SubCmd::Vcf(vcf_args)) => run_vcf(vcf_args),
+        Some(SubCmd::Fasta(fasta_args)) => run_fasta::run_fasta(fasta_args),
+        Some(SubCmd::Vcf(vcf_args)) => run_vcf::run_vcf(vcf_args),
         None => {
             // No subcommand: print help
-            use clap::CommandFactory;
             Args::command().print_help()?;
             println!();
             Ok(())
@@ -47,318 +148,80 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn run_fasta(args: cli::FastaArgs) -> anyhow::Result<()> {
-    // Validate genetic code
-    let gc = genetic_code::get_table(args.genetic_code).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Unknown genetic code table {}. Use --list-codes to see available tables.",
-            args.genetic_code
-        )
-    })?;
-    if args.genetic_code != 1 {
-        info!("Using genetic code table {}: {}", gc.id, gc.name);
-    }
+/// Run both `eskaks fasta` and `eskaks vcf` on the embedded example data so a brand-new
+/// user gets two real, successful runs (each with a summary and an HTML report) without
+/// supplying any files, then point them at the real commands for their own data. The
+/// VCF stage exercises the flagship per-gene pN/pS path - including `--variants` and
+/// `--diversity` - which the FASTA-only demo used to leave unreachable on bundled data.
+fn run_demo() -> anyhow::Result<()> {
+    use anyhow::Context;
+    let dir = std::env::temp_dir();
 
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(args.workers)
-        .stack_size(4 * 1024 * 1024)
-        .build_global()?;
+    // ── Demo 1/2: pairwise dN/dS from a codon-aligned FASTA ────────────────────
+    let fasta = dir.join("eskaks_demo.fasta");
+    let fa_out = dir.join("eskaks_demo");
+    std::fs::write(&fasta, DEMO_FASTA)
+        .with_context(|| format!("Failed to write demo input to {}", fasta.display()))?;
 
-    // Load, validate, filter, and deduplicate sequences
-    let stop_indices = genetic_code::stop_codon_indices(gc, args.model);
-    let data = input::load_sequences(&args.input_file, args.model, args.min_codons, Some(&stop_indices))?;
+    eprintln!("Demo 1/2: `eskaks fasta` - pairwise dN/dS on a bundled 6-strain alignment.\n");
+    let fasta_args = cli::FastaArgs::parse_from([
+        "eskaks",
+        fasta.to_str().unwrap(),
+        "-o",
+        fa_out.to_str().unwrap(),
+        "--summary",
+        "--report",
+    ]);
+    run_fasta::run_fasta(fasta_args)?;
 
-    // Build compute engine
-    let engine = ComputeEngine::new(args.model, gc);
+    // ── Demo 2/2: per-gene pN/pS + diversity from a VCF + reference + GFF3 ──────
+    let ref_p = dir.join("eskaks_demo_ref.fasta");
+    let gff_p = dir.join("eskaks_demo_genes.gff3");
+    let vcf_p = dir.join("eskaks_demo_variants.vcf");
+    let div_p = dir.join("eskaks_demo_divergence.tsv");
+    let vcf_out = dir.join("eskaks_demo_vcf");
+    std::fs::write(&ref_p, DEMO_VCF_REF)
+        .with_context(|| format!("Failed to write demo reference to {}", ref_p.display()))?;
+    std::fs::write(&gff_p, DEMO_VCF_GFF)
+        .with_context(|| format!("Failed to write demo annotation to {}", gff_p.display()))?;
+    std::fs::write(&vcf_p, DEMO_VCF)
+        .with_context(|| format!("Failed to write demo VCF to {}", vcf_p.display()))?;
+    std::fs::write(&div_p, DEMO_VCF_DIVERGENCE)
+        .with_context(|| format!("Failed to write demo divergence to {}", div_p.display()))?;
 
-    // Summary stats (only when --summary or --plot)
-    let summary_stats = if args.summary || args.plot {
-        Some(SummaryStats::new())
-    } else {
-        None
-    };
-
-    let ext = args.format.extension();
-    let sep = args.format.separator();
-    let out_cfg = OutputConfig {
-        prefix: &args.output,
-        sep,
-        ext,
-        model: args.model,
-        summary: summary_stats.as_ref(),
-    };
-
-    // Closures that capture the engine
-    let compute_pair = |u_i: usize, u_j: usize| -> DsDn { engine.compute_pair(&data, u_i, u_j) };
-
-    let compute_pair_slices =
-        |s1: &[u8], s2: &[u8]| -> DsDn {
-            let (dn, ds) = engine.compute_slices(s1, s2);
-            DsDn { dn, ds }
-        };
-
-    // Dispatch to the appropriate output mode
-    dispatch_output(&args, &data, &out_cfg, compute_pair, compute_pair_slices)?;
-
-    // Print summary
-    if let Some(ref stats) = summary_stats {
-        if args.summary {
-            stats.print_summary();
-        }
-    }
-
-    info!("All processes completed successfully.");
-    Ok(())
-}
-
-fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
-    let gc = genetic_code::get_table(args.genetic_code).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Unknown genetic code table {}. Use --list-codes to see available tables.",
-            args.genetic_code
-        )
-    })?;
-    if args.genetic_code != 1 {
-        info!("Using genetic code table {}: {}", gc.id, gc.name);
-    }
-
-    let ref_path = std::path::Path::new(&args.reference);
-    let gff_path = std::path::Path::new(&args.gff);
-
-    info!("Loading reference FASTA: {}", args.reference);
-    let reference = vcf_analysis::parse_reference_fasta(ref_path)?;
-
-    info!("Parsing GFF3 annotations: {}", args.gff);
-    let genes = gff::parse_gff3(gff_path)?;
-    info!("Found {} genes with CDS features", genes.len());
-
-    // Collect all VCF paths
-    let mut vcf_paths: Vec<String> = args.vcf.clone();
-    if let Some(ref list_path) = args.vcf_list {
-        let content = std::fs::read_to_string(list_path)
-            .with_context(|| format!("Failed to read VCF list file: {}", list_path))?;
-        for line in content.lines() {
-            let line = line.trim();
-            if !line.is_empty() && !line.starts_with('#') {
-                vcf_paths.push(line.to_string());
-            }
-        }
-    }
-    if vcf_paths.is_empty() {
-        bail!("No VCF files provided. Use --vcf <file> or --vcf-list <file>");
-    }
-
-    // Parse and merge SNPs from all VCF files.
-    // When multiple VCFs (one per sample), AF = fraction of samples carrying the ALT.
-    let n_samples = vcf_paths.len();
-    info!("Loading {} VCF file(s)...", n_samples);
-
-    let snps = if n_samples == 1 {
-        // Single VCF: use AF as-is (could be multi-sample VCF)
-        let snps = vcf::parse_vcf(std::path::Path::new(&vcf_paths[0]))?;
-        info!("Found {} SNP records", snps.len());
-        vcf::filter_snps(snps, args.pass_only, args.min_af, args.max_af, args.min_depth)
-    } else {
-        // Multiple single-sample VCFs: merge and compute AF as fraction of samples
-        let merged = vcf::merge_vcfs(&vcf_paths, args.pass_only, args.min_depth)?;
-        info!("Merged {} unique SNP positions from {} samples", merged.len(), n_samples);
-        vcf::filter_snps(merged, false, args.min_af, args.max_af, None)
-    };
-    info!("{} SNPs after filtering", snps.len());
-
-    // Compute pN/pS
-    let results = vcf_analysis::compute_pn_ps(&reference, &genes, &snps, gc, args.af_weighted);
-
-    // Write results
-    let output_path = vcf_analysis::write_results(&results, &args.output, &args.format)?;
-    info!("Results saved to {}", output_path);
-
-    // Generate plot if requested
-    if args.plot {
-        let plot_path = vcf_analysis::write_pnps_plot(&results, &args.output)?;
-        info!("Plot saved to {}", plot_path);
-    }
-
-    // Print summary statistics
-    let total_genes = results.len();
-    let genes_with_snps = results.iter().filter(|r| r.total_snps > 0.0).count();
-    let total_syn: f64 = results.iter().map(|r| r.syn_snps).sum();
-    let total_nonsyn: f64 = results.iter().map(|r| r.nonsyn_snps).sum();
-    let mode = if args.af_weighted { "πN/πS (AF-weighted)" } else { "pN/pS" };
-    eprintln!("\n── {} Summary ──────────────────────────", mode);
-    eprintln!("  Genes analyzed:      {}", total_genes);
-    eprintln!("  Genes with SNPs:     {}", genes_with_snps);
-    eprintln!("  Total synonymous:    {:.2}", total_syn);
-    eprintln!("  Total nonsynonymous: {:.2}", total_nonsyn);
-    eprintln!("───────────────────────────────────────────");
-
-    info!("VCF analysis completed successfully.");
-    Ok(())
-}
-
-/// Dispatch to the correct output mode based on CLI flags.
-fn dispatch_output(
-    args: &cli::FastaArgs,
-    data: &input::SequenceData,
-    cfg: &OutputConfig,
-    compute_pair: impl Fn(usize, usize) -> DsDn + Sync,
-    compute_pair_slices: impl Fn(&[u8], &[u8]) -> DsDn + Sync,
-) -> anyhow::Result<()> {
-    let ext = cfg.ext;
-
-    if args.group_average {
-        if args.window_size.is_some() {
-            bail!("--window-size cannot be used with --group-average");
-        }
-        info!("Computing group average dN/dS...");
-        let plot_data = output::write_group_average(
-            &data.ids,
-            &data.uidx_by_id,
-            compute_pair,
-            args.first_letter_lineage,
-            cfg,
-        )?;
-        info!("Results saved to {}_group_avg_dn_ds.{}", args.output, ext);
-
-        if args.plot && !plot_data.is_empty() {
-            let plot_path = format!("{}_group_dnds.svg", args.output);
-            plot::group_bar_svg(&plot_data, &plot_path)?;
-            info!("Plot saved to {}", plot_path);
-        }
-    } else if args.lineage {
-        if args.window_size.is_some() {
-            bail!("--window-size cannot be used with --lineage");
-        }
-        info!("Computing dN/dS lineage summary...");
-        let mut lineage_map: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
-        let mut lineage_names: Vec<String> = Vec::new();
-        let lineage_indices: Vec<usize> = data
-            .ids
-            .iter()
-            .map(|id| {
-                let key = codon::extract_group_key(id, args.first_letter_lineage);
-                let next_idx = lineage_names.len();
-                *lineage_map.entry(key).or_insert_with(|| {
-                    lineage_names.push(key.to_string());
-                    next_idx
-                })
-            })
-            .collect();
-        let plot_data = output::write_lineage(
-            &data.ids,
-            &data.uidx_by_id,
-            data.n_unique,
-            compute_pair,
-            &lineage_indices,
-            &lineage_names,
-            cfg,
-        )?;
-        info!(
-            "Lineage summary saved to {}_lineage_summary.{}",
-            args.output, ext
-        );
-
-        if args.plot && !plot_data.is_empty() {
-            let lineage_plot_data: Vec<plot::LineagePlotData> = plot_data
-                .into_iter()
-                .map(|(genome, lineage, ratio)| plot::LineagePlotData {
-                    genome,
-                    lineage,
-                    ratio,
-                })
-                .collect();
-            let plot_path = format!("{}_lineage_dnds.svg", args.output);
-            plot::lineage_bar_svg(&lineage_plot_data, &plot_path)?;
-            info!("Plot saved to {}", plot_path);
-        }
-    } else if let Some(win_size) = args.window_size {
-        dispatch_window(args, data, cfg, compute_pair_slices, win_size)?;
-    } else {
-        info!("Generating pairwise results...");
-        output::write_pairwise(
-            &data.ids,
-            &data.uidx_by_id,
-            data.n_unique,
-            compute_pair,
-            cfg,
-        )?;
-        info!(
-            "Results saved to {}_pairwise_results.{}",
-            args.output, ext
-        );
-
-        if args.plot {
-            if let Some(stats) = cfg.summary {
-                let plot_path = format!("{}_dnds_histogram.svg", args.output);
-                plot::histogram_svg(stats, &plot_path)?;
-                info!("Plot saved to {}", plot_path);
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Window mode dispatch with validation.
-fn dispatch_window(
-    args: &cli::FastaArgs,
-    data: &input::SequenceData,
-    cfg: &OutputConfig,
-    compute_pair_slices: impl Fn(&[u8], &[u8]) -> DsDn + Sync,
-    win_size: usize,
-) -> anyhow::Result<()> {
-    let seq_len = data
-        .unique_codon_indices
-        .first()
-        .map(|v| v.len())
-        .unwrap_or(0);
-    if seq_len == 0 {
-        bail!("Cannot use --window-size with empty sequences");
-    }
-    let misaligned = data
-        .unique_codon_indices
-        .iter()
-        .any(|v| v.len() != seq_len);
-    if misaligned {
-        bail!("--window-size requires all sequences to have equal length. Sequences are not aligned");
-    }
-    if win_size == 0 || win_size > seq_len {
-        bail!(
-            "--window-size must be between 1 and {} (sequence length in codons)",
-            seq_len
-        );
-    }
-    if args.window_step == 0 {
-        bail!("--window-step must be at least 1");
-    }
-    let num_windows = (seq_len - win_size) / args.window_step + 1;
-    let window_stats = if args.plot {
-        Some(stats::WindowStats::new(num_windows))
-    } else {
-        None
-    };
-    info!(
-        "Generating sliding window pairwise results (window={}, step={})...",
-        win_size, args.window_step
+    eprintln!(
+        "\nDemo 2/2: `eskaks vcf` - per-gene pN/pS, neutrality test, variants and diversity\n  \
+         on a bundled 20-sample toy genome (bacterial genetic code 11).\n"
     );
-    output::write_pairwise_windows(
-        &data.ids,
-        &data.uidx_by_id,
-        &data.unique_codon_indices,
-        compute_pair_slices,
-        win_size,
-        args.window_step,
-        window_stats.as_ref(),
-        cfg,
-    )?;
-    info!(
-        "Results saved to {}_pairwise_windows.{}",
-        args.output, cfg.ext
-    );
+    let vcf_args = cli::VcfArgs::parse_from([
+        "eskaks",
+        "--ref",
+        ref_p.to_str().unwrap(),
+        "--gff",
+        gff_p.to_str().unwrap(),
+        "--vcf",
+        vcf_p.to_str().unwrap(),
+        "--genetic-code",
+        "11",
+        "-o",
+        vcf_out.to_str().unwrap(),
+        "--summary",
+        "--report",
+        "--variants",
+        "--diversity",
+        "--mk",
+        "--divergence",
+        div_p.to_str().unwrap(),
+    ]);
+    run_vcf::run_vcf(vcf_args)?;
 
-    if let Some(ws) = &window_stats {
-        let plot_path = format!("{}_window_plot.svg", args.output);
-        plot::window_plot_svg(ws, &plot_path, win_size, args.window_step)?;
-        info!("Plot saved to {}", plot_path);
-    }
+    eprintln!(
+        "\nThat was a two-part demo on bundled data (open either _report.html in a browser).\n\
+         To analyse your OWN data:\n  \
+         pairwise dN/dS:  eskaks fasta your_alignment.fasta -o results\n  \
+         per-gene pN/pS:  eskaks vcf --ref ref.fa --gff genes.gff3 --vcf calls.vcf -o results\n\
+         \nDocs: https://pathogenomics-lab.github.io/eskaks/   ·   `eskaks --help` for all options."
+    );
     Ok(())
 }
+

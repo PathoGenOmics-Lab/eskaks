@@ -50,6 +50,47 @@ fn vcf_exits_ok() {
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
 }
 
+fn gzip_to(src: &str, dst: &std::path::Path) {
+    use std::io::{Read, Write};
+    let mut data = Vec::new();
+    fs::File::open(src).unwrap().read_to_end(&mut data).unwrap();
+    let mut enc =
+        flate2::write::GzEncoder::new(fs::File::create(dst).unwrap(), flate2::Compression::default());
+    enc.write_all(&data).unwrap();
+    enc.finish().unwrap();
+}
+
+/// gzip-compressed reference/GFF/VCF must produce byte-identical output to the
+/// plain inputs (the readers decompress transparently). Guards the reader wiring.
+#[test]
+fn vcf_reads_gzipped_inputs_identically() {
+    let d = std::env::temp_dir();
+    let (rg, gg, vg) = (
+        d.join("eskaks_gz_ref.fasta.gz"),
+        d.join("eskaks_gz_ann.gff3.gz"),
+        d.join("eskaks_gz_var.vcf.gz"),
+    );
+    gzip_to(REF_FASTA, &rg);
+    gzip_to(GFF3, &gg);
+    gzip_to(VCF, &vg);
+
+    let run = |ref_p: &str, gff_p: &str, vcf_p: &str, out: &str| {
+        Command::new(binary_path())
+            .args(["vcf", "--ref", ref_p, "--gff", gff_p, "--vcf", vcf_p, "-o", out])
+            .status()
+            .expect("spawn");
+        fs::read_to_string(format!("{}_pnps.tsv", out)).expect("read output")
+    };
+
+    let plain = run(REF_FASTA, GFF3, VCF, "/tmp/eskaks_test_gz_plain");
+    let gz = run(rg.to_str().unwrap(), gg.to_str().unwrap(), vg.to_str().unwrap(), "/tmp/eskaks_test_gz_comp");
+    assert_eq!(plain, gz, "gzipped inputs must yield the same pN/pS output as plain");
+
+    for f in [&rg, &gg, &vg] { fs::remove_file(f).ok(); }
+    fs::remove_file("/tmp/eskaks_test_gz_plain_pnps.tsv").ok();
+    fs::remove_file("/tmp/eskaks_test_gz_comp_pnps.tsv").ok();
+}
+
 #[test]
 fn vcf_produces_correct_header() {
     let out_prefix = "/tmp/eskaks_test_vcf_header";
@@ -67,7 +108,10 @@ fn vcf_produces_correct_header() {
     assert_eq!(
         rows[0],
         vec!["Gene", "Length_bp", "N_sites", "S_sites", "pN", "pS", "pN/pS",
-             "Nonsyn_SNPs", "Syn_SNPs", "Total_SNPs"],
+             "Nonsyn_SNPs", "Syn_SNPs", "Total_SNPs",
+             "Chrom", "Start", "End", "Strand", "Exp_N_frac",
+             "P_value", "Q_value_BH", "P_Bonferroni",
+             "pN/pS_lo", "pN/pS_hi", "P_GC", "Q_GC_BH"],
         "header mismatch: {:?}", rows[0]
     );
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
@@ -90,6 +134,60 @@ fn vcf_produces_correct_gene_count() {
     // 1 header + 2 gene rows
     assert_eq!(rows.len(), 3, "expected 1 header + 2 genes, got {}", rows.len());
     fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+/// End-to-end pN/pS pinned to an INDEPENDENT by-hand Nei-Gojobori derivation
+/// (the exclude-changes-to-stop convention KaKs_Calculator / SNPGenie use).
+/// Every asserted number is derived below from the genetic code alone, so this
+/// validates the whole stack — VCF/GFF/reference parsing, CDS assembly, site
+/// counting, SNP classification and the ratio — instead of a self-captured value.
+#[test]
+fn vcf_pnps_matches_hand_derived_nei_gojobori() {
+    // CDS gval = val1:1-9 (+) = GCT TTT TGG = Ala Phe Trp (code 11 = code 1 here).
+    //
+    // Nei-Gojobori sites — for each codon, of its 9 single-nt changes count syn vs
+    // nonsyn EXCLUDING any change to a stop codon, then renormalise the codon to 3:
+    //   GCT (Ala): 3rd pos GCA/GCC/GCG all Ala → 3 syn, 6 nonsyn, 0 stop
+    //              ⇒ S = 3·3/9 = 1.0,   N = 3·6/9 = 2.0
+    //   TTT (Phe): only TTC (3rd pos) is syn → 1 syn, 8 nonsyn, 0 stop
+    //              ⇒ S = 3·1/9 = 1/3,   N = 3·8/9 = 8/3
+    //   TGG (Trp): 2nd pos→TAG and 3rd pos→TGA are STOP (excluded); other 7 nonsyn
+    //              ⇒ S = 3·0/7 = 0.0,   N = 3·7/7 = 3.0
+    //   Totals: N = 2 + 8/3 + 3 = 23/3 ≈ 7.6667,  S = 1 + 1/3 + 0 = 4/3 ≈ 1.3333  (N+S = 9)
+    //
+    // SNPs: pos3 T→C GCT→GCC (Ala=Ala) SYN; pos4 T→G TTT→GTT (Phe→Val) NONSYN;
+    //       pos9 G→T TGG→TGT (Trp→Cys) NONSYN.  ⇒ Syn=1, Nonsyn=2, Total=3
+    //   pN = 2/(23/3) = 6/23 ≈ 0.260870 ; pS = 1/(4/3) = 0.75 ; pN/pS = 8/23 ≈ 0.347826
+    let out = "/tmp/eskaks_test_pnps_hand";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_hand.vcf",
+            "--genetic-code", "11",
+            "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out));
+    let hdr = &rows[0];
+    let col = |name: &str| {
+        hdr.iter().position(|h| h == name).unwrap_or_else(|| panic!("no column {}", name))
+    };
+    let g = rows.iter().find(|r| r[0] == "gval").expect("gene gval in output");
+    let num = |name: &str| g[col(name)].parse::<f64>().unwrap();
+
+    // Integer SNP tallies (exact); sites/ratios to the TSV's printed precision.
+    assert!((num("Nonsyn_SNPs") - 2.0).abs() < 1e-9, "nonsyn {}", num("Nonsyn_SNPs"));
+    assert!((num("Syn_SNPs") - 1.0).abs() < 1e-9, "syn {}", num("Syn_SNPs"));
+    assert!((num("Total_SNPs") - 3.0).abs() < 1e-9, "total {}", num("Total_SNPs"));
+    assert!((num("N_sites") - 23.0 / 3.0).abs() < 5e-4, "N_sites {}", num("N_sites"));
+    assert!((num("S_sites") - 4.0 / 3.0).abs() < 5e-4, "S_sites {}", num("S_sites"));
+    assert!((num("pN") - 6.0 / 23.0).abs() < 5e-4, "pN {}", num("pN"));
+    assert!((num("pS") - 0.75).abs() < 5e-4, "pS {}", num("pS"));
+    assert!((num("pN/pS") - 8.0 / 23.0).abs() < 5e-4, "pN/pS {}", num("pN/pS"));
+    fs::remove_file(format!("{}_pnps.tsv", out)).ok();
 }
 
 #[test]
@@ -326,6 +424,325 @@ fn vcf_missing_vcf_fails() {
     assert!(!output.status.success());
 }
 
+// ─── Genome-wide (pooled) summary ────────────────────────────────────────────
+
+/// Extract the float following a `label` on its line in captured stderr.
+fn stderr_value_after(stderr: &str, label: &str) -> f64 {
+    let line = stderr
+        .lines()
+        .find(|l| l.contains(label))
+        .unwrap_or_else(|| panic!("no line containing {:?} in:\n{}", label, stderr));
+    line.rsplit(':')
+        .next()
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap_or_else(|e| panic!("cannot parse value from {:?}: {}", line, e))
+}
+
+#[test]
+fn vcf_summary_reports_genome_wide_pnps() {
+    let out_prefix = "/tmp/eskaks_test_vcf_gw";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", REF_FASTA,
+            "--gff", GFF3,
+            "--vcf", VCF,
+            "-o", out_prefix,
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Genome-wide (pooled)"), "missing genome-wide block:\n{}", stderr);
+
+    // The pooled ratio printed in the summary must equal the ratio recomputed
+    // by pooling the per-gene TSV columns (N_sites, S_sites, Nonsyn, Syn).
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
+    let (mut n_sites, mut s_sites, mut nonsyn, mut syn) = (0.0, 0.0, 0.0, 0.0);
+    for row in &rows[1..] {
+        n_sites += row[2].parse::<f64>().unwrap();
+        s_sites += row[3].parse::<f64>().unwrap();
+        nonsyn += row[7].parse::<f64>().unwrap();
+        syn += row[8].parse::<f64>().unwrap();
+    }
+    let expected = (nonsyn / n_sites) / (syn / s_sites);
+    let reported = stderr_value_after(&stderr, "Overall pN/pS:");
+    assert!(
+        (reported - expected).abs() < EPSILON,
+        "genome-wide pN/pS mismatch: summary={}, recomputed={}",
+        reported, expected
+    );
+    // geneA (1N,1S) + geneB (0N,1S): purifying overall.
+    assert!(stderr.contains("purifying"), "expected purifying call:\n{}", stderr);
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+// ─── Mutation-spectrum-weighted site counting (--kappa) ──────────────────────
+
+/// Run the vcf subcommand with an optional --kappa and return (sum N_sites,
+/// sum S_sites) from the per-gene TSV.
+fn run_and_sum_sites(out_prefix: &str, kappa: Option<&str>) -> (f64, f64) {
+    let mut args = vec![
+        "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF, "-o", out_prefix,
+    ];
+    if let Some(k) = kappa {
+        args.push("--kappa");
+        args.push(k);
+    }
+    let status = Command::new(binary_path()).args(&args).status().expect("spawn");
+    assert!(status.success());
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
+    let (mut n, mut s) = (0.0, 0.0);
+    for row in &rows[1..] {
+        n += row[2].parse::<f64>().unwrap();
+        s += row[3].parse::<f64>().unwrap();
+    }
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+    (n, s)
+}
+
+#[test]
+fn vcf_kappa_1_matches_default() {
+    // --kappa 1 must reproduce the equal-rates default exactly.
+    let (n_def, s_def) = run_and_sum_sites("/tmp/eskaks_kappa_def", None);
+    let (n_k1, s_k1) = run_and_sum_sites("/tmp/eskaks_kappa_one", Some("1"));
+    assert!((n_def - n_k1).abs() < EPSILON, "N: default {} vs kappa=1 {}", n_def, n_k1);
+    assert!((s_def - s_k1).abs() < EPSILON, "S: default {} vs kappa=1 {}", s_def, s_k1);
+}
+
+#[test]
+fn vcf_kappa_raises_s_lowers_n_conserves_total() {
+    // Transition bias (kappa>1) must raise synonymous sites, lower
+    // nonsynonymous sites, and conserve the total (each position is 1 site).
+    let (n1, s1) = run_and_sum_sites("/tmp/eskaks_kappa_1", Some("1"));
+    let (n5, s5) = run_and_sum_sites("/tmp/eskaks_kappa_5", Some("5"));
+    assert!(s5 > s1, "S should rise with kappa: {} -> {}", s1, s5);
+    assert!(n5 < n1, "N should fall with kappa: {} -> {}", n1, n5);
+    assert!(((n1 + s1) - (n5 + s5)).abs() < EPSILON, "total sites must be conserved");
+}
+
+#[test]
+fn vcf_invalid_kappa_fails() {
+    for bad in ["0", "-2"] {
+        let output = Command::new(binary_path())
+            .args([
+                "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+                "-o", "/tmp/eskaks_kappa_bad", "--kappa", bad,
+            ])
+            .output()
+            .expect("spawn");
+        assert!(!output.status.success(), "--kappa {} should be rejected", bad);
+    }
+}
+
+// ─── Neutrality test, multiple-testing, coordinates, --min-snps, --workers ───
+
+#[test]
+fn vcf_emits_coordinates_and_stats_columns() {
+    let out_prefix = "/tmp/eskaks_test_vcf_stats";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF, "-o", out_prefix,
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Neutrality test"), "missing neutrality block:\n{}", stderr);
+    assert!(stderr.contains("Genes tested"));
+
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
+    let gene_a = rows.iter().find(|r| r[0] == "geneA").expect("geneA");
+    // Columns 10-17: Chrom, Start, End, Strand, Exp_N_frac, P_value, Q_value_BH, P_Bonferroni
+    assert_eq!(gene_a[10], "chr1", "Chrom");
+    assert_eq!(gene_a[13], "+", "Strand");
+    let start: usize = gene_a[11].parse().unwrap();
+    let end: usize = gene_a[12].parse().unwrap();
+    assert!(start >= 1 && end > start, "coordinates {}..{}", start, end);
+    let p: f64 = gene_a[15].parse().expect("P_value numeric");
+    let q: f64 = gene_a[16].parse().expect("Q_value numeric");
+    let bonf: f64 = gene_a[17].parse().expect("P_Bonferroni numeric");
+    assert!((0.0..=1.0).contains(&p), "p in [0,1]: {}", p);
+    assert!((0.0..=1.0).contains(&q), "q in [0,1]: {}", q);
+    assert!(bonf >= p - EPSILON, "Bonferroni p*m >= p: {} vs {}", bonf, p);
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn vcf_min_snps_drops_low_count_genes() {
+    let out_prefix = "/tmp/eskaks_test_vcf_minsnps";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", out_prefix, "--min-snps", "2",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let rows = parse_tsv(&format!("{}_pnps.tsv", out_prefix));
+    // geneB has 1 SNP → dropped; geneA has 2 → kept. 1 header + 1 gene.
+    assert_eq!(rows.len(), 2, "expected only geneA to survive --min-snps 2");
+    assert_eq!(rows[1][0], "geneA");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("dropped"));
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn vcf_workers_are_deterministic() {
+    let run = |prefix: &str, w: &str| {
+        Command::new(binary_path())
+            .args([
+                "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+                "-o", prefix, "--workers", w,
+            ])
+            .status()
+            .expect("spawn");
+        fs::read_to_string(format!("{}_pnps.tsv", prefix)).unwrap()
+    };
+    let a = run("/tmp/eskaks_test_vcf_w1", "1");
+    let b = run("/tmp/eskaks_test_vcf_w4", "4");
+    assert_eq!(a, b, "per-gene output must not depend on thread count");
+    fs::remove_file("/tmp/eskaks_test_vcf_w1_pnps.tsv").ok();
+    fs::remove_file("/tmp/eskaks_test_vcf_w4_pnps.tsv").ok();
+}
+
+#[test]
+fn vcf_invalid_fdr_rejected() {
+    for bad in ["0", "1.5", "-0.1"] {
+        let output = Command::new(binary_path())
+            .args([
+                "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+                "-o", "/tmp/eskaks_fdr_bad", "--fdr", bad,
+            ])
+            .output()
+            .expect("spawn");
+        assert!(!output.status.success(), "--fdr {} should be rejected", bad);
+    }
+}
+
+#[test]
+fn vcf_plot_creates_pvalue_manhattan() {
+    let out_prefix = "/tmp/eskaks_test_vcf_pvplot";
+    let status = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF, "-o", out_prefix, "--plot",
+        ])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let svg = format!("{}_pvalue_manhattan.svg", out_prefix);
+    let content = fs::read_to_string(&svg).unwrap_or_else(|_| panic!("no SVG at {}", svg));
+    assert!(content.contains("<svg"));
+    assert!(content.contains("log10"), "should be a -log10(p) plot");
+    fs::remove_file(&svg).ok();
+    fs::remove_file(format!("{}_pnps_manhattan.svg", out_prefix)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn vcf_mk_writes_table_and_stats() {
+    let out_prefix = "/tmp/eskaks_test_vcf_mk";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", out_prefix, "--mk", "--mk-fixed-af", "0.5",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("McDonald-Kreitman"));
+    let rows = parse_tsv(&format!("{}_mk.tsv", out_prefix));
+    assert_eq!(
+        rows[0],
+        vec!["Gene", "Chrom", "Start", "End", "Strand", "Dn", "Ds", "Pn", "Ps",
+             "NI", "alpha", "Fisher_p", "Fisher_q_BH"],
+        "MK header mismatch: {:?}", rows[0]
+    );
+    // geneA has variation → present; Dn+Ds+Pn+Ps must be > 0 for listed genes.
+    let gene_a = rows.iter().find(|r| r[0] == "geneA").expect("geneA in MK table");
+    let sum: u32 = (5..9).map(|i| gene_a[i].parse::<u32>().unwrap()).sum();
+    assert!(sum > 0, "geneA MK counts should be non-zero");
+    let fp: f64 = gene_a[11].parse().expect("Fisher_p numeric");
+    assert!((0.0..=1.0).contains(&fp), "Fisher p in [0,1]: {}", fp);
+    fs::remove_file(format!("{}_mk.tsv", out_prefix)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn vcf_report_writes_self_contained_html() {
+    let out_prefix = "/tmp/eskaks_test_vcf_report";
+    let status = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", out_prefix, "--report", "--mk",
+        ])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let html = fs::read_to_string(format!("{}_report.html", out_prefix)).expect("report html");
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    assert!(html.contains("const DATA ="), "data must be embedded");
+    assert!(html.contains("\"name\":\"geneA\""), "gene data present");
+    // Comprehensive dashboard: multiple linked panels + controls present.
+    for needle in ["Manhattan", "Volcano", "McDonald-Kreitman", "Power funnel",
+                   "Observed vs expected", "selectGene", "expCsv", "themeTog",
+                   // v2: verdict banner, help popovers, glossary, new panels/columns.
+                   "renderVerdict", "renderGuide", "const HELP =", "helpHtml",
+                   "panelQQ", "panelLollipop", "panelHits",
+                   "P-value QQ", "Top genes by selection signal", "Significant hits",
+                   "printBtn", "z(N)", "DoS",
+                   // v2.1: SFS, core/repetitive, CVD mode, canvas, CIs, λ, provenance.
+                   "panelSFS", "panelCoreRep", "drawCanvases", "cvdTog",
+                   "pN/pS by allele frequency", "Core vs repetitive", "95% CI",
+                   "Inflation", "\"lambda\":", "Command:", "\"sfsNonsyn\":",
+                   "buildToc", "class=\"toc\"", "updateTocActive"] {
+        assert!(html.contains(needle), "report missing '{}'", needle);
+    }
+    // Self-contained: no external ASSET is loaded (scripts, styles, images, fonts). The
+    // GitHub hyperlink in the header is a navigation link, not a loaded resource.
+    assert!(!html.contains("src=\"http"), "no external resource src");
+    assert!(!html.contains("@import"), "no CSS @import");
+    assert!(!html.contains("cdn"), "no CDN reference");
+    fs::remove_file(format!("{}_report.html", out_prefix)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+    fs::remove_file(format!("{}_mk.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn vcf_report_reconciliation_panel_with_divergence() {
+    let out_prefix = "/tmp/eskaks_test_vcf_div";
+    let div = "/tmp/eskaks_test_div.tsv";
+    fs::write(div, "gene\tdNdS\ngeneA\t2.5\ngeneB\t0.3\n").unwrap();
+    let status = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", out_prefix, "--report", "--divergence", div,
+        ])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let html = fs::read_to_string(format!("{}_report.html", out_prefix)).expect("report");
+    assert!(html.contains("Polymorphism vs divergence"), "reconciliation panel present");
+    assert!(html.contains("\"div\":2.5"), "divergence value matched to geneA");
+    fs::remove_file(div).ok();
+    fs::remove_file(format!("{}_report.html", out_prefix)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn vcf_invalid_mk_fixed_af_rejected() {
+    let output = Command::new(binary_path())
+        .args([
+            "vcf", "--ref", REF_FASTA, "--gff", GFF3, "--vcf", VCF,
+            "-o", "/tmp/eskaks_mk_bad", "--mk", "--mk-fixed-af", "1.5",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(!output.status.success());
+}
+
 // ─── FASTA subcommand still works ───────────────────────────────────────────
 
 #[test]
@@ -356,4 +773,152 @@ fn list_codes_still_works_at_top_level() {
     assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Standard"), "should list Standard code");
+}
+
+/// --variants writes one row per coding SNP with its amino-acid change and effect.
+#[test]
+fn vcf_variants_table_lists_each_coding_snp() {
+    let out = "/tmp/eskaks_test_variants";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_hand.vcf",
+            "--genetic-code", "11", "--variants", "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    let rows = parse_tsv(&format!("{}_variants.tsv", out));
+    assert_eq!(
+        rows[0],
+        ["Gene", "Chrom", "Pos", "Strand", "Ref", "Alt", "AA_Pos", "Ref_AA", "Alt_AA", "Change", "AF", "Effect"]
+    );
+    assert_eq!(rows.len() - 1, 3, "3 coding SNPs on gene gval");
+    // gval = GCT-TTT-TGG: pos3 GCT→GCC A1A synonymous; pos4 TTT→GTT F2V missense;
+    // pos9 TGG→TGT W3C missense — the mutation-level key a resistance catalogue joins on.
+    let at = |p: &str| rows[1..].iter().find(|r| r[2] == p).unwrap_or_else(|| panic!("no SNP at {p}"));
+    let ce = |r: &Vec<String>| (r[9].as_str().to_string(), r[11].as_str().to_string());
+    assert_eq!(ce(at("3")), ("A1A".into(), "synonymous".into()));
+    assert_eq!(ce(at("4")), ("F2V".into(), "missense".into()));
+    assert_eq!(ce(at("9")), ("W3C".into(), "missense".into()));
+    fs::remove_file(format!("{}_variants.tsv", out)).ok();
+}
+
+/// --diversity computes π, Watterson θ and Tajima's D, validated end-to-end
+/// against the same hand-derived n=4 case that the pure stats unit test pins.
+#[test]
+fn vcf_diversity_matches_hand_derived_pi_theta_tajima() {
+    // Multi-sample VCF, n=4 haploid samples, gene gval (GCT-TTT-TGG):
+    //   syn derived counts = [2] (pos3, 2/4);  missense = [1,1] (pos4 & pos9, 1/4 each)
+    //   piS = θπ(4,[2])/S_sites   = (2·2·2/12)/(4/3)          = 0.500000
+    //   piN = θπ(4,[1,1])/N_sites = (2·(2·1·3/12))/(23/3)     = 0.130435
+    //   piN/piS = 0.260870 ; S_seg = 3 ; θ_W/site = (3/(11/6))/9 = 0.181818
+    //   Tajima's D = tajimas_d(4, 3, θπ(4,[2,1,1])=20/12)     = 0.16766
+    let out = "/tmp/eskaks_test_diversity";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_multisample.vcf",
+            "--genetic-code", "11", "--diversity", "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    let rows = parse_tsv(&format!("{}_diversity.tsv", out));
+    assert_eq!(
+        rows[0],
+        ["Gene", "Chrom", "N_samples", "S_seg", "piN", "piS", "piN/piS", "Theta_W", "Tajima_D"]
+    );
+    let g = rows.iter().find(|r| r[0] == "gval").expect("gene gval");
+    let num = |s: &str| s.parse::<f64>().unwrap();
+    assert_eq!(g[2], "4", "n samples");
+    assert_eq!(g[3], "3", "segregating coding SNPs");
+    assert!((num(&g[4]) - 0.130435).abs() < 1e-5, "piN {}", g[4]);
+    assert!((num(&g[5]) - 0.500000).abs() < 1e-5, "piS {}", g[5]);
+    assert!((num(&g[6]) - 0.260870).abs() < 1e-5, "piN/piS {}", g[6]);
+    assert!((num(&g[7]) - 0.181818).abs() < 1e-5, "Theta_W {}", g[7]);
+    assert!((num(&g[8]) - 0.16766).abs() < 5e-4, "Tajima_D {}", g[8]);
+    fs::remove_file(format!("{}_diversity.tsv", out)).ok();
+}
+
+/// A site fixed within the sample (AF = 1.0, every allele is ALT) is monomorphic,
+/// not segregating, so it must be EXCLUDED from π / θ_W / Tajima's D (S_seg = 0,
+/// D undefined) rather than clamped in as a high-frequency polymorphism.
+#[test]
+fn vcf_diversity_excludes_sample_fixed_sites() {
+    let out = "/tmp/eskaks_test_diversity_fixed";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_fixed.vcf",
+            "--genetic-code", "11", "--diversity", "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    let rows = parse_tsv(&format!("{}_diversity.tsv", out));
+    let g = rows.iter().find(|r| r[0] == "gval").expect("gene gval");
+    assert_eq!(g[3], "0", "a sample-fixed SNP must not count as a segregating site");
+    assert_eq!(g[5], "0.000000", "piS must be 0 with no segregating synonymous sites");
+    assert_eq!(g[8], "NaN", "Tajima's D is undefined with 0 segregating sites");
+    fs::remove_file(format!("{}_diversity.tsv", out)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out)).ok();
+}
+
+/// An AF-only VCF (no genotype columns) has an unknown sample size, so --diversity
+/// must skip the statistics with a clear warning and write no diversity file.
+#[test]
+fn vcf_diversity_skipped_without_sample_columns() {
+    let out = "/tmp/eskaks_test_diversity_af";
+    let output = Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_hand.vcf",
+            "--genetic-code", "11", "--diversity", "-o", out,
+        ])
+        .output()
+        .expect("spawn");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("sample size"), "should warn about missing sample size: {stderr}");
+    assert!(
+        !std::path::Path::new(&format!("{}_diversity.tsv", out)).exists(),
+        "no diversity file should be written for AF-only input"
+    );
+    fs::remove_file(format!("{}_pnps.tsv", out)).ok();
+}
+
+/// A nonsense (stop-gain) SNP must appear in the variants table (it is a
+/// loss-of-function a resistance analyst needs) yet be EXCLUDED from the pN/pS
+/// counts (the Nei-Gojobori exclude-nonsense convention).
+#[test]
+fn vcf_variants_include_nonsense_but_pnps_excludes_it() {
+    let out = "/tmp/eskaks_test_variants_ns";
+    Command::new(binary_path())
+        .args([
+            "vcf",
+            "--ref", "tests/data/pnps_hand_ref.fasta",
+            "--gff", "tests/data/pnps_hand.gff3",
+            "--vcf", "tests/data/pnps_nonsense.vcf",
+            "--genetic-code", "11", "--variants", "-o", out,
+        ])
+        .status()
+        .expect("spawn");
+    // The variant is recorded as a nonsense W3* change.
+    let vrows = parse_tsv(&format!("{}_variants.tsv", out));
+    assert_eq!(vrows.len() - 1, 1, "one coding SNP");
+    let v = &vrows[1];
+    assert_eq!(v[9], "W3*", "Trp→stop change");
+    assert_eq!(v[11], "nonsense");
+    // But it contributes nothing to the pN/pS counts (changes to stop are excluded).
+    let prows = parse_tsv(&format!("{}_pnps.tsv", out));
+    let g = prows.iter().find(|r| r[0] == "gval").expect("gene gval");
+    assert_eq!(g[7], "0.0000", "nonsyn count excludes the nonsense SNP");
+    assert_eq!(g[9], "0.0000", "total count excludes the nonsense SNP");
+    fs::remove_file(format!("{}_variants.tsv", out)).ok();
+    fs::remove_file(format!("{}_pnps.tsv", out)).ok();
 }

@@ -1,3 +1,10 @@
+---
+description: >-
+  Copy-paste commands for the common eskaks runs — pairwise dN/dS from FASTA,
+  per-gene pN/pS from a VCF, sliding windows, group comparisons and JSON for
+  pipelines.
+---
+
 # Quick Start
 
 ## Pairwise dN/dS (FASTA)
@@ -16,7 +23,7 @@ cat aligned_genes.fasta | eskaks fasta - -o results
 ## pN/pS per gene (VCF)
 
 ```bash
-# One VCF per sample — AF computed as fraction of samples
+# One VCF per sample: AF computed as fraction of samples
 eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 \
   --vcf sample1.vcf --vcf sample2.vcf --vcf sample3.vcf \
   --af-weighted --genetic-code 11 -o population_pnps
@@ -52,6 +59,19 @@ gene_A  gene_B  0.0523  0.3214  0.1627
 gene_A  gene_C  0.0891  0.4102  0.2172
 ...
 ```
+
+Each run ends with a confirmation of what was done and where the output went:
+
+```
+── Done ───────────────────────────────────
+  Sequences:  6 (6 unique) from aligned_genes.fasta
+  Model:      Nei-Gojobori
+  Output:
+    results_pairwise_results.tsv
+────────────────────────────────────────────
+```
+
+Add `--summary` for the full statistics block, or `--quiet` to suppress this.
 
 ## Common workflows
 
@@ -94,3 +114,11 @@ pos = [r for r in data if r['dN_dS'] and r['dN_dS'] > 1]
 print(f'{len(pos)} pairs under positive selection')
 "
 ```
+
+## Next steps
+
+- [Getting started tutorial](tutorial.md) — the same runs explained end to end on bundled data
+- [VCF analysis (pN/pS)](vcf-analysis.md) — every per-gene option, the neutrality test and report
+- [Output formats](output-formats.md) — every file eskaks writes, in TSV / CSV / JSON
+- [CLI reference](cli-reference.md) — the complete flag list for both subcommands
+- [Interpreting results](interpreting-results.md) — what the numbers mean and the traps to avoid

@@ -1,0 +1,508 @@
+//! Per-gene pN/pS computation and genome-wide pooled estimates.
+
+use super::*;
+use indicatif::{ProgressBar, ProgressStyle};
+
+/// Compute pN/pS for all genes given a reference sequence, gene annotations, and SNPs.
+///
+/// If `af_weighted` is true, each SNP contributes its allele frequency to the
+/// syn/nonsyn count instead of 1.0 (πN/πS instead of pN/pS).
+///
+/// `kappa` is the transition/transversion rate ratio used when counting N and S
+/// SITES. At `kappa == 1.0` the classic equal-rates Nei-Gojobori counting is
+/// used unchanged; any other value activates mutation-spectrum-weighted counting
+/// (see [`count_sites_weighted`]). Only the site denominators are affected —
+/// the observed-SNP syn/nonsyn classification (the numerators) is empirical and
+/// never rate-weighted.
+pub fn compute_pn_ps(
+    reference: &HashMap<String, Vec<u8>>,
+    genes: &[Gene],
+    snps: &[VcfSnp],
+    gc: &GeneticCode,
+    af_weighted: bool,
+    kappa: f64,
+    mk_fixed_af: f64,
+) -> (Vec<GenePnPs>, ComputeDiagnostics) {
+    // kappa == 1 reproduces the original counting byte-for-byte; only a
+    // non-neutral kappa switches to the rate-weighted path. (count_sites_weighted
+    // is provably identical at kappa == 1, so this gate is purely defensive.)
+    let spectrum_weighted = kappa != 1.0;
+    // Index SNPs by chromosome and position for fast lookup
+    let mut snp_map: HashMap<&str, Vec<&VcfSnp>> = HashMap::new();
+    for snp in snps {
+        snp_map.entry(snp.chrom.as_str()).or_default().push(snp);
+    }
+    // Sort SNPs by position within each chromosome
+    for snps_list in snp_map.values_mut() {
+        snps_list.sort_by_key(|s| s.pos);
+    }
+
+    // Aggregate diagnostics so a wrong reference doesn't spam one line per SNP.
+    // Atomics let the per-gene work run in parallel; par_iter().collect()
+    // preserves gene order, so results are deterministic regardless of threads.
+    let ref_checked = AtomicUsize::new(0);
+    let ref_mismatch = AtomicUsize::new(0);
+    // Genes whose reference CDS translates to an internal stop codon (a strong signal
+    // of a wrong --genetic-code, wrong frame/phase, or a wrong reference build).
+    let internal_stops = AtomicUsize::new(0);
+
+    // Per-gene progress bar for liveness on genome-scale runs (auto-hidden when stderr
+    // is not a terminal, so tests and pipelines stay quiet).
+    let pb = ProgressBar::new(genes.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Genes: {pos}/{len} ({eta})")
+            .progress_chars("#>-"),
+    );
+
+    let results: Vec<GenePnPs> = genes
+        .par_iter()
+        .filter_map(|gene| {
+            pb.inc(1);
+            let ref_seq = match reference.get(&gene.seqid) {
+                Some(seq) => seq,
+                None => {
+                    warn!("Reference sequence not found for {}, skipping gene {}", gene.seqid, gene.name);
+                    return None;
+                }
+            };
+
+            // A CDS exon extending past the reference end would desync
+            // genomic_to_cds_offset (which counts full exon spans) from the
+            // reference-clamped CDS, silently mis-mapping or dropping SNPs. Skip such a
+            // gene loudly rather than analyse a truncated / mismatched annotation.
+            if gene.exons.iter().any(|e| e.end > ref_seq.len()) {
+                warn!(
+                    "Gene {} has a CDS exon extending past the end of {} ({} bp), skipping",
+                    gene.name, gene.seqid, ref_seq.len()
+                );
+                return None;
+            }
+
+            let chrom_snps = snp_map.get(gene.seqid.as_str());
+
+            // Extract the full CDS sequence from the reference
+            let cds_seq = extract_cds_sequence(gene, ref_seq);
+            if cds_seq.len() < 3 {
+                warn!("Gene {} CDS too short ({} bp), skipping", gene.name, cds_seq.len());
+                return None;
+            }
+
+            // Diagnostic: a stop codon anywhere but the last codon of the reference CDS
+            // means the gene does not translate cleanly — usually the wrong genetic
+            // code, reading frame/phase, or reference build.
+            let ncodons = cds_seq.len() / 3;
+            if (0..ncodons.saturating_sub(1)).any(|c| {
+                codon_to_aa(&[cds_seq[c * 3], cds_seq[c * 3 + 1], cds_seq[c * 3 + 2]], gc) == Some(b'*')
+            }) {
+                internal_stops.fetch_add(1, Ordering::Relaxed);
+            }
+
+            // Count S and N sites from reference codons
+            let (n_sites, s_sites) = if spectrum_weighted {
+                count_sites_weighted(&cds_seq, gc, kappa)
+            } else {
+                count_sites(&cds_seq, gc)
+            };
+
+            // A CDS with neither synonymous nor nonsynonymous sites has no translatable
+            // codons at all (every codon is ambiguous/all-N in the reference). pN and pS
+            // would both be 0/0, so analysing it yields only spurious zeros that read as a
+            // real gene under total constraint. Skip it loudly, like the other
+            // untranslatable-CDS guards, rather than emit a misleading all-zero row.
+            if n_sites == 0.0 && s_sites == 0.0 {
+                warn!(
+                    "Gene {} CDS has no usable (translatable) codons — an all-ambiguous / all-N \
+                     reference region, skipping",
+                    gene.name
+                );
+                return None;
+            }
+
+            // Find SNPs that fall within this gene's CDS regions
+            // Counts are f64 to support AF-weighted mode (πN/πS)
+            let mut nonsyn_count = 0.0f64;
+            let mut syn_count = 0.0f64;
+            // Raw (unweighted) count of classified SNP alleles, for --min-snps and the
+            // "genes with SNPs" tally — independent of AF weighting.
+            let mut n_snps_raw = 0usize;
+            let mut local_checked = 0usize;
+            let mut local_mismatch = 0usize;
+            // McDonald-Kreitman: fixed (AF >= threshold) vs polymorphic counts.
+            let (mut mk_dn, mut mk_ds, mut mk_pn, mut mk_ps) = (0u32, 0u32, 0u32, 0u32);
+            // Site frequency spectrum: nonsyn/syn SNP counts per allele-frequency bin.
+            let mut sfs_nonsyn = [0u32; SFS_NBINS];
+            let mut sfs_syn = [0u32; SFS_NBINS];
+            // Per-coding-SNP records for the optional variants table (all effects,
+            // including nonsense/stop-loss that the pN/pS counts below exclude).
+            let mut variants: Vec<Variant> = Vec::new();
+
+            if let Some(snps_list) = chrom_snps {
+                // SNPs are position-sorted, so binary-search the gene's genomic
+                // span instead of scanning the whole chromosome for every gene
+                // (O(S + G·log S) rather than O(G·S)). genomic_to_cds_offset
+                // still filters precisely per exon, so results are byte-identical.
+                let lo = gene.exons.iter().map(|e| e.start).min().unwrap_or(gene.start);
+                let hi = gene.exons.iter().map(|e| e.end).max().unwrap_or(gene.start);
+                let from = snps_list.partition_point(|s| s.pos < lo);
+                let to = snps_list.partition_point(|s| s.pos <= hi);
+                for snp in &snps_list[from..to] {
+                    // Check if this SNP falls within any exon of this gene
+                    if let Some(cds_offset) = genomic_to_cds_offset(gene, snp.pos) {
+                        let codon_idx = cds_offset / 3;
+                        let pos_in_codon = cds_offset % 3;
+                        let codon_start = codon_idx * 3;
+
+                        if codon_start + 3 > cds_seq.len() {
+                            continue;
+                        }
+
+                        // Get reference codon from the extracted CDS
+                        let ref_codon = [
+                            cds_seq[codon_start],
+                            cds_seq[codon_start + 1],
+                            cds_seq[codon_start + 2],
+                        ];
+
+                        // Verify VCF REF allele matches the reference sequence
+                        let expected_ref = if gene.strand == Strand::Minus {
+                            complement(cds_seq[codon_start + pos_in_codon])
+                        } else {
+                            cds_seq[codon_start + pos_in_codon]
+                        };
+                        local_checked += 1;
+                        if snp.ref_allele != expected_ref {
+                            local_mismatch += 1;
+                            debug!(
+                                "VCF REF mismatch at {}:{} — VCF says {}, reference has {}. Skipping.",
+                                snp.chrom, snp.pos,
+                                snp.ref_allele as char, expected_ref as char
+                            );
+                            continue;
+                        }
+
+                        // For each ALT allele at this position
+                        for (alt_idx, alt_base) in snp.alt_alleles.iter().enumerate() {
+                            // Weight: AF if weighted mode, 1.0 otherwise
+                            let weight = if af_weighted {
+                                snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0)
+                            } else {
+                                1.0
+                            };
+
+                            // Build alternate codon
+                            let mut alt_codon = ref_codon;
+                            let alt_in_cds = if gene.strand == Strand::Minus {
+                                complement(*alt_base)
+                            } else {
+                                *alt_base
+                            };
+                            alt_codon[pos_in_codon] = alt_in_cds;
+
+                            // Look up amino acids; an ambiguous codon (None) is skipped.
+                            let (Some(r), Some(a)) = (codon_to_aa(&ref_codon, gc), codon_to_aa(&alt_codon, gc))
+                            else {
+                                continue;
+                            };
+                            let af = snp.alt_freqs.get(alt_idx).copied().unwrap_or(1.0);
+
+                            // Record the variant for the optional table, classifying every
+                            // coding effect — including nonsense/stop-loss.
+                            let effect = if r == a {
+                                SnpEffect::Synonymous
+                            } else if a == b'*' {
+                                SnpEffect::Nonsense
+                            } else if r == b'*' {
+                                SnpEffect::StopLoss
+                            } else {
+                                SnpEffect::Missense
+                            };
+                            variants.push(Variant {
+                                pos: snp.pos,
+                                ref_allele: snp.ref_allele,
+                                alt_allele: *alt_base,
+                                aa_pos: codon_idx + 1,
+                                ref_aa: r,
+                                alt_aa: a,
+                                af,
+                                gt_derived: snp
+                                    .gt_counts
+                                    .as_ref()
+                                    .and_then(|gc| gc.alt.get(alt_idx).copied()),
+                                gt_called: snp.gt_counts.as_ref().map(|gc| gc.called),
+                                effect,
+                            });
+
+                            // pN/pS + MK + SFS counting: synonymous and missense only
+                            // (changes to/from a stop are excluded, as before). Uses this
+                            // ALT's allele frequency as raw counts (not AF-weighted).
+                            if r != b'*' && a != b'*' {
+                                let fixed = af >= mk_fixed_af;
+                                let bin = sfs_bin(af);
+                                n_snps_raw += 1;
+                                if r == a {
+                                    syn_count += weight;
+                                    sfs_syn[bin] += 1;
+                                    if fixed { mk_ds += 1 } else { mk_ps += 1 }
+                                } else {
+                                    nonsyn_count += weight;
+                                    sfs_nonsyn[bin] += 1;
+                                    if fixed { mk_dn += 1 } else { mk_pn += 1 }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            ref_checked.fetch_add(local_checked, Ordering::Relaxed);
+            ref_mismatch.fetch_add(local_mismatch, Ordering::Relaxed);
+
+            let total_snps = nonsyn_count + syn_count;
+            // A zero site denominator makes the density undefined (0/0), not 0.0: a gene of
+            // only Met/Trp codons has s_sites == 0, so pS cannot be estimated. Report NaN so
+            // it is not read as an observed synonymous rate of exactly zero. The pn_ps guard
+            // below already treats a NaN/absent pS the same as the old 0.0 (→ +inf when
+            // pn > 0, NaN when both are 0), so the headline ratio is unchanged.
+            let pn = if n_sites > 0.0 {
+                nonsyn_count / n_sites
+            } else {
+                f64::NAN
+            };
+            let ps = if s_sites > 0.0 {
+                syn_count / s_sites
+            } else {
+                f64::NAN
+            };
+            let pn_ps = if ps > 0.0 {
+                pn / ps
+            } else if pn > 0.0 {
+                f64::INFINITY
+            } else {
+                f64::NAN
+            };
+
+            // Per-gene neutrality test: under H0 (pN/pS = 1) the nonsynonymous
+            // fraction of SNPs equals the mutational opportunity N/(N+S). Only
+            // valid with integer counts, so skip it under --af-weighted.
+            let sites = n_sites + s_sites;
+            let (p_value, neglog10p) = if !af_weighted && total_snps > 0.0 && sites > 0.0 {
+                let k = nonsyn_count.round() as u64;
+                let n = total_snps.round() as u64;
+                let p0 = n_sites / sites;
+                (
+                    crate::stats::binomial_two_sided_p(k, n, p0),
+                    crate::stats::binomial_two_sided_neglog10p(k, n, p0),
+                )
+            } else {
+                (f64::NAN, f64::NAN)
+            };
+
+            // 95% Wilson CI on pN/pS: bound the nonsynonymous fraction of SNPs,
+            // then map q → (q/(1−q))·(S_sites/N_sites). Undefined under AF weighting.
+            let (pn_ps_lo, pn_ps_hi) = if !af_weighted && total_snps > 0.0 && n_sites > 0.0 && s_sites > 0.0 {
+                let k = nonsyn_count.round() as u64;
+                let n = total_snps.round() as u64;
+                let (qlo, qhi) = crate::stats::wilson_interval(k, n, 0.95);
+                let scale = s_sites / n_sites;
+                let map = |q: f64| if q >= 1.0 { f64::INFINITY } else { (q / (1.0 - q)) * scale };
+                (map(qlo), map(qhi))
+            } else {
+                (f64::NAN, f64::NAN)
+            };
+
+            let genome_end = gene.exons.iter().map(|e| e.end).max().unwrap_or(gene.start);
+            let strand = if gene.strand == Strand::Minus { '-' } else { '+' };
+
+            Some(GenePnPs {
+                name: gene.name.clone(),
+                length_bp: gene.length_bp,
+                n_sites,
+                s_sites,
+                pn,
+                ps,
+                pn_ps,
+                nonsyn_snps: nonsyn_count,
+                syn_snps: syn_count,
+                total_snps,
+                n_snps: n_snps_raw,
+                genome_start: gene.start,
+                genome_end,
+                strand,
+                chrom: gene.seqid.clone(),
+                p_value,
+                q_value: f64::NAN,
+                p_bonferroni: f64::NAN,
+                mk_dn,
+                mk_ds,
+                mk_pn,
+                mk_ps,
+                neglog10p,
+                pn_ps_lo,
+                pn_ps_hi,
+                p_gc: f64::NAN,
+                q_gc: f64::NAN,
+                repetitive: is_repetitive(&gene.name),
+                sfs_nonsyn,
+                sfs_syn,
+                variants,
+            })
+        })
+        .collect();
+    pb.finish_and_clear();
+
+    let ref_checked = ref_checked.load(Ordering::Relaxed);
+    let ref_mismatch = ref_mismatch.load(Ordering::Relaxed);
+
+    if ref_mismatch > 0 {
+        let frac = ref_mismatch as f64 / ref_checked.max(1) as f64;
+        if frac > 0.10 {
+            warn!(
+                "{}/{} in-CDS SNPs ({:.1}%) had a REF allele disagreeing with the reference and were skipped — \
+                 this usually means a wrong reference build, an off-by-one, or a strand mix-up. Run with -vv for positions.",
+                ref_mismatch, ref_checked, 100.0 * frac
+            );
+        } else {
+            info!(
+                "{}/{} in-CDS SNPs had a REF-allele mismatch and were skipped (run with -vv for positions).",
+                ref_mismatch, ref_checked
+            );
+        }
+    }
+
+    info!("Computed pN/pS for {} genes", results.len());
+    let diagnostics = ComputeDiagnostics {
+        snps_in_cds: ref_checked,
+        ref_mismatch,
+        genes_with_internal_stops: internal_stops.load(Ordering::Relaxed),
+    };
+    (results, diagnostics)
+}
+
+/// Whole-run diagnostics from [`compute_pn_ps`], surfaced in the CLI summary so an
+/// empty or garbage result is never mistaken for a clean run.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ComputeDiagnostics {
+    /// SNPs whose position fell inside a CDS (the REF-allele check ran on these).
+    pub snps_in_cds: usize,
+    /// Of the in-CDS SNPs, how many had a REF allele disagreeing with the reference.
+    pub ref_mismatch: usize,
+    /// Genes whose reference CDS contains an internal stop codon.
+    pub genes_with_internal_stops: usize,
+}
+
+/// Percentile bootstrap confidence interval for the genome-wide pooled pN/pS,
+/// resampling genes with replacement `n_boot` times (seeded for reproducibility).
+/// Returns `(lo, hi)` at the given two-sided confidence, or None if there is no
+/// data / no finite replicate. Pools counts and sites within each replicate,
+/// exactly like [`genome_wide_pn_ps`].
+pub fn bootstrap_genome_wide_ci(
+    results: &[GenePnPs],
+    n_boot: usize,
+    seed: u64,
+    confidence: f64,
+) -> Option<(f64, f64)> {
+    if results.is_empty() || n_boot == 0 {
+        return None;
+    }
+    let n = results.len();
+    let mut rng = crate::stats::SplitMix64::new(seed);
+    let mut ratios: Vec<f64> = Vec::with_capacity(n_boot);
+    let mut undefined = 0usize;
+    for _ in 0..n_boot {
+        let (mut n_sites, mut s_sites, mut nonsyn, mut syn) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        for _ in 0..n {
+            let r = &results[rng.below(n)];
+            n_sites += r.n_sites;
+            s_sites += r.s_sites;
+            nonsyn += r.nonsyn_snps;
+            syn += r.syn_snps;
+        }
+        let pn = if n_sites > 0.0 { nonsyn / n_sites } else { f64::NAN };
+        let ps = if s_sites > 0.0 { syn / s_sites } else { f64::NAN };
+        // ps == 0 with pn > 0 is a genuine upper-tail extreme (pN/pS = +∞), so keep it
+        // toward the upper percentile instead of discarding it and biasing the CI low.
+        // Only 0/0 (no variation at all) is genuinely undefined and excluded.
+        let ratio = if ps > 0.0 {
+            pn / ps
+        } else if pn > 0.0 {
+            f64::INFINITY
+        } else {
+            f64::NAN
+        };
+        if ratio.is_nan() {
+            undefined += 1;
+        } else {
+            ratios.push(ratio);
+        }
+    }
+    // Warn BEFORE the empty-set early return so an all-undefined result is never silent.
+    if undefined > 0 {
+        warn!(
+            "{}/{} bootstrap replicates had no variation at all (0/0) and were excluded \
+             from the genome-wide pN/pS CI.",
+            undefined, n_boot
+        );
+    }
+    if ratios.is_empty() {
+        return None;
+    }
+    ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let tail = (1.0 - confidence) / 2.0 * 100.0;
+    Some((
+        crate::stats::percentile_sorted(&ratios, tail),
+        crate::stats::percentile_sorted(&ratios, 100.0 - tail),
+    ))
+}
+
+/// Aggregate per-gene results into a single genome-wide (pooled) pN/pS estimate.
+///
+/// Returns `None` when there are no genes to aggregate. The pooled ratio uses
+/// the same NaN/Infinity conventions as the per-gene computation: `NaN` when
+/// there is no variation at all, `+Infinity` when there are nonsynonymous but
+/// no synonymous changes.
+pub fn genome_wide_pn_ps(results: &[GenePnPs]) -> Option<GenomeWidePnPs> {
+    pool_pn_ps(results.iter())
+}
+
+/// Pool a (possibly filtered) set of genes into one pN/pS estimate. Shared by
+/// the whole-genome and the core-vs-repetitive stratified estimates.
+fn pool_pn_ps<'a>(it: impl Iterator<Item = &'a GenePnPs>) -> Option<GenomeWidePnPs> {
+    let (mut n_sites, mut s_sites, mut nonsyn_snps, mut syn_snps, mut any) =
+        (0.0, 0.0, 0.0, 0.0, false);
+    for r in it {
+        any = true;
+        n_sites += r.n_sites;
+        s_sites += r.s_sites;
+        nonsyn_snps += r.nonsyn_snps;
+        syn_snps += r.syn_snps;
+    }
+    if !any {
+        return None;
+    }
+    // Pooled density is undefined (NaN), not 0.0, when its site denominator is 0 — the
+    // whole retained set has no synonymous (or nonsynonymous) sites. The pn_ps guard below
+    // keeps the same +inf / NaN outcome, so only the surfaced pN / pS components change.
+    let pn = if n_sites > 0.0 { nonsyn_snps / n_sites } else { f64::NAN };
+    let ps = if s_sites > 0.0 { syn_snps / s_sites } else { f64::NAN };
+    let pn_ps = if ps > 0.0 {
+        pn / ps
+    } else if pn > 0.0 {
+        f64::INFINITY
+    } else {
+        f64::NAN
+    };
+    Some(GenomeWidePnPs { n_sites, s_sites, nonsyn_snps, syn_snps, pn, ps, pn_ps })
+}
+
+/// Pooled pN/pS split into (core, repetitive) — repetitive = PE/PPE/PGRS/IS/etc.
+/// A big gap between the two flags mapping-artefact inflation in the repeats.
+pub fn genome_wide_core_repetitive(
+    results: &[GenePnPs],
+) -> (Option<GenomeWidePnPs>, Option<GenomeWidePnPs>) {
+    (
+        pool_pn_ps(results.iter().filter(|r| !r.repetitive)),
+        pool_pn_ps(results.iter().filter(|r| r.repetitive)),
+    )
+}
+

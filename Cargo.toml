@@ -1,11 +1,24 @@
 [package]
 name = "eskaks"
-version = "1.4.0"
+version = "0.1.0"
 edition = "2021"
+rust-version = "1.70"
+authors = ["Paula Ruiz-Rodriguez", "Mireia Coscolla"]
+description = "Fast pairwise dN/dS and per-gene pN/pS for molecular-evolution and Mycobacterium tuberculosis selection analysis"
+repository = "https://github.com/PathoGenOmics-Lab/eskaks"
+homepage = "https://pathogenomics-lab.github.io/eskaks/"
+documentation = "https://pathogenomics-lab.github.io/eskaks/"
+readme = "README.md"
+license = "GPL-3.0-only"
+keywords = ["dnds", "pnps", "bioinformatics", "molecular-evolution", "genomics"]
+categories = ["command-line-utilities", "science"]
 
 [dependencies]
 
 needletail = "0.6"
+# gzip/bgzip decompression for the VCF/GFF/reference readers (needletail already
+# decompresses FASTA transparently). flate2 is pulled in via needletail anyway.
+flate2 = "1"
 
 env_logger = "0.9"
 rayon = "1.5"
@@ -14,6 +27,7 @@ indicatif = { version = "0.16", features = ["rayon"] }
 log = "0.4"
 rustc-hash = "1.1.0" 
 clap = { version = "4.5.4", features = ["derive"] }
+clap_complete = "4.5"
 anyhow = "1.0.102"
 
 [profile.release]
@@ -26,3 +40,4 @@ strip          = true
 [dev-dependencies]
 proptest = "1.11.0"
 tempfile = "3"
+flate2 = "1"

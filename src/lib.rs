@@ -9,6 +9,8 @@ pub mod input;
 pub mod models;
 pub mod output;
 pub mod plot;
+pub mod report;
 pub mod stats;
+pub(crate) mod textfmt;
 pub mod vcf;
 pub mod vcf_analysis;

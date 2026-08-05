@@ -11,8 +11,12 @@ env:
 
 jobs:
   check:
-    name: Clippy + Tests
-    runs-on: ubuntu-latest
+    name: Clippy + Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -33,11 +37,11 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Clippy (deny warnings)
-        run: cargo clippy -- -D warnings
+      - name: Clippy (deny warnings, all targets)
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test
+        run: cargo test # includes the golden-output snapshot (tests/golden.rs)
 
       - name: Build release
         run: cargo build --release

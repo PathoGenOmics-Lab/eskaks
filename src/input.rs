@@ -1,7 +1,7 @@
 //! FASTA reading, validation, deduplication, and filtering.
 
 use anyhow::{bail, Context};
-use log::{info, warn};
+use log::{debug, info, warn};
 use needletail::{parse_fastx_file, parse_fastx_reader};
 
 use crate::codon;
@@ -25,6 +25,45 @@ fn is_stdin(path: &str) -> bool {
     path == "-" || path == "/dev/stdin"
 }
 
+/// Bail with a clear message if `path` is a directory. A directory otherwise
+/// fails deep in a parser (or reads as empty) with a confusing error.
+pub fn ensure_not_directory(path: &str) -> anyhow::Result<()> {
+    if is_stdin(path) {
+        return Ok(());
+    }
+    if std::path::Path::new(path).is_dir() {
+        bail!("'{path}' is a directory, not a file.");
+    }
+    Ok(())
+}
+
+/// Open a text file as a buffered line reader, transparently decompressing gzip
+/// (and bgzip/BGZF, whose concatenated gzip members `MultiGzDecoder` reads in
+/// full) when the file starts with the gzip magic `1f 8b`. Used by the VCF, GFF
+/// and reference-FASTA readers; the `eskaks fasta` path decompresses via needletail.
+/// `role` names the file in error messages, e.g. "VCF file" or "reference FASTA".
+pub fn open_text(path: &std::path::Path, role: &str) -> anyhow::Result<Box<dyn std::io::BufRead>> {
+    use std::io::BufRead;
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("Failed to open {}: {}", role, path.display()))?;
+    let mut reader = std::io::BufReader::new(file);
+    // fill_buf peeks without consuming, so a plain file is handed on unchanged and
+    // a gzip member is still read from byte 0 by the decoder.
+    let gz = {
+        let head = reader
+            .fill_buf()
+            .with_context(|| format!("Failed to read {}: {}", role, path.display()))?;
+        head.len() >= 2 && head[0] == 0x1f && head[1] == 0x8b
+    };
+    if gz {
+        Ok(Box::new(std::io::BufReader::new(
+            flate2::read::MultiGzDecoder::new(reader),
+        )))
+    } else {
+        Ok(Box::new(reader))
+    }
+}
+
 /// Read FASTA, validate, filter, and deduplicate.
 /// `stop_codons` is an optional set of codon indices that are stop codons for the active genetic code.
 pub fn load_sequences(
@@ -40,6 +79,8 @@ pub fn load_sequences(
     let mut ids: Vec<String> = Vec::new();
     let mut gap_count_total = 0usize;
     let mut seqs_with_gaps = 0usize;
+    let mut seqs_with_internal_stop = 0usize;
+    let mut seqs_with_bad_chars = 0usize;
 
     // Buffer for stdin data (must outlive the reader)
     let stdin_buf: Vec<u8> = if is_stdin(input_file) {
@@ -56,12 +97,27 @@ pub fn load_sequences(
             parse_fastx_reader(&stdin_buf[..])
                 .context("Failed to parse FASTA from stdin")?
         } else {
-            parse_fastx_file(input_file)
-                .with_context(|| format!("Failed to open input file '{}'", input_file))?
+            parse_fastx_file(input_file).with_context(|| {
+                format!(
+                    "Could not read '{}' as FASTA — check the path exists and the file is a \
+                     valid FASTA (plain or gzip-compressed)",
+                    input_file
+                )
+            })?
         };
         while let Some(record) = reader.next() {
             let rec = record?;
-            let seq = rec.seq();
+            // needletail strips only \r\n; a stray internal space/tab would occupy a
+            // codon slot and frameshift every codon after it. Remove all whitespace
+            // (gaps '-'/'.' are kept — they are meaningful alignment columns).
+            let raw = rec.seq();
+            let seq: std::borrow::Cow<[u8]> = if raw.iter().any(u8::is_ascii_whitespace) {
+                warn!("Sequence '{}' has internal whitespace; stripping it before framing.",
+                    String::from_utf8_lossy(rec.id()));
+                std::borrow::Cow::Owned(raw.iter().copied().filter(|b| !b.is_ascii_whitespace()).collect())
+            } else {
+                raw
+            };
             let gaps = codon::count_gaps(&seq);
             if gaps > 0 {
                 seqs_with_gaps += 1;
@@ -75,25 +131,48 @@ pub fn load_sequences(
                     seq.len() % 3
                 );
             }
+            // Flag characters that are neither a standard base (A/C/G/T/U/N) nor a gap
+            // (-/.). Letters like X or digits silently become invalid codons, so a
+            // corrupted/mis-encoded alignment would otherwise pass unnoticed.
+            if seq.iter().any(|&b| {
+                !matches!(
+                    b.to_ascii_uppercase(),
+                    b'A' | b'C' | b'G' | b'T' | b'U' | b'N' | b'-' | b'.'
+                )
+            }) {
+                seqs_with_bad_chars += 1;
+            }
             let codons = codon::fasta_to_codon_indices(&seq, model);
 
-            // Check for internal stop codons (last codon excluded — it's expected)
+            // Check for internal stop codons (last codon excluded — it's expected).
+            // Count them per sequence: a single internal stop hints at a pseudogene,
+            // but many (across many sequences) point at a wrong genetic code / frame.
+            // Per-sequence detail stays at debug; an aggregate warning fires below.
             if let Some(stops) = stop_codons {
-                let id = String::from_utf8_lossy(rec.id());
                 let last = codons.len().saturating_sub(1);
-                for (pos, &c) in codons.iter().enumerate() {
-                    if pos < last && c != codon::INVALID_CODON && stops.contains(&c) {
-                        warn!(
-                            "Sequence '{}' has internal stop codon at codon position {} (0-based). \
-                             This may indicate a frameshift, pseudogene, or wrong reading frame.",
-                            id, pos
-                        );
-                        break; // one warning per sequence is enough
-                    }
+                let internal: Vec<usize> = codons
+                    .iter()
+                    .take(last)
+                    .enumerate()
+                    .filter(|(_, &c)| c != codon::INVALID_CODON && stops.contains(&c))
+                    .map(|(pos, _)| pos)
+                    .collect();
+                if !internal.is_empty() {
+                    seqs_with_internal_stop += 1;
+                    debug!(
+                        "Sequence '{}' has {} internal stop codon(s), first at codon {} (0-based).",
+                        String::from_utf8_lossy(rec.id()), internal.len(), internal[0]
+                    );
                 }
             }
 
-            let id_str = String::from_utf8_lossy(rec.id()).into_owned();
+            // Use the first whitespace-delimited token of the header as the id (standard
+            // FASTA convention, matching parse_reference_fasta). needletail's id() returns
+            // the whole header line, so without this a description would leak into the
+            // Seq1/Seq2 columns and could split group/lineage keys (extract_group_key runs
+            // on the id).
+            let full_id = String::from_utf8_lossy(rec.id());
+            let id_str = full_id.split_ascii_whitespace().next().unwrap_or("").to_string();
             all_codon_indices.push(codons);
             ids.push(id_str);
         }
@@ -109,6 +188,32 @@ pub fn load_sequences(
         );
     }
     info!("Found {} total sequences.", ids.len());
+
+    // Duplicate ids usually mean a data-prep slip; they also make the output rows
+    // ambiguous (two rows share the same Seq1/Seq2 label), so flag them.
+    {
+        let mut seen = std::collections::HashSet::new();
+        let mut dups: Vec<&str> = ids
+            .iter()
+            .filter(|id| !seen.insert(id.as_str()))
+            .map(|s| s.as_str())
+            .collect();
+        if !dups.is_empty() {
+            dups.sort_unstable();
+            dups.dedup();
+            let shown = if dups.len() <= 5 {
+                dups.join(", ")
+            } else {
+                format!("{}, ... and {} more", dups[..5].join(", "), dups.len() - 5)
+            };
+            warn!(
+                "{} duplicate sequence id(s) ({}); output rows for them will be ambiguous. \
+                 Use unique ids.",
+                dups.len(),
+                shown
+            );
+        }
+    }
 
     // Warn about sequences with no valid codons
     let empty_seqs: Vec<&str> = ids
@@ -140,15 +245,49 @@ pub fn load_sequences(
             seqs_with_gaps, gap_count_total
         );
     }
-    if let Some(first_len) = all_codon_indices.first().map(|v| v.len()) {
-        let mismatched = all_codon_indices
-            .iter()
-            .filter(|v| v.len() != first_len)
-            .count();
-        if mismatched > 0 {
+    if seqs_with_internal_stop > 0 {
+        let frac = seqs_with_internal_stop as f64 / ids.len().max(1) as f64;
+        if frac > 0.5 {
             warn!(
-                "{} sequence(s) have different codon lengths than the first ({} codons). Sequences may not be aligned.",
-                mismatched, first_len
+                "{}/{} sequences ({:.0}%) contain internal stop codons — this strongly suggests the \
+                 wrong --genetic-code or reading frame. Check that the input is in-frame coding sequence \
+                 (run -vv for per-sequence positions).",
+                seqs_with_internal_stop, ids.len(), 100.0 * frac
+            );
+        } else {
+            warn!(
+                "{}/{} sequence(s) contain internal stop codons (a frameshift/pseudogene, or a \
+                 genetic-code/frame issue; run -vv for positions).",
+                seqs_with_internal_stop, ids.len()
+            );
+        }
+    }
+    if seqs_with_bad_chars > 0 {
+        warn!(
+            "{}/{} sequence(s) contain non-standard characters (not A/C/G/T/U/N or a gap); those \
+             positions become invalid codons and are skipped. Check the input is clean DNA/RNA.",
+            seqs_with_bad_chars, ids.len()
+        );
+    }
+    if let Some(first_len) = all_codon_indices.first().map(|v| v.len()) {
+        // Pairwise dN/dS is only meaningful on a codon ALIGNMENT, where every sequence is
+        // the same length. Unequal lengths mean the input is not aligned, so bail rather
+        // than silently comparing a truncated overlap and returning a number the user
+        // would trust. (Window mode already required equal lengths; this makes every mode
+        // consistent.)
+        if let Some((idx, v)) = all_codon_indices
+            .iter()
+            .enumerate()
+            .find(|(_, v)| v.len() != first_len)
+        {
+            bail!(
+                "Sequences are not the same length: '{}' is {} codons but the first sequence \
+                 ('{}') is {} codons. Pairwise dN/dS requires a codon alignment — align the \
+                 sequences first (e.g. MAFFT + PAL2NAL, or MACSE), then rerun.",
+                ids[idx],
+                v.len(),
+                ids[0],
+                first_len
             );
         }
         info!(
@@ -187,8 +326,13 @@ pub fn load_sequences(
             ids = new_ids;
             all_codon_indices = new_codons;
         }
-        if ids.is_empty() {
-            bail!("All sequences filtered out by --min-codons {}", min_codons);
+        // Pairwise comparison needs at least two sequences; --min-codons can drop
+        // below that without emptying the set, so check the count, not just emptiness.
+        if ids.len() < 2 {
+            bail!(
+                "Only {} sequence(s) remain after --min-codons {} (need at least 2 for pairwise comparison)",
+                ids.len(), min_codons
+            );
         }
     }
 
@@ -263,6 +407,19 @@ mod tests {
     }
 
     #[test]
+    fn internal_whitespace_is_stripped_not_frameshifted() {
+        // Regression: a stray space inside a sequence line used to occupy a codon slot
+        // and frameshift everything after it. After stripping, "ATG GCTGCT" must equal
+        // "ATGGCTGCT" (so the two records deduplicate to one unique sequence).
+        let path = write_temp_fasta("ws", ">s1\nATGGCTGCT\n>s2\nATG GCTGCT\n");
+        let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
+        assert_eq!(data.ids.len(), 2);
+        assert_eq!(data.n_unique, 1, "the space must be stripped so both frame identically");
+        assert_eq!(data.uidx_by_id[0], data.uidx_by_id[1]);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
     fn load_two_different_sequences() {
         let path = write_temp_fasta("diff", ">s1\nATGGCTGCT\n>s2\nATGATTGCT\n");
         let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
@@ -312,6 +469,54 @@ mod tests {
     }
 
     #[test]
+    fn internal_stop_codon_is_warned_but_still_loads() {
+        // Derive the TAA stop-codon index from the active scheme so the test does
+        // not hard-code the base-4 encoding. s1 carries TAA at internal codon 1.
+        let taa = codon::fasta_to_codon_indices(b"TAA", Model::Nei)[0];
+        assert_ne!(taa, codon::INVALID_CODON);
+        let path = write_temp_fasta("stopcodon", ">s1\nATGTAAGCTGCT\n>s2\nATGGCTGCTGCT\n");
+        let data = load_sequences(&path, Model::Nei, 0, Some(&[taa])).unwrap();
+        // The internal stop only warns; both sequences still load.
+        assert_eq!(data.ids.len(), 2);
+        assert_eq!(data.n_unique, 2);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn length_not_multiple_of_three_still_loads() {
+        // s1 is 10 bp (not divisible by 3): the trailing base is ignored, leaving 3
+        // codons — the same as s2, so they deduplicate. Also exercises the
+        // codon-length-mismatch diagnostic is not triggered (both frame to 3 codons).
+        let path = write_temp_fasta("notmult3", ">s1\nATGGCTGCTA\n>s2\nATGGCTGCT\n");
+        let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
+        assert_eq!(data.ids.len(), 2);
+        assert_eq!(data.n_unique, 1, "trailing base ignored => s1 frames like s2");
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn all_invalid_codons_sequence_warns_but_loads() {
+        // s2 is all-N (no valid codons): with min_codons=0 it is kept and triggers
+        // the "no valid codons" diagnostic without aborting the run.
+        let path = write_temp_fasta("allN", ">s1\nATGGCTGCT\n>s2\nNNNNNNNNN\n");
+        let data = load_sequences(&path, Model::Nei, 0, None).unwrap();
+        assert_eq!(data.ids.len(), 2);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn min_codons_dropping_below_two_errors() {
+        // Two sequences pass the initial count check, but --min-codons removes the
+        // all-N one, leaving a single sequence — too few for a pairwise comparison.
+        let path = write_temp_fasta("mincodrop", ">s1\nATGGCTGCT\n>s2\nNNNNNNNNN\n");
+        let result = load_sequences(&path, Model::Nei, 2, None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("at least 2"), "error was: {}", err);
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
     fn dedup_preserves_order() {
         // 4 seqs: A, B, A, C → uidx: [0, 1, 0, 2], n_unique=3
         let ids = vec!["s1".into(), "s2".into(), "s3".into(), "s4".into()];
@@ -327,5 +532,47 @@ mod tests {
         assert_ne!(uidx[0], uidx[1]);
         assert_ne!(uidx[1], uidx[3]);
         assert_eq!(unique.len(), 3);
+    }
+
+    #[test]
+    fn ensure_not_directory_rejects_dir_but_accepts_gzip_file() {
+        // A directory is rejected with a clear message.
+        let dir = std::env::temp_dir();
+        let err = ensure_not_directory(dir.to_str().unwrap()).unwrap_err().to_string();
+        assert!(err.contains("directory"), "err: {}", err);
+        // A gzip-magic file is now ACCEPTED (readers decompress it); no longer a footgun.
+        let p = write_temp_fasta("gz_now_ok", "");
+        std::fs::write(&p, [0x1fu8, 0x8b, 0x08, 0x00]).unwrap();
+        assert!(ensure_not_directory(&p).is_ok());
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn open_text_reads_plain_and_gzip_identically() {
+        use std::io::{BufRead, Write};
+        let content = ">chr1\nACGTACGT\n>chr2\nTTTT\n";
+        let want = vec![">chr1", "ACGTACGT", ">chr2", "TTTT"];
+
+        let plain = write_temp_fasta("ot_plain", content);
+        let plain_lines: Vec<String> = open_text(std::path::Path::new(&plain), "test")
+            .unwrap().lines().collect::<Result<_, _>>().unwrap();
+        assert_eq!(plain_lines, want);
+
+        // Same content, gzip-compressed → must read back identically.
+        let gz = write_temp_fasta("ot_gz", "");
+        {
+            let mut enc = flate2::write::GzEncoder::new(
+                std::fs::File::create(&gz).unwrap(),
+                flate2::Compression::default(),
+            );
+            enc.write_all(content.as_bytes()).unwrap();
+            enc.finish().unwrap();
+        }
+        let gz_lines: Vec<String> = open_text(std::path::Path::new(&gz), "test")
+            .unwrap().lines().collect::<Result<_, _>>().unwrap();
+        assert_eq!(gz_lines, want, "gzip content must decode to the same lines as plain");
+
+        std::fs::remove_file(&plain).ok();
+        std::fs::remove_file(&gz).ok();
     }
 }

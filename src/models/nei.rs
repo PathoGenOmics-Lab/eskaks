@@ -18,8 +18,13 @@ pub struct NeiTables {
     diff_table: [(f32, f32); 4096],
     /// Amino acid array (Nei indexing) for the active genetic code.
     aa_array: [char; 64],
-    /// Synonymous sites ×3 per codon (Nei indexing) for the active genetic code.
-    syn_site_array: [usize; 64],
+    /// Synonymous SITES per codon (Nei indexing), Nei-Gojobori exclude-changes-to-stop
+    /// convention (S = 3·syn/(syn+nonsyn); N = 3 − S). Matches `count_sites` in the vcf path.
+    syn_site_array: [f64; 64],
+    /// Whether each codon index is a stop. Stop codons are excluded from both site and
+    /// diff counting (as the vcf `count_sites` does), so a terminal stop does not add
+    /// phantom nonsynonymous sites and deflate dN and the dN/dS ratio.
+    is_stop: [bool; 64],
 }
 
 /// Reconstruct a Nei codon index from 3 slot values.
@@ -40,11 +45,13 @@ impl NeiTables {
     pub fn with_genetic_code(gc: &GeneticCode) -> Box<NeiTables> {
         let aa_array = genetic_code::li_to_nei_aa(&gc.aa_table);
         let syn_site_array = genetic_code::compute_syn_sites(&aa_array);
+        let is_stop: [bool; 64] = std::array::from_fn(|i| aa_array[i] == '*');
 
         let mut tables = Box::new(NeiTables {
             diff_table: [(0.0f32, 0.0f32); 4096],
             aa_array,
             syn_site_array,
+            is_stop,
         });
 
         let aa = &tables.aa_array;
@@ -193,6 +200,28 @@ impl NeiTables {
     /// codons differing at multiple nucleotide positions.
     #[inline]
     pub fn compute_pair(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64) {
+        let (dn, ds, _, _) = self.compute_pair_stats(codon_indices1, codon_indices2);
+        (dn, ds)
+    }
+
+    /// Like [`compute_pair`] but also returns the Nei-Gojobori analytic
+    /// sampling variances `(var_dn, var_ds)` from the Jukes-Cantor delta method:
+    /// `V(d) = p(1-p) / [L · (1 - 4/3·p)²]`, where `p` is the difference
+    /// proportion and `L` the site count. NaN where the distance is NaN
+    /// (saturation) or the sites are zero.
+    #[inline]
+    pub fn compute_pair_stats(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64, f64, f64) {
+        // Compare strictly position-by-position over the common length. If the inputs
+        // differ in length (an imperfect / differently-trimmed alignment — the loader
+        // only warns, never bails), the chunks_exact(4) fast path below would otherwise
+        // desync: chunks1.zip(chunks2) drops the longer sequence's extra full chunks and
+        // the two `.remainder()` slices start at different codon offsets, mis-registering
+        // codons and reporting an arbitrary wrong dN/dS. Clamping to min() keeps both the
+        // chunk stream and the remainder aligned to the same absolute codon index.
+        let n = codon_indices1.len().min(codon_indices2.len());
+        let codon_indices1 = &codon_indices1[..n];
+        let codon_indices2 = &codon_indices2[..n];
+
         let mut count_valid_codons = 0u32;
         let mut syn_diffs = 0.0f64;
         let mut nonsyn_diffs = 0.0f64;
@@ -211,19 +240,26 @@ impl NeiTables {
             let b1 = ch2[0] as usize; let b2 = ch2[1] as usize;
             let b3 = ch2[2] as usize; let b4 = ch2[3] as usize;
 
-            if (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize {
+            let all_valid = (a1 | a2 | a3 | a4 | b1 | b2 | b3 | b4) < INVALID_CODON as usize;
+            // Fast path only when all 8 codons are valid AND none is a stop; the `&&`
+            // short-circuits so the is_stop reads happen only once every index is < 64.
+            // A chunk containing a stop falls to the scalar loop below, which skips it.
+            let fast = all_valid
+                && !(self.is_stop[a1] || self.is_stop[a2] || self.is_stop[a3] || self.is_stop[a4]
+                    || self.is_stop[b1] || self.is_stop[b2] || self.is_stop[b3] || self.is_stop[b4]);
+            if fast {
                 // SAFETY: All indices verified < 64 (INVALID_CODON) by the bitwise OR check above.
                 // syn_site_array has 64 entries, diff_table has 4096 entries (max index = 63*64+63 = 4095).
                 unsafe {
                     count_valid_codons += 4;
-                    sum_syn_sites_seq1 += *self.syn_site_array.get_unchecked(a1) as f64
-                        + *self.syn_site_array.get_unchecked(a2) as f64
-                        + *self.syn_site_array.get_unchecked(a3) as f64
-                        + *self.syn_site_array.get_unchecked(a4) as f64;
-                    sum_syn_sites_seq2 += *self.syn_site_array.get_unchecked(b1) as f64
-                        + *self.syn_site_array.get_unchecked(b2) as f64
-                        + *self.syn_site_array.get_unchecked(b3) as f64
-                        + *self.syn_site_array.get_unchecked(b4) as f64;
+                    sum_syn_sites_seq1 += *self.syn_site_array.get_unchecked(a1)
+                        + *self.syn_site_array.get_unchecked(a2)
+                        + *self.syn_site_array.get_unchecked(a3)
+                        + *self.syn_site_array.get_unchecked(a4);
+                    sum_syn_sites_seq2 += *self.syn_site_array.get_unchecked(b1)
+                        + *self.syn_site_array.get_unchecked(b2)
+                        + *self.syn_site_array.get_unchecked(b3)
+                        + *self.syn_site_array.get_unchecked(b4);
                     if a1 != b1 { let e = *self.diff_table.get_unchecked(a1 * 64 + b1); syn_diffs += e.0 as f64; nonsyn_diffs += e.1 as f64; }
                     if a2 != b2 { let e = *self.diff_table.get_unchecked(a2 * 64 + b2); syn_diffs += e.0 as f64; nonsyn_diffs += e.1 as f64; }
                     if a3 != b3 { let e = *self.diff_table.get_unchecked(a3 * 64 + b3); syn_diffs += e.0 as f64; nonsyn_diffs += e.1 as f64; }
@@ -234,9 +270,10 @@ impl NeiTables {
                     let i1 = c1 as usize;
                     let i2 = c2 as usize;
                     if i1 >= INVALID_CODON as usize || i2 >= INVALID_CODON as usize { continue; }
+                    if self.is_stop[i1] || self.is_stop[i2] { continue; } // exclude stop codons
                     count_valid_codons += 1;
-                    sum_syn_sites_seq1 += self.syn_site_array[i1] as f64;
-                    sum_syn_sites_seq2 += self.syn_site_array[i2] as f64;
+                    sum_syn_sites_seq1 += self.syn_site_array[i1];
+                    sum_syn_sites_seq2 += self.syn_site_array[i2];
                     if i1 != i2 {
                         let e = self.diff_table[i1 * 64 + i2];
                         syn_diffs += e.0 as f64;
@@ -251,9 +288,10 @@ impl NeiTables {
             let idx1 = c1 as usize;
             let idx2 = c2 as usize;
             if idx1 >= INVALID_CODON as usize || idx2 >= INVALID_CODON as usize { continue; }
+            if self.is_stop[idx1] || self.is_stop[idx2] { continue; } // exclude stop codons
             count_valid_codons += 1;
-            sum_syn_sites_seq1 += self.syn_site_array[idx1] as f64;
-            sum_syn_sites_seq2 += self.syn_site_array[idx2] as f64;
+            sum_syn_sites_seq1 += self.syn_site_array[idx1];
+            sum_syn_sites_seq2 += self.syn_site_array[idx2];
             if idx1 != idx2 {
                 let e = self.diff_table[idx1 * 64 + idx2];
                 syn_diffs += e.0 as f64;
@@ -262,13 +300,20 @@ impl NeiTables {
         }
 
         if count_valid_codons == 0 {
-            return (f64::NAN, f64::NAN);
+            return (f64::NAN, f64::NAN, f64::NAN, f64::NAN);
         }
 
-        let potential_syn_sites = (sum_syn_sites_seq1 / 3.0 + sum_syn_sites_seq2 / 3.0) / 2.0;
+        // syn_site_array already holds per-codon synonymous SITES (not change counts),
+        // so average the two sequences directly; N is the per-codon complement (3 − S).
+        let potential_syn_sites = (sum_syn_sites_seq1 + sum_syn_sites_seq2) / 2.0;
         let potential_nonsyn_sites = (count_valid_codons as f64) * 3.0 - potential_syn_sites;
-        let ps = if potential_syn_sites > 0.0 { syn_diffs / potential_syn_sites } else { 0.0 };
-        let pn = if potential_nonsyn_sites > 0.0 { nonsyn_diffs / potential_nonsyn_sites } else { 0.0 };
+        // A zero-site denominator means the quantity cannot be estimated (e.g. a pair of
+        // all-Met/Trp codons has no synonymous sites), so it is undefined, not 0.0. A
+        // spurious 0.0 would flow through JC into dS = 0 and read as strong purifying
+        // selection; NaN matches the Li model on the same input. (Nonsyn sites are always
+        // > 0 for real codons, but keep the guard symmetric.)
+        let ps = if potential_syn_sites > 0.0 { syn_diffs / potential_syn_sites } else { f64::NAN };
+        let pn = if potential_nonsyn_sites > 0.0 { nonsyn_diffs / potential_nonsyn_sites } else { f64::NAN };
 
         let mut ds = if ps < JC_SATURATION_THRESHOLD {
             -0.75 * (1.0 - (4.0 / 3.0) * ps).ln()
@@ -284,8 +329,23 @@ impl NeiTables {
         if ds.is_finite() && ds < 0.0 { ds = 0.0; }
         if dn.is_finite() && dn < 0.0 { dn = 0.0; }
 
-        (dn, ds)
+        let var_ds = jc_variance(ps, potential_syn_sites);
+        let var_dn = jc_variance(pn, potential_nonsyn_sites);
+
+        (dn, ds, var_dn, var_ds)
     }
+}
+
+/// Jukes-Cantor delta-method variance of a corrected distance:
+/// `V(d) = p(1-p) / [L · (1 - 4/3·p)²]`. NaN at/above saturation or L == 0.
+#[inline]
+fn jc_variance(p: f64, sites: f64) -> f64 {
+    // NaN p falls through to the arithmetic below, which yields NaN.
+    if sites <= 0.0 || p >= JC_SATURATION_THRESHOLD {
+        return f64::NAN;
+    }
+    let denom = 1.0 - (4.0 / 3.0) * p;
+    p * (1.0 - p) / (sites * denom * denom)
 }
 
 #[cfg(test)]
@@ -441,5 +501,98 @@ mod tests {
         let (dn, ds) = nei(b"ATGGCTGCTGGT", b"ATGATTGCCGGT");
         assert!(dn > 0.0, "dN should be > 0, got {}", dn);
         assert!(ds > 0.0, "dS should be > 0, got {}", ds);
+    }
+
+
+    // === cov_ hardening tests (appended) ===
+
+    // Degenerate pathway: a 2-difference codon pair whose BOTH single-step
+    // intermediates are stop codons uses the documented (0.5, 1.5) fallback
+    // (pathway_2diff, nei.rs lines 133-135). TGG(Trp) vs TAA(stop) route only
+    // through TAG and TGA, both stop codons => valid_paths == 0 => (0.5, 1.5).
+    #[test]
+    fn cov_nei_two_diff_all_stop_pathway_fallback() {
+        let tables = NeiTables::new();
+        let idx_tgg = fasta_to_codon_indices(b"TGG", Model::Nei)[0] as usize;
+        let idx_taa = fasta_to_codon_indices(b"TAA", Model::Nei)[0] as usize;
+        let e = tables.diff_table[idx_tgg * 64 + idx_taa];
+        assert!((e.0 - 0.5).abs() < 1e-6, "sd fallback should be 0.5, got {}", e.0);
+        assert!((e.1 - 1.5).abs() < 1e-6, "nd fallback should be 1.5, got {}", e.1);
+    }
+
+    // 3-difference pathway analysis (pathway_3diff), value derived from first
+    // principles. CCC(Pro) vs GGG(Gly): all 6 stop-free pathways yield
+    // (sd, nd) = (1, 2) -- each path has exactly one synonymous step (Pro->Pro or
+    // Gly->Gly) and two non-synonymous steps -- so the averaged entry is (1, 2).
+    #[test]
+    fn cov_nei_three_diff_pathway_value() {
+        let tables = NeiTables::new();
+        let idx_ccc = fasta_to_codon_indices(b"CCC", Model::Nei)[0] as usize;
+        let idx_ggg = fasta_to_codon_indices(b"GGG", Model::Nei)[0] as usize;
+        let e = tables.diff_table[idx_ccc * 64 + idx_ggg];
+        assert!((e.0 - 1.0).abs() < 1e-6, "sd should be 1.0, got {}", e.0);
+        assert!((e.1 - 2.0).abs() < 1e-6, "nd should be 2.0, got {}", e.1);
+    }
+
+    // Saturation of BOTH pN and pS => both dN and dS are NaN. CCC..CCC vs
+    // GGG..GGG: per-codon (sd, nd) = (1, 2) and S = 1 (one 4-fold third position).
+    // For k codons pS = k/k = 1 and pN = 2k/2k = 1, both >= JC_SATURATION_THRESHOLD
+    // (0.749) => NaN.
+    #[test]
+    fn cov_nei_saturated_pn_and_ps_give_nan() {
+        let (dn, ds) = nei(b"CCCCCC", b"GGGGGG");
+        assert!(dn.is_nan(), "saturated pN should give NaN dN, got {}", dn);
+        assert!(ds.is_nan(), "saturated pS should give NaN dS, got {}", ds);
+    }
+
+    #[test]
+    fn cov_nei_unequal_length_compares_overlap_not_misregistered() {
+        // Unequal-length inputs (an imperfect / differently-trimmed alignment) must be
+        // compared strictly position-by-position over the common prefix, not mis-registered
+        // by the chunks_exact fast path. Result must equal truncating the longer sequence.
+        let long = b"ATGATGATGATGAAACCCATGATGGGGTTT"; // 10 codons
+        let short = b"ATGATGATGATGGGGTTT"; //             6 codons (differs at codons 5,6)
+        let trunc = b"ATGATGATGATGAAACCC"; //             long's first 6 codons
+        let (dn_u, ds_u) = nei(long, short);
+        let (dn_t, ds_t) = nei(trunc, short);
+        assert!((dn_u - dn_t).abs() < 1e-12 || (dn_u.is_nan() && dn_t.is_nan()), "dN {} vs {}", dn_u, dn_t);
+        assert!((ds_u - ds_t).abs() < 1e-12 || (ds_u.is_nan() && ds_t.is_nan()), "dS {} vs {}", ds_u, ds_t);
+        // The real overlap has nonsynonymous divergence — the old code silently reported 0.
+        assert!(dn_u > 0.0, "overlap divergence must not be hidden, got dN={}", dn_u);
+    }
+
+    #[test]
+    fn cov_nei_zero_synonymous_sites_gives_nan_ds() {
+        // A pair of only Met (ATG) and Trp (TGG) codons has zero synonymous sites, so dS
+        // cannot be estimated: it must be NaN, not a spurious 0.0 (which flows through JC
+        // to dS = 0 and reads as strong purifying selection). Matches the Li model, which
+        // returns Ks = NaN for the same input. dN stays defined (nonsynonymous sites exist).
+        let (dn, ds) = nei(b"ATGATGATG", b"ATGTGGATG");
+        assert!(ds.is_nan(), "zero synonymous sites should give NaN dS, got {}", ds);
+        assert!(dn.is_finite(), "dN is still defined, got {}", dn);
+    }
+
+    // Jukes-Cantor delta-method variance invariants (compute_pair_stats +
+    // jc_variance). V(d) = p(1-p) / [L*(1 - 4/3 p)^2] is finite and >= 0 for
+    // 0 <= p < 0.749, and NaN at/above saturation.
+    #[test]
+    fn cov_nei_variance_nonneg_and_nan_at_saturation() {
+        let tables = NeiTables::new();
+        // Moderate: one synonymous change -> pS = 0.5 (var_ds > 0), pN = 0 (var_dn = 0).
+        let a1 = fasta_to_codon_indices(b"ATGGCTGCT", Model::Nei);
+        let a2 = fasta_to_codon_indices(b"ATGGCCGCT", Model::Nei);
+        let (dn, ds, var_dn, var_ds) = tables.compute_pair_stats(&a1, &a2);
+        assert!(dn.abs() < EPSILON, "dN should be 0, got {}", dn);
+        assert!(ds > 0.0, "dS should be > 0, got {}", ds);
+        assert!(var_ds.is_finite() && var_ds > 0.0, "var_ds must be finite & > 0, got {}", var_ds);
+        assert!(var_dn.is_finite() && var_dn >= 0.0, "var_dn must be finite & >= 0, got {}", var_dn);
+
+        // Saturated: pS = pN = 1 -> distances and variances all NaN.
+        let s1 = fasta_to_codon_indices(b"CCCCCC", Model::Nei);
+        let s2 = fasta_to_codon_indices(b"GGGGGG", Model::Nei);
+        let (dn2, ds2, var_dn2, var_ds2) = tables.compute_pair_stats(&s1, &s2);
+        assert!(dn2.is_nan() && ds2.is_nan(), "saturated distances must be NaN");
+        assert!(var_dn2.is_nan(), "var_dn must be NaN at saturation, got {}", var_dn2);
+        assert!(var_ds2.is_nan(), "var_ds must be NaN at saturation, got {}", var_ds2);
     }
 }

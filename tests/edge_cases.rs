@@ -15,7 +15,42 @@ fn nonexistent_file_gives_clear_error() {
         .expect("spawn");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Failed to open input file"), "stderr: {}", stderr);
+    assert!(
+        stderr.contains("Could not read") && stderr.contains("as FASTA"),
+        "stderr: {}",
+        stderr
+    );
+}
+
+#[test]
+fn demo_runs_without_input_files() {
+    // `--demo` must produce two real, successful runs on bundled data with no input
+    // files: the pairwise dN/dS (fasta) stage AND the per-gene pN/pS (vcf) stage,
+    // the latter exercising --variants and --diversity on a bundled genotyped VCF.
+    let output = Command::new(binary_path())
+        .args(["--demo"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success(), "demo should exit 0");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Demo 1/2"), "stderr: {}", stderr);
+    assert!(stderr.contains("Demo 2/2"), "stderr: {}", stderr);
+
+    let tmp = std::env::temp_dir();
+    // Stage 1 (fasta) output.
+    let fasta = tmp.join("eskaks_demo_pairwise_results.tsv");
+    assert!(fasta.exists(), "demo should write {}", fasta.display());
+    // Stage 2 (vcf) outputs, including the diversity table - proving π/θ/Tajima's D
+    // are reachable on bundled data (the point of shipping a genotyped demo VCF).
+    for name in [
+        "eskaks_demo_vcf_pnps.tsv",
+        "eskaks_demo_vcf_variants.tsv",
+        "eskaks_demo_vcf_diversity.tsv",
+        "eskaks_demo_vcf_report.html",
+    ] {
+        let p = tmp.join(name);
+        assert!(p.exists(), "demo should write {}", p.display());
+    }
 }
 
 #[test]
@@ -345,5 +380,5 @@ fn version_flag_shows_current_version() {
         .expect("spawn");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("1.4.0"), "version should be 1.4.0: {}", stdout);
+    assert!(stdout.contains("0.1.0"), "version should be 0.1.0: {}", stdout);
 }

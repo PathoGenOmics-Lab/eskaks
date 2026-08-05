@@ -1,6 +1,15 @@
 /target
 benchmark_results/fasta/
-# Benchmark generated files
-benchmark/data/
-benchmark/results/
+# Benchmark generated files (scripts write under benchmarks/, plural)
+benchmarks/data/
+benchmarks/results/
 docs/book/
+
+# MkDocs build output
+/site/
+/.cache/
+/nb_out/
+
+# cargo-mutants output
+/mutants.out/
+/mutants.out.old/

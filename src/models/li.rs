@@ -96,13 +96,19 @@ fn count_1diff_titv(gc: &[u8; 64], cod1: &[char; 3], cod2: &[char; 3], weight: f
             let class2 = get_codon_class(gc, cod2, pos);
 
             // Special case: CGA<->AGA and CGG<->AGG at position 0 (Arg synonymous)
-            // In KaKs_Calculator LWL85, this gets Si_temp[class1]+=0.5, Vi_temp[class2]+=0.5
+            // In KaKs_Calculator LWL85, this gets Si_temp[class1]+=0.5, Vi_temp[class2]+=0.5.
+            // Only apply it when the two codons are actually SYNONYMOUS (and non-stop)
+            // under the active genetic code — in some mitochondrial codes AGA is Ser or
+            // a stop, so this transversion is nonsynonymous and must NOT get the split.
             let is_arg_special = pos == 0 && (
                 (cod1 == &['C','G','A'] && cod2 == &['A','G','A']) ||
                 (cod1 == &['A','G','A'] && cod2 == &['C','G','A']) ||
                 (cod1 == &['C','G','G'] && cod2 == &['A','G','G']) ||
                 (cod1 == &['A','G','G'] && cod2 == &['C','G','G'])
-            );
+            ) && {
+                let a1 = get_amino_acid(gc, codon_to_index(cod1));
+                a1 != b'!' && a1 == get_amino_acid(gc, codon_to_index(cod2))
+            };
 
             if is_arg_special {
                 ti[class1] += 0.5 * weight;
@@ -219,6 +225,15 @@ impl LiTables {
             for j in i..64usize {
                 let cod1 = decode_codon(i);
                 let cod2 = decode_codon(j);
+
+                // Exclude stop codons from site and substitution counting (as the vcf
+                // count_sites and the Nei model do). A stop's positions all classify as
+                // 0-fold, so counting them would add phantom 0-fold (nonsynonymous) sites
+                // and deflate Ka and Ka/Ks. The table is zero-initialized, so skipping the
+                // pair leaves it (and, on the diagonal, same_l) contributing nothing.
+                if is_stop_codon(gc, &cod1) || is_stop_codon(gc, &cod2) {
+                    continue;
+                }
 
                 // Step 1: Count sites from original codons (KaKs_Calculator approach)
                 // Each codon contributes its classification; average of both (each × 0.5)
@@ -339,6 +354,13 @@ impl LiTables {
     /// instead of the full 288KB data table.
     #[inline]
     pub fn compute_pair(&self, codon_indices1: &[u8], codon_indices2: &[u8]) -> (f64, f64) {
+        // Compare strictly position-by-position over the common length; see the note in
+        // nei.rs::compute_pair_stats. Without this clamp the chunks_exact(4) fast path
+        // mis-registers codons for unequal-length inputs, yielding a wrong Ka/Ks.
+        let n = codon_indices1.len().min(codon_indices2.len());
+        let codon_indices1 = &codon_indices1[..n];
+        let codon_indices2 = &codon_indices2[..n];
+
         let mut l_sum = [0.0; 3];
         let mut ti_sum = [0.0; 3];
         let mut tv_sum = [0.0; 3];
@@ -417,18 +439,28 @@ impl LiTables {
             if l_sum[k] == 0.0 { continue; }
             let denom_a = 1.0 - 2.0 * p_k[k] - q_k[k];
             let denom_b = 1.0 - 2.0 * q_k[k];
-            if denom_a > LI_EPSILON && denom_b > LI_EPSILON {
-                // Kimura two-parameter correction (Li 1993):
-                //   A_k = 0.5*ln(a_k) - 0.25*ln(b_k)  where a_k=1/(1-2P-Q), b_k=1/(1-2Q)
-                //       = -0.5*ln(1-2P-Q) + 0.25*ln(1-2Q)
-                //   B_k = 0.5*ln(b_k) = -0.5*ln(1-2Q)
-                let a_val = -0.5 * denom_a.ln() + 0.25 * denom_b.ln();
+            // Kimura two-parameter correction (Li 1993):
+            //   A_k = -0.5*ln(1-2P-Q) + 0.25*ln(1-2Q)   (needs BOTH terms finite)
+            //   B_k = -0.5*ln(1-2Q)                      (depends only on Q)
+            // Gate each independently: when transitions saturate (denom_a ≤ ε) but
+            // transversions do not, B_k is still recoverable and must not be zeroed.
+            if denom_b > LI_EPSILON {
                 let b_val = -0.5 * denom_b.ln();
-                // Clamp to 0 (matching KaKs_Calculator behavior)
-                a_k[k] = if a_val >= 0.0 { a_val } else { 0.0 };
                 b_k[k] = if b_val >= 0.0 { b_val } else { 0.0 };
+                if denom_a > LI_EPSILON {
+                    let a_val = -0.5 * denom_a.ln() + 0.25 * denom_b.ln();
+                    a_k[k] = if a_val >= 0.0 { a_val } else { 0.0 };
+                } else {
+                    // Transitions saturated (1-2P-Q ≤ 0): the A_k Kimura correction is
+                    // undefined. Propagate NaN so Ks does not silently collapse to 0 and
+                    // report a spurious dN/dS = ∞ (the module doc promises NaN here).
+                    a_k[k] = f64::NAN;
+                }
+            } else {
+                // Transversions saturated (1-2Q ≤ 0): both A_k and B_k are undefined.
+                a_k[k] = f64::NAN;
+                b_k[k] = f64::NAN;
             }
-            // else: leave as 0.0 (saturation — matching KaKs_Calculator which initializes to 0)
         }
 
         // LPB93 Ka/Ks formulas (Li 1993, Pamilo & Bianchi 1993)
@@ -475,6 +507,20 @@ mod tests {
     }
 
     #[test]
+    fn li_unequal_length_compares_overlap_not_misregistered() {
+        // See the Nei twin: unequal-length inputs must be compared over the common prefix,
+        // not mis-registered by the chunked fast path.
+        let long = b"ATGATGATGATGAAACCCATGATGGGGTTT"; // 10 codons
+        let short = b"ATGATGATGATGGGGTTT"; //             6 codons
+        let trunc = b"ATGATGATGATGAAACCC"; //             long's first 6 codons
+        let (dn_u, ds_u) = li(long, short);
+        let (dn_t, ds_t) = li(trunc, short);
+        assert!((dn_u - dn_t).abs() < 1e-12 || (dn_u.is_nan() && dn_t.is_nan()), "dN {} vs {}", dn_u, dn_t);
+        assert!((ds_u - ds_t).abs() < 1e-12 || (ds_u.is_nan() && ds_t.is_nan()), "dS {} vs {}", ds_u, ds_t);
+        assert!(dn_u > 0.0, "overlap divergence must not be hidden, got dN={}", dn_u);
+    }
+
+    #[test]
     fn li_one_synonymous_change_dn_is_zero() {
         // 4 codons (12bp): ATGGCTGCTGCT vs ATGGCCGCTGCT — GCT→GCC (Ala→Ala) at codon 2
         let (dn, ds) = li(b"ATGGCTGCTGCT", b"ATGGCCGCTGCT");
@@ -507,5 +553,102 @@ mod tests {
         let (dn_rna, ds_rna) = li(b"AUGGCUGCUGCU", b"AUGAUUGCUGCU");
         assert!((dn_dna - dn_rna).abs() < EPSILON, "RNA dN differs from DNA: {} vs {}", dn_dna, dn_rna);
         assert!((ds_dna - ds_rna).abs() < EPSILON, "RNA dS differs from DNA: {} vs {}", ds_dna, ds_rna);
+    }
+
+
+    // === cov_ hardening tests (appended) ===
+
+    // Coverage of CodonPairData::default() (li.rs lines 141-143): the Default
+    // impl body sets l/ti/tv each to [0.0; 3]. A zero entry must also be a no-op
+    // when accumulated (conservation).
+    #[test]
+    fn cov_default_codon_pair_data_is_zero() {
+        let d = CodonPairData::default();
+        assert_eq!(d.l, [0.0; 3]);
+        assert_eq!(d.ti, [0.0; 3]);
+        assert_eq!(d.tv, [0.0; 3]);
+
+        let mut l_sum = [0.0f64; 3];
+        let mut ti_sum = [0.0f64; 3];
+        let mut tv_sum = [0.0f64; 3];
+        accumulate(&d, &mut l_sum, &mut ti_sum, &mut tv_sum);
+        assert_eq!(l_sum, [0.0; 3]);
+        assert_eq!(ti_sum, [0.0; 3]);
+        assert_eq!(tv_sum, [0.0; 3]);
+    }
+
+    // Invariant: an alignment whose only differences are 4-fold synonymous
+    // substitutions gives dN == 0 and dS > 0. Such substitutions land only in the
+    // 4-fold (class-2) counters, which feed Ks. LPB reduction:
+    //   Ka = A0 + (L0*B0 + L2*B2)/(L0+L2); with no 0-fold/2-fold substitutions
+    //   A0 = B0 = B2 = 0  =>  Ka = 0.
+    #[test]
+    fn cov_li_all_synonymous_fourfold_dn_is_zero() {
+        // Met Ala Gly Ala Gly Ala; codon 2 GCT->GCC and codon 5 GGT->GGC
+        // (both synonymous, 4-fold, third position). No non-synonymous difference.
+        let (dn, ds) = li(b"ATGGCTGGTGCTGGTGCT", b"ATGGCCGGTGCTGGCGCT");
+        assert!(dn.abs() < EPSILON, "dN must be 0 for purely 4-fold synonymous diffs, got {}", dn);
+        assert!(ds > 0.0, "dS must be > 0 for synonymous diffs, got {}", ds);
+    }
+
+    // Invariant: a single 0-fold non-synonymous substitution gives dS == 0 and
+    // dN > 0. No substitution in the 2-fold/4-fold classes => A1 = A2 = B2 = 0 =>
+    //   Ks = B4 + (L2*A2 + L4*A4)/(L2+L4) = 0.
+    #[test]
+    fn cov_li_zerofold_nonsynonymous_ds_is_zero() {
+        // codon 2 GCT(Ala)->GAT(Asp): single change at the middle base (C->A), 0-fold.
+        let (dn, ds) = li(b"ATGGCTGCTGCT", b"ATGGATGCTGCT");
+        assert!(ds.abs() < EPSILON, "dS must be 0 for a 0-fold non-synonymous change, got {}", ds);
+        assert!(dn > 0.0, "dN must be > 0 for a non-synonymous change, got {}", dn);
+    }
+
+    // Invariant: symmetry d(A,B) == d(B,A) and non-negativity/finiteness for a
+    // mixed (synonymous + non-synonymous) alignment. The estimator is symmetric
+    // in its two sequences and clamps negative corrected distances to 0.
+    #[test]
+    fn cov_li_symmetry_and_nonnegative_mixed() {
+        // codon 2 GCT->GCC (synonymous), codon 3 GGT(Gly)->GAT(Asp) (non-synonymous).
+        let (dn_ab, ds_ab) = li(b"ATGGCTGGTGCT", b"ATGGCCGATGCT");
+        let (dn_ba, ds_ba) = li(b"ATGGCCGATGCT", b"ATGGCTGGTGCT");
+        assert!((dn_ab - dn_ba).abs() < EPSILON, "dN not symmetric: {} vs {}", dn_ab, dn_ba);
+        assert!((ds_ab - ds_ba).abs() < EPSILON, "dS not symmetric: {} vs {}", ds_ab, ds_ba);
+        assert!(dn_ab.is_finite() && dn_ab >= 0.0, "dN must be finite & >= 0, got {}", dn_ab);
+        assert!(ds_ab.is_finite() && ds_ab >= 0.0, "dS must be finite & >= 0, got {}", ds_ab);
+        assert!(dn_ab > 0.0, "dN must be > 0 (non-synonymous change present), got {}", dn_ab);
+        assert!(ds_ab > 0.0, "dS must be > 0 (synonymous change present), got {}", ds_ab);
+    }
+
+    // Branch coverage + invariant: when transversions saturate the Kimura
+    // denominator (1 - 2Q <= LI_EPSILON), the correction is suppressed (A_k/B_k
+    // stay 0) rather than producing NaN or a negative value. Three codons all
+    // GCT(Ala)->GCA(Ala): a synonymous transversion at every 4-fold position =>
+    // Q4 = 3/3 = 1 => denom_b = 1 - 2Q = -1 <= LI_EPSILON => B4 = A4 = 0 => dS = 0.
+    // No 0-fold/2-fold substitution => dN = 0.
+    #[test]
+    fn cov_li_saturation_returns_nan_not_zero() {
+        // All-transversion synonymous divergence saturates the 4-fold class
+        // (1-2Q ≤ 0), so the Kimura correction for dS is undefined and must be NaN,
+        // NOT silently collapse to 0 (which would report a spurious dN/dS = ∞).
+        let (dn, ds) = li(b"GCTGCTGCT", b"GCAGCAGCA");
+        assert!(ds.is_nan(), "dS must be NaN under transversion saturation, got {}", ds);
+        // No non-synonymous change at the (unsaturated) 0-/2-fold positions -> dN = 0.
+        assert!(dn.is_finite() && dn.abs() < EPSILON, "dN must be finite 0, got {}", dn);
+    }
+
+    #[test]
+    fn cov_li_synonymous_transition_saturation_does_not_give_infinite_ratio() {
+        // Regression: heavily transition-skewed synonymous divergence used to zero the
+        // A_k term and collapse Ks to exactly 0, giving dN/dS = ∞ (false positive
+        // selection). Ks must now be NaN (saturated), so the ratio is not a finite > 1.
+        let a: Vec<u8> = b"GCT".iter().cycle().take(60).copied().collect::<Vec<_>>()
+            .into_iter().chain(b"TTT".iter().cycle().take(60).copied()).collect();
+        let b: Vec<u8> = b"GCC".iter().cycle().take(60).copied().collect::<Vec<_>>()
+            .into_iter()
+            .chain(b"CTT".iter().cycle().take(12).copied())
+            .chain(b"TTT".iter().cycle().take(48).copied())
+            .collect();
+        let (dn, ds) = li(&a, &b);
+        assert!(dn.is_finite() && dn >= 0.0, "dN finite, got {}", dn);
+        assert!(!(ds.is_finite() && ds == 0.0), "dS must not silently be 0 under saturation, got {}", ds);
     }
 }

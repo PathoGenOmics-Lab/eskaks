@@ -454,3 +454,74 @@ fn summary_and_plot_together() {
     fs::remove_file(format!("{}_dnds_histogram.svg", out_prefix)).ok();
     fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
 }
+
+#[test]
+fn neutrality_test_writes_pairwise_tests() {
+    let out_prefix = "/tmp/eskaks_test_neutrality";
+    let output = Command::new(binary_path())
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--neutrality"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let rows = parse_tsv(&format!("{}_pairwise_tests.tsv", out_prefix));
+    assert_eq!(
+        rows[0],
+        vec!["Seq1", "Seq2", "dN", "dS", "SE_dN", "SE_dS", "Z", "P_value"],
+        "neutrality header mismatch: {:?}", rows[0]
+    );
+    assert!(rows.len() > 1, "should have at least one pair");
+    // P_value column (index 7) must be a probability in [0,1] or NaN.
+    let p_str = &rows[1][7];
+    if p_str != "NaN" {
+        let p: f64 = p_str.parse().expect("P_value numeric");
+        assert!((0.0..=1.0).contains(&p), "P in [0,1]: {}", p);
+    }
+    fs::remove_file(format!("{}_pairwise_tests.tsv", out_prefix)).ok();
+    fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn bootstrap_writes_pairwise_cis() {
+    let out_prefix = "/tmp/eskaks_test_boot";
+    let status = Command::new(binary_path())
+        .args(["fasta", FASTA, "-o", out_prefix, "--model", "nei", "--bootstrap", "200"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let rows = parse_tsv(&format!("{}_pairwise_bootstrap.tsv", out_prefix));
+    assert_eq!(
+        rows[0],
+        vec!["Seq1", "Seq2", "dN", "dN_CI_low", "dN_CI_high", "dS",
+             "dS_CI_low", "dS_CI_high", "dN/dS", "dNdS_CI_low", "dNdS_CI_high"],
+        "bootstrap header mismatch: {:?}", rows[0]
+    );
+    assert!(rows.len() > 1);
+    fs::remove_file(format!("{}_pairwise_bootstrap.tsv", out_prefix)).ok();
+    fs::remove_file(format!("{}_pairwise_results.tsv", out_prefix)).ok();
+}
+
+#[test]
+fn fasta_report_writes_lineage_scatter() {
+    let out_prefix = "/tmp/eskaks_test_fasta_report";
+    let status = Command::new(binary_path())
+        .args(["fasta", FASTA_GROUPED, "-o", out_prefix, "--model", "nei", "--lineage", "--report"])
+        .status()
+        .expect("spawn");
+    assert!(status.success());
+    let html = fs::read_to_string(format!("{}_report.html", out_prefix)).expect("report html");
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    assert!(html.contains("const DATA ="));
+    assert!(html.contains("\"lineage\":["), "lineage data embedded");
+    assert!(html.contains("by lineage"), "lineage scatter section");
+    // Multi-panel: the dN-vs-dS scatter and distribution are always present too.
+    assert!(html.contains("\"dnds\":["), "dN-vs-dS scatter data embedded");
+    assert!(html.contains("dN vs dS"), "dN-vs-dS scatter section");
+    assert!(html.contains("distribution"), "distribution section");
+    // Self-contained: no external ASSET is loaded (scripts, styles, images, fonts). The
+    // GitHub hyperlink in the header is a navigation link, not a loaded resource.
+    assert!(!html.contains("src=\"http"), "no external resource src");
+    assert!(!html.contains("@import"), "no CSS @import");
+    assert!(!html.contains("cdn"), "no CDN reference");
+    fs::remove_file(format!("{}_report.html", out_prefix)).ok();
+    fs::remove_file(format!("{}_lineage_summary.tsv", out_prefix)).ok();
+}

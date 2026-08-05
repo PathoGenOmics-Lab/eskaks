@@ -1,0 +1,6 @@
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype (haploid)">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	S1	S2	S3	S4
+val1	3	.	T	C	30	PASS	.	GT	0	0	1	1
+val1	4	.	T	G	30	PASS	.	GT	0	0	0	1
+val1	9	.	G	T	30	PASS	.	GT	1	0	0	0

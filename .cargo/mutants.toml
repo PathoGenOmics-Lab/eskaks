@@ -1,0 +1,23 @@
+# cargo-mutants configuration (https://mutants.rs/).
+#
+# Mutation testing measures whether the test suite actually KILLS injected bugs,
+# not just whether it runs. Run locally with:
+#     cargo mutants --file src/stats/diversity.rs   # one module, fast
+#     cargo mutants                                  # everything (slow)
+#
+# Presentation code (the HTML report, SVG plots, the CLI orchestrator) is excluded:
+# a surviving mutant there is low-signal, and mutation effort is best spent on the
+# scientific core (site counting, the statistics, the pN/pS classification).
+exclude_globs = [
+    "src/report.rs",
+    "src/report/**",
+    "src/plot.rs",
+    "src/plot/**",
+    "src/main.rs",
+    "src/cli.rs",
+]
+
+# Integration tests spawn the binary, so give each mutant run generous headroom over
+# the unmutated baseline before declaring a timeout (a timeout counts as caught).
+timeout_multiplier = 3.0
+minimum_test_timeout = 60
