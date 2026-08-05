@@ -218,7 +218,17 @@ fn diversity_row(
     let n_eff = modal_called(syn.iter().chain(mis.iter())).unwrap_or(n);
     let pi_n = if n_sites > 0.0 { crate::stats::theta_pi_varn(mis) / n_sites } else { f64::NAN };
     let pi_s = if s_sites > 0.0 { crate::stats::theta_pi_varn(syn) / s_sites } else { f64::NAN };
-    let pi_ratio = if pi_s > 0.0 { pi_n / pi_s } else { f64::NAN };
+    // Mirror the pN/pS ratio guard (see pnps.rs): a positive πN over zero πS is a
+    // divergent ratio (+∞, all nonsynonymous diversity), not "no data". Collapsing it to
+    // NaN would hide that signal and disagree with the pN/pS table on the same situation.
+    // Only πN == πS == 0 (or an absent site denominator) is genuinely undefined.
+    let pi_ratio = if pi_s > 0.0 {
+        pi_n / pi_s
+    } else if pi_n > 0.0 {
+        f64::INFINITY
+    } else {
+        f64::NAN
+    };
     let total = n_sites + s_sites;
     let theta_w =
         if total > 0.0 { crate::stats::theta_watterson(n_eff, s_seg) / total } else { f64::NAN };
@@ -454,6 +464,24 @@ mod tests {
         // No genotype columns (AF-only / merged): fall back to round(af * nominal n).
         let (_, mis) = segregating_counts(&[var(SnpEffect::Missense, None, None, 0.5)], 4);
         assert_eq!(mis, vec![(2usize, 4usize)]);
+    }
+
+    #[test]
+    fn pi_ratio_diverges_to_infinity_when_only_nonsynonymous_diversity() {
+        // πN > 0 with πS == 0 (synonymous sites exist but none segregate) is a divergent
+        // ratio, not "no data"; it must mirror the pN/pS table, which reports +inf here.
+        let seg = vec![(2usize, 4usize)];
+        let r = diversity_row(&[], &seg, 10.0, 10.0, 4);
+        assert!(r.pi_n > 0.0 && r.pi_s == 0.0);
+        assert!(r.pi_ratio.is_infinite() && r.pi_ratio > 0.0, "πN>0, πS=0 must be +∞, got {}", r.pi_ratio);
+
+        // Nothing segregating anywhere: genuinely undefined → NaN (not ∞).
+        let r0 = diversity_row(&[], &[], 10.0, 10.0, 4);
+        assert!(r0.pi_ratio.is_nan(), "πN=πS=0 must be NaN, got {}", r0.pi_ratio);
+
+        // Both sides have diversity: an ordinary finite ratio.
+        let rf = diversity_row(&seg, &seg, 10.0, 10.0, 4);
+        assert!(rf.pi_ratio.is_finite() && rf.pi_ratio > 0.0);
     }
 }
 

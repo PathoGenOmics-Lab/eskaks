@@ -26,11 +26,20 @@ fn harmonic_sums(n: usize) -> (f64, f64) {
 /// shrink a site's sample instead of diluting its frequency; sites with `n_i < 2`
 /// contribute nothing (no pair can differ). Returned as a total over the region.
 pub fn theta_pi_varn(sites: &[(usize, usize)]) -> f64 {
-    sites
+    let pi: f64 = sites
         .iter()
         .filter(|&&(_, ni)| ni >= 2)
         .map(|&(k, ni)| 2.0 * (k * (ni - k)) as f64 / (ni * (ni - 1)) as f64)
-        .sum()
+        .sum();
+    // Rust's f64 `Sum` seeds the fold with -0.0 (to preserve a genuinely negative sum),
+    // so an empty or fully-filtered set of sites returns -0.0. π is non-negative, so
+    // canonicalize to +0.0; this stops the raw genome-wide summary line from printing a
+    // stray "-0.000e0" and matches the "-0.0 -> 0.0" rule the file writers already apply.
+    if pi == 0.0 {
+        0.0
+    } else {
+        pi
+    }
 }
 
 /// Watterson's θ_W = S / a₁, the segregating-site estimator. Returns NaN for n < 2.
@@ -134,5 +143,16 @@ mod tests {
         assert!((theta_pi_varn(&[(1, 2)]) - 1.0).abs() < 1e-12);
         // Same derived count in a larger sample dilutes the pairwise-difference fraction.
         assert!(theta_pi_varn(&[(1, 10)]) < theta_pi_varn(&[(1, 4)]));
+    }
+
+    #[test]
+    fn theta_pi_varn_returns_positive_zero_not_negative_zero() {
+        // Rust's f64 Sum seeds with -0.0, so an empty or fully-filtered site set would
+        // otherwise yield -0.0 and print a stray "-0.000e0" in the genome-wide summary.
+        for sites in [&[][..], &[(0, 1)][..], &[(0, 1), (3, 1)][..]] {
+            let pi = theta_pi_varn(sites);
+            assert_eq!(pi, 0.0);
+            assert!(!pi.is_sign_negative(), "π must be +0.0, got a negative zero for {sites:?}");
+        }
     }
 }

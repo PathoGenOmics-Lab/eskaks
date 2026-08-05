@@ -269,8 +269,12 @@ const log2c = (v,lo,hi) => v==null||!isFinite(v)?null : Math.max(lo,Math.min(hi,
 // ── Manhattan ─────────────────────────────────────────────────────────
 function panelManhattan(){
   const thr = pThreshold();
-  const yv = g => metric==="ratio" ? g.ratio : (metric==="z" ? g.z : -Math.log10(Math.max(pStat(g),1e-300)));
-  const rows = genes.filter(g=> metric==="ratio" ? (g.ratio!=null&&isFinite(g.ratio)&&g.total>0)
+  // Cap the pN/pS y-axis just above the finite max so +∞ genes (syn=0) plot at the top
+  // edge instead of vanishing, exactly as the power funnel does. Raw g.ratio is null for
+  // them, so both filter and position by ratioEff (which returns a large sentinel).
+  let cap=1.2; if(metric==="ratio"){ for(const g of genes) if(g.total>0&&g.ratio!=null&&isFinite(g.ratio)&&g.ratio>cap) cap=g.ratio; cap*=1.15; }
+  const yv = g => metric==="ratio" ? Math.min(ratioEff(g),cap) : (metric==="z" ? g.z : -Math.log10(Math.max(pStat(g),1e-300)));
+  const rows = genes.filter(g=> metric==="ratio" ? (ratioEff(g)!=null&&g.total>0)
     : metric==="z" ? (g.z!=null&&isFinite(g.z)) : (pStat(g)!=null&&isFinite(pStat(g))));
   const refs = metric==="ratio" ? [{y:1,label:"pN/pS = 1",c:"var(--muted)"}]
     : metric==="z" ? [{y:0,label:"z = 0",c:"var(--muted)"},{y:1.96,label:"+1.96",c:"var(--line)"},{y:-1.96,label:"−1.96",c:"var(--line)"}]
@@ -280,7 +284,7 @@ function panelManhattan(){
     toolbar: tog("neglogp","−log10(p)")+tog("ratio","pN/pS")+tog("z","z(N)"),
     legend:`<span><i style="background:var(--pos)"></i>sig. diversifying (pN/pS&gt;1)</span><span><i style="background:var(--accent)"></i>sig. purifying (&lt;1)</span><span><i style="background:var(--ns)"></i>not significant</span>${metric==="z"?'<span>· z = standardized nonsyn excess</span>':''}`,
     svg: scatter({rows,
-      W:900,x:g=>g.start,y:yv,xlabel:"genome position",ylabel:metric==="ratio"?"pN/pS":(metric==="z"?"z (nonsyn excess)":"−log10(p)"),
+      W:900,x:g=>g.start,y:yv,xlabel:"genome position",ylabel:metric==="ratio"?"pN/pS":(metric==="z"?"z (nonsyn excess)":((M.genomicControl&&stringency==="q")?"−log10(p, GC)":"−log10(p)")),
       xfmt:v=>Math.round(v), color:dirColor, shape:dirShape,
       size:rSize,tip:baseTip, y0:metric==="z", refs})};
 }
@@ -558,6 +562,10 @@ function cellText(g,k){
   if(k==="dir"){ if(g.ratio!=null&&isFinite(g.ratio)) return g.ratio>1?"▲":(g.ratio<1?"▼":"·");
     return (g.total>0&&(g.nonsyn||0)!==(g.syn||0)) ? (g.nonsyn>g.syn?"▲":"▼") : "·"; }
   if(k==="ci"){ return (g.ratioLo!=null&&isFinite(g.ratioLo)) ? `${fmt(g.ratioLo,2)}–${(g.ratioHi!=null&&isFinite(g.ratioHi))?fmt(g.ratioHi,2):"∞"}` : "NA"; }
+  // pN/pS = +∞ (syn=0, nonsyn>0) serializes as null; render it "∞" via fmtRatio so this
+  // cell agrees with the CI ("..–∞") and dir ("▲") cells in the same row and every panel,
+  // instead of the bare fmt() printing a self-contradictory "NA".
+  if(k==="ratio") return fmtRatio(g,4);
   let v=g[k]; if(typeof v==="string") return k==="name"?hesc(v)+(quar(g)?'<span class="badge">rep</span>':""):hesc(v);
   if(icols.has(k)) return v==null?"NA":v;
   return pcols.has(k)?fmtP(v):fmt(v,(k==="ratio"||k==="ni"||k==="alpha"||k==="pn"||k==="ps"||k==="expN")?4:2);
@@ -590,7 +598,11 @@ function renderTableWindow(){
 function renderTable(){
   let rows=filtered();
   const sk = (sortKey==="dir"||sortKey==="ci") ? "ratio" : sortKey;   // 'dir'/'ci' derive from ratio
-  rows.sort((a,b)=>{ let x=a[sk],y=b[sk]; const xn=(x==null||(typeof x==="number"&&!isFinite(x))),yn=(y==null||(typeof y==="number"&&!isFinite(y)));
+  // Sort the ratio column by ratioEff so a +∞ gene (syn=0, the strongest diversifying
+  // signal) sorts as the largest ratio (top under descending) instead of sinking to the
+  // bottom the way raw null g.ratio would. Genes with no ratio at all stay last.
+  const sval = g => sk==="ratio" ? ratioEff(g) : g[sk];
+  rows.sort((a,b)=>{ let x=sval(a),y=sval(b); const xn=(x==null||(typeof x==="number"&&!isFinite(x))),yn=(y==null||(typeof y==="number"&&!isFinite(y)));
     if(xn&&yn)return 0; if(xn)return 1; if(yn)return -1;
     if(typeof x==="string")return sortDesc?y.localeCompare(x):x.localeCompare(y); return sortDesc?y-x:x-y; });
   tableRows=rows; renderTableWindow();

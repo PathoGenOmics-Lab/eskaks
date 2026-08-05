@@ -51,9 +51,9 @@ eskaks fasta alignment.fasta --format json -o results
 ]
 ```
 
-Special values:
-- `NaN` (saturation, or no comparable codons) → `null`
-- `Infinity` (dS=0, dN>0) → `null`
+Special values (the same rule holds for every ratio: dN/dS, pN/pS, and πN/πS):
+- `NaN` (saturation, no comparable codons, or a 0/0 ratio) → `null`
+- `Infinity` (zero denominator over a positive numerator: dS=0 & dN>0, or pS=0/πS=0 with pN>0/πN>0) → `null`
 - `-0.0` → `0.0`
 
 `--format` applies to **every** output mode, not just the default pairwise table:
