@@ -4,6 +4,7 @@
 
 <div align="center">
 
+[![Docs](https://img.shields.io/badge/docs-pathogenomics--lab.github.io%2Feskaks-%23149389?style=flat-square)](https://pathogenomics-lab.github.io/eskaks/)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-%23dea584?style=flat-square)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/version-0.1.0-%23149389?style=flat-square)](https://github.com/PathoGenOmics-Lab/eskaks/releases)
@@ -14,7 +15,9 @@
 **Pairwise dN/dS (Ka/Ks) and per-gene pN/pS from codon-aligned sequences or VCF files.**
 **Pure Rust · no C dependencies · self-contained interactive HTML reports.**
 
-[Tutorial](docs/tutorial.md) · [Get started](#get-started) · [Docs](https://pathogenomics-lab.github.io/eskaks/) · [Citation](#citation)
+### 📖 [Read the documentation](https://pathogenomics-lab.github.io/eskaks/)
+
+New to eskaks? Start with the **[hands-on tutorial](https://pathogenomics-lab.github.io/eskaks/tutorial/)**.
 
 </div>
 
@@ -35,9 +38,7 @@ on protein-coding genes. Two modes:
   neutrality scan and a self-contained interactive HTML report.
 
 Pure Rust, no C dependencies, up to **2,641× faster** than KaKs_Calculator (R² = 1.0
-on the Li model). New here? Start with the **[hands-on tutorial](docs/tutorial.md)**.
-
-## Features
+on the Li model).
 
 | Feature | Description |
 |---|---|
@@ -48,9 +49,7 @@ on the Li model). New here? Start with the **[hands-on tutorial](docs/tutorial.m
 | 🖥️ Interactive report | One self-contained HTML dashboard: colour-blind mode, scales to whole genomes |
 | ⚡ Fast & flexible | Parallel and deterministic; TSV/CSV/JSON/SVG output; 20 NCBI genetic codes |
 
-## Get started
-
-Install with conda:
+## Install
 
 ```bash
 conda install -c bioconda eskaks
@@ -63,7 +62,13 @@ git clone https://github.com/PathoGenOmics-Lab/eskaks.git
 cd eskaks && make release && cp target/release/eskaks ~/.local/bin/
 ```
 
-Try it on the bundled [`examples/`](examples/), no data of your own needed:
+Other installation routes are covered in the
+[installation guide](https://pathogenomics-lab.github.io/eskaks/installation/).
+
+## Try it
+
+The commands below run on the bundled [`examples/`](examples/), so you need no data of
+your own:
 
 ```bash
 # pairwise dN/dS from aligned sequences
@@ -77,19 +82,30 @@ eskaks vcf --ref examples/toy_genome/reference.fasta \
 
 `--report` builds a single self-contained HTML dashboard (interactive Manhattan /
 volcano / QQ, McDonald-Kreitman, colour-blind mode, scales to whole genomes; no
-internet needed). The [tutorial](docs/tutorial.md) walks through reading the output.
+internet needed). See a
+[live example report](https://pathogenomics-lab.github.io/eskaks/example-report/).
 
 ## Documentation
 
-Full documentation lives at **<https://pathogenomics-lab.github.io/eskaks/>**
-(built with MkDocs Material from [`docs/`](docs/)):
-[tutorial](https://pathogenomics-lab.github.io/eskaks/tutorial/) ·
-[CLI reference](https://pathogenomics-lab.github.io/eskaks/cli-reference/) ·
-[VCF analysis](https://pathogenomics-lab.github.io/eskaks/vcf-analysis/) ·
-[interpreting results](https://pathogenomics-lab.github.io/eskaks/interpreting-results/) ·
-[glossary](https://pathogenomics-lab.github.io/eskaks/glossary/) ·
-[performance](https://pathogenomics-lab.github.io/eskaks/performance/) ·
-[FAQ](https://pathogenomics-lab.github.io/eskaks/faq/).
+Everything beyond this page lives on the documentation site,
+**<https://pathogenomics-lab.github.io/eskaks/>**. The `docs/` folder in this repository
+holds its Markdown source, which is written for the rendered site: read it there, where
+the diagrams, formulas and cross-links work.
+
+| I want to | Go to |
+|---|---|
+| Install eskaks | [Installation](https://pathogenomics-lab.github.io/eskaks/installation/) |
+| Learn the tool step by step | [Getting started tutorial](https://pathogenomics-lab.github.io/eskaks/tutorial/) |
+| Copy a command for my use case | [Quick start](https://pathogenomics-lab.github.io/eskaks/quickstart/) |
+| Look up a flag | [CLI reference](https://pathogenomics-lab.github.io/eskaks/cli-reference/) |
+| Scan a genome for selection | [VCF analysis (pN/pS)](https://pathogenomics-lab.github.io/eskaks/vcf-analysis/) |
+| Understand what my numbers mean | [Interpreting results](https://pathogenomics-lab.github.io/eskaks/interpreting-results/) |
+| Choose a substitution model | [Models](https://pathogenomics-lab.github.io/eskaks/models/) |
+| Know what each output column is | [Output formats](https://pathogenomics-lab.github.io/eskaks/output-formats/) |
+| Check speed and accuracy | [Performance & accuracy](https://pathogenomics-lab.github.io/eskaks/performance/) |
+| Look up a term | [Glossary](https://pathogenomics-lab.github.io/eskaks/glossary/) |
+| Solve a problem | [FAQ](https://pathogenomics-lab.github.io/eskaks/faq/) |
+| Contribute code | [Development](https://pathogenomics-lab.github.io/eskaks/development/) |
 
 ## Citation
 
