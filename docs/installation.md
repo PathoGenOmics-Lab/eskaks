@@ -9,7 +9,7 @@ description: >-
 ## From source
 
 eskaks currently installs by building from source with a
-[Rust](https://www.rust-lang.org/tools/install) toolchain (Rust ≥ 1.70):
+[Rust](https://www.rust-lang.org/tools/install) toolchain (Rust ≥ 1.85):
 
 ```bash
 git clone https://github.com/PathoGenOmics-Lab/eskaks.git
@@ -30,7 +30,7 @@ cp target/release/eskaks ~/.local/bin/
 
 ## Requirements
 
-- [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70.0 — for the source build.
+- [Rust](https://www.rust-lang.org/tools/install) ≥ 1.85.0, for the source build.
 
 ## Performance tip
 

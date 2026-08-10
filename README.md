@@ -6,7 +6,7 @@
 
 [![Docs](https://img.shields.io/badge/docs-pathogenomics--lab.github.io%2Feskaks-%23149389?style=flat-square)](https://pathogenomics-lab.github.io/eskaks/)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-%23dea584?style=flat-square)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-%23dea584?style=flat-square)](https://www.rust-lang.org/)
 [![Version](https://img.shields.io/badge/version-0.1.0-%23149389?style=flat-square)](https://github.com/PathoGenOmics-Lab/eskaks/releases)
 [![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-%233EB049?style=flat-square)](https://bioconda.github.io/recipes/eskaks/README.html)
 [![CI](https://github.com/PathoGenOmics-Lab/eskaks/actions/workflows/ci.yml/badge.svg)](https://github.com/PathoGenOmics-Lab/eskaks/actions/workflows/ci.yml)
@@ -55,7 +55,7 @@ on the Li model).
 conda install -c bioconda eskaks
 ```
 
-Or build from source (requires [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70):
+Or build from source (requires [Rust](https://www.rust-lang.org/tools/install) ≥ 1.85):
 
 ```bash
 git clone https://github.com/PathoGenOmics-Lab/eskaks.git

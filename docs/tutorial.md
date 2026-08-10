@@ -58,7 +58,7 @@ cp target/release/eskaks ~/.local/bin/   # or run ./target/release/eskaks
 eskaks --version
 ```
 
-(Needs [Rust](https://www.rust-lang.org/tools/install) ≥ 1.70. See
+(Needs [Rust](https://www.rust-lang.org/tools/install) ≥ 1.85. See
 [installation](installation.md) for details.)
 
 The example files below live in the `examples/` folder of the repository.
