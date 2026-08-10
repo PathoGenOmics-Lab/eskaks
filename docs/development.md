@@ -46,8 +46,9 @@ BLESS=1 cargo test --test golden
   every `eskaks vcf`/`eskaks fasta --help` flag must be documented, so the docs
   cannot silently drift from the binary.
 
-Two deeper tools run out of band (their CI workflows are scheduled weekly, never a
-PR gate):
+Two deeper tools run out of band. Neither is a PR gate and neither runs on a schedule:
+their workflows are manual, started from the repository's Actions tab with "Run
+workflow", so they cost nothing until you ask for them. Locally:
 
 ```bash
 # Coverage-guided fuzzing of the parsers (needs a nightly toolchain + cargo-fuzz).

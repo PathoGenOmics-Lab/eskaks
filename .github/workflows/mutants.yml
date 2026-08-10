@@ -1,11 +1,10 @@
 name: Mutants
 
-# Mutation testing of the scientific core: inject small bugs and confirm the test
-# suite kills them. Scheduled and on-demand only (it is slow and not a PR gate); it
-# surfaces test gaps to close, not per-commit failures.
+# Mutation testing of the scientific core: inject small bugs and confirm the test suite
+# kills them. On-demand only: it is slow, it is not a PR gate, and it is deliberately not
+# on a schedule. Start it from the Actions tab ("Run workflow") when you want to look for
+# test gaps; it surfaces gaps to close, not per-commit failures.
 on:
-  schedule:
-    - cron: "0 5 * * 1" # 05:00 UTC every Monday
   workflow_dispatch:
 
 permissions:
