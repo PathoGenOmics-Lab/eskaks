@@ -23,7 +23,12 @@ flate2 = "1"
 env_logger = "0.9"
 rayon = "1.5"
 crossbeam = "0.8"
-indicatif = { version = "0.16", features = ["rayon"] }
+# Keep this at 0.17: it bounds `console` to 0.15 and its own MSRV is exactly our 1.70,
+# whereas 0.18 requires Rust 1.85. indicatif 0.16 declared `console = ">=0.9.1, <1.0.0"`
+# with default-features off, so cargo was free to pick console 0.16, which moved
+# Style/Term/measure_text_width behind its `std` feature and then failed to compile. That
+# broke the fuzz workspace and would have broken the main build on the next `cargo update`.
+indicatif = { version = "0.17", features = ["rayon"] }
 log = "0.4"
 rustc-hash = "1.1.0" 
 clap = { version = "4.5.4", features = ["derive"] }

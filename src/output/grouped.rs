@@ -212,6 +212,7 @@ pub fn write_group_average(
     pb_group.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Groups: {pos}/{len} ({eta})")
+            .expect("progress template is a literal, so it always parses")
             .progress_chars("#>-"),
     );
 

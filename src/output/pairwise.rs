@@ -134,6 +134,7 @@ pub fn write_pairwise(
     let pb_write = ProgressBar::new(total_pairs_to_write as u64);
     pb_write.set_style(ProgressStyle::default_bar()
         .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] Computing & writing pairs: {pos}/{len} ({eta})")
+        .expect("progress template is a literal, so it always parses")
         .progress_chars("#>-"));
 
     let nan_count = AtomicUsize::new(0);
