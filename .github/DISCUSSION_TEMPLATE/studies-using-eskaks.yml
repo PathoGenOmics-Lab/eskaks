@@ -1,0 +1,75 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If eskaks was part of an analysis, this is the place to say so. A
+        published paper, a preprint, a thesis or an unpublished dataset all
+        count, and there is no need to wait until something is out.
+
+        Selection analyses of every shape are welcome here: pairwise dN/dS
+        between strains, genome-wide pN/pS scans, McDonald-Kreitman tests,
+        bacterial or viral population genomics, and tuberculosis in particular,
+        which is what most of this was first tested against.
+
+        Two reasons this is worth the two minutes it takes. It is the only way
+        the people who maintain it find out where it is being used, since a
+        citation in a paper reaches nobody here on its own. And the last field
+        is where a real analysis says what the tool made harder than it had to
+        be, which is worth more than any feature request written from the
+        outside.
+
+  - type: input
+    attributes:
+      label: The work
+      description: >-
+        A DOI, a preprint link, a repository, or just a title if there is
+        nothing to link to yet.
+      placeholder: https://doi.org/10.1000/example
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Which version of eskaks
+      description: >-
+        The output of `eskaks --version` if you still have the environment. If
+        you built from source, the commit hash, since there is no published
+        release yet and a version number alone does not pin what you ran. It
+        matters, and not only for tidiness: the number a selection method
+        returns depends on how sites are counted and how the correction is
+        applied, so knowing which build produced it is what makes the figure
+        reproducible later.
+      placeholder: eskaks 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Organism and reference
+      description: >-
+        Which genome, and the annotation or alignment you gave it. eskaks is not
+        built for any one organism, and knowing what it is actually run against
+        is how the defaults get chosen well. The genetic code table is worth
+        naming here too.
+      placeholder: Mycobacterium tuberculosis, NC_000962.3, GFF3 from NCBI, table 11
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: What you used it for
+      description: >-
+        The question it helped answer, and which mode answered it: pairwise
+        dN/dS from an alignment, a per-gene pN/pS scan from VCFs, or both. A
+        sentence is plenty.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: What was awkward
+      description: >-
+        Anything you had to work around, a number you had to explain to a
+        reviewer, output you ended up reshaping yourself, a column you expected
+        and did not find. This is the most useful field on the form and the only
+        optional one.

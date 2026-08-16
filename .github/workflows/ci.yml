@@ -1,47 +1,167 @@
 name: CI
 
+# Quality gate for eskaks. Runs once on a pull request, and again on main after
+# the merge. eskaks is a single crate with no external tools to install, so the
+# whole suite is `cargo` and nothing else: clippy, the 700 tests, a release
+# build, a packaging rehearsal and the declared MSRV.
+#
+# `push` is restricted to main on purpose. With `push` on every branch alongside
+# `pull_request`, each commit on a branch with a pull request open runs the whole
+# suite twice against the same commit: twice the minutes, two notifications, one
+# answer. Restricting `push` to main leaves each commit checked exactly once, and
+# main itself still checked after a merge.
+#
+# The cost of this is that a branch pushed without a pull request is not checked.
+# Nothing reaches main that way: main requires a pull request, and the checks it
+# requires are reported by the `pull_request` run.
+
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+
+# A second push to a pull request makes the first run's answer irrelevant, so
+# stop it rather than pay for it. Runs on main are left alone: those record
+# whether a merged commit is sound, and a cancelled one records nothing.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Every job here reads the repository, builds it and runs tests. None writes a
+# comment, a label, a release or a commit. Without this block they would run with
+# whatever the repository's default token grants, which is more than that and
+# grows silently if the default is ever widened.
+permissions:
+  contents: read
+
+# Each job below carries a `timeout-minutes`, because the default is six hours.
+# The distinction that matters is not how long a job takes but how long a stuck
+# one takes to say so: a job that hangs on a registry fetch or a runner that
+# never picks up work will otherwise sit there blocking the pull request until
+# the morning, and nobody watches a queue at night.
+#
+# The limits are set well above the observed times rather than snug against
+# them, because the observed times all had a warm cache. A cold cache rebuilds
+# every dependency from scratch, and a first run on a new dependency set must not
+# be mistaken for a hang.
+#
+# Note there is deliberately no `cargo fmt --check` step anywhere in this file.
+# eskaks is not rustfmt-formatted, reformatting it would rewrite essentially the
+# whole tree, and a check that everybody has to ignore is worse than no check.
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   check:
-    name: Clippy + Tests (${{ matrix.os }})
+    # The matrix OS is in the name on purpose. These names are what the branch
+    # protection rules list as required status checks, so the two legs need
+    # distinct names, otherwise only one of them can be required and the other
+    # can fail unnoticed.
+    name: Build · test · clippy (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
+      # Without this, the first leg to fail kills the other one, and a failure
+      # that is specific to one platform looks identical to a failure on both.
+      # Knowing whether macOS alone is broken is most of the diagnosis.
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@v7
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
+      # Swatinem/rust-cache replaces a hand-rolled actions/cache block. It keys
+      # on the compiler version and the target as well as the lockfile, prunes
+      # the stale artefacts a plain `target/` cache accumulates until it stops
+      # fitting, and does not restore a cache built by a different toolchain.
+      - uses: Swatinem/rust-cache@v2
+      # --all-targets so the lint also covers tests, benches and examples, which
+      # is where dead helpers and unused imports accumulate: the default target
+      # set would let all of tests/ rot quietly.
       - name: Clippy (deny warnings, all targets)
         run: cargo clippy --all-targets -- -D warnings
-
+      # --locked so a dependency that silently resolves to a newer version turns
+      # into a failure here rather than into a green run that nobody could
+      # reproduce locally. This is the full 700-test suite: unit tests, the
+      # integration tests, the golden-output snapshot in tests/golden.rs, the
+      # proptest property tests and the docs-code contract test.
       - name: Tests
-        run: cargo test # includes the golden-output snapshot (tests/golden.rs)
-
+        run: cargo test --locked
+      # The release profile is not the debug profile with the optimiser on: it
+      # has its own overflow behaviour, its own codegen settings and its own
+      # [profile.release] section in Cargo.toml. A debug-only CI can stay green
+      # while the binary users actually get fails to build.
       - name: Build release
-        run: cargo build --release
+        run: cargo build --release --locked
+
+  package:
+    name: The crate still packages and builds from its own tarball
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Packaging breaks in ways nothing else here notices: a file the build
+      # needs left out of `include`, metadata crates.io refuses, a size over the
+      # limit. Every one of those fails at release time, after the tag is pushed,
+      # which is the expensive moment to find out. This packages the crate and
+      # builds it from the resulting tarball on every pull request instead.
+      #
+      # eskaks has published no release yet, which makes this more valuable and
+      # not less: the very first `cargo publish` is the one run with nothing to
+      # compare against and no previous version to fall back to, and it is the
+      # one that has to work.
+      - name: Package and build from the tarball
+        run: cargo publish --dry-run --locked
+
+  msrv:
+    name: The crate still builds on its declared MSRV (1.85)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      # The version is pinned to the exact number in Cargo.toml's `rust-version`
+      # rather than to something like "1.85 or newer", because the whole point is
+      # to compile with the oldest compiler the crate claims to support. Bumping
+      # `rust-version` means bumping this line in the same commit.
+      - name: Install the declared minimum toolchain
+        uses: dtolnay/rust-toolchain@1.85
+      - uses: Swatinem/rust-cache@v2
+      # `rust-version` was 1.70 for a long time while dependencies moved on past
+      # it, so the number in Cargo.toml stopped describing anything real: the
+      # crate had not built on 1.70 for months and nothing said so, because CI
+      # only ever used stable. A user on an older toolchain would have been the
+      # one to find out. This job is what keeps the declared floor honest.
+      #
+      # It builds rather than tests on purpose. The dev-dependencies need 1.85
+      # too, so `cargo test` would pass here today, but the promise the field
+      # makes is about what somebody needs to *use* the crate, not about what a
+      # contributor needs to run its test suite. Keeping this to `build` means a
+      # future dev-dependency that requires a newer compiler does not force an
+      # MSRV bump that users do not actually need.
+      - name: Build on the declared MSRV
+        run: cargo build --locked
+
+  audit:
+    name: cargo audit (advisory, non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Advisory on purpose. A new RUSTSEC advisory is published against a
+    # transitive dependency at a moment that has nothing to do with the pull
+    # request that happens to be open, and sometimes with no fixed version yet.
+    # Blocking merges on that turns an unrelated third party's release schedule
+    # into a hold on this repository's work. The report is still in the run, in
+    # a job whose failure is visible without being a gate.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit dependencies
+        run: cargo audit

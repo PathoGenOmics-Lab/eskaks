@@ -1,0 +1,123 @@
+# Which part of the project a pull request touches, worked out from the files it
+# changes. The labels exist so that "what is wrong in the VCF path" or "what
+# changed in the report" is a question the pull request list can answer;
+# applying them by hand is how they stop being applied.
+#
+# actions/labeler only ever looks at a pull request's changed files, so this
+# file only has to describe pull request areas. Anything that labels issues has
+# to do it somewhere else.
+#
+# Format is actions/labeler v5, which is not v4's: a bare list of globs under the
+# label name silently matches nothing. If a label suddenly stops appearing, check
+# that shape first.
+#
+# Every glob below points at a path that exists today. A rule that matches
+# nothing costs nothing at runtime, which is exactly why it survives forever
+# after the directory it named was renamed, so when you move a module, move its
+# rule with it.
+
+cli:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/cli.rs"
+          - "src/main.rs"
+
+# The estimators themselves plus the two things every estimator is built on: the
+# codon tables and the site counter. A change to the genetic code or to how
+# synonymous sites are counted moves every dN/dS and pN/pS number the tool
+# prints, so it belongs with the models rather than off on its own.
+models:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/models/**"
+          - "src/compute.rs"
+          - "src/codon.rs"
+          - "src/genetic_code.rs"
+
+statistics:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/stats.rs"
+          - "src/stats/**"
+
+# Reading, filtering and merging VCF records. Kept apart from the per-gene
+# analysis below because a parser bug and a pN/pS bug look identical from the
+# outside (a wrong number for a gene) and are nowhere near each other in the code.
+vcf:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/vcf.rs"
+          - "src/vcf/**"
+
+gene-analysis:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/vcf_analysis.rs"
+          - "src/vcf_analysis/**"
+
+# GFF3 parsing. One file today, so the glob is one file, but it earns its own
+# label because a coordinate or strand mistake here silently shifts every gene
+# downstream instead of failing.
+annotation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/gff.rs"
+
+# The self-contained HTML report: the Rust side and the HTML and JavaScript
+# assets that get embedded into it.
+report:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/report.rs"
+          - "src/report/**"
+
+plots:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/plot.rs"
+          - "src/plot/**"
+
+# The MkDocs site, its config, and the README. includes/ holds the abbreviation
+# glossary that the site pulls in, so a change there is a docs change even
+# though it is not under docs/.
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "includes/**"
+          - "mkdocs.yml"
+          - "README.md"
+
+# Both the test suite and the benchmark harness. A benchmark that stops running
+# is found the same way a test that stops running is, and by the same person.
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
+          - "benchmarks/**"
+
+# Everything under .github, not a list of the files there. Naming workflows one
+# by one leaves .github/labeler.yml itself uncovered, so the pull request that
+# adds a rule to this very file arrives with no label, which is a small thing
+# that says exactly how such a list would age. The repo's own helper scripts and
+# git hooks are the same kind of change, so they ride along.
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "scripts/**"
+          - ".githooks/**"
+
+# Root manifest and lockfile only. fuzz/Cargo.toml is a relative path with a
+# directory in front of it, so it does not match here and stays with the fuzzing
+# label below, which is where a fuzz-only dependency bump belongs.
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "Cargo.toml"
+          - "Cargo.lock"
+
+fuzzing:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "fuzz/**"

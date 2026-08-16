@@ -1,27 +1,76 @@
+# Citation metadata for eskaks, in Citation File Format 1.2.0.
+#
+# This file lives at the repository ROOT and not under .github/, because that is
+# the only location GitHub reads when it decides whether to render the
+# "Cite this repository" button. A CITATION.cff tucked away in .github/ validates
+# perfectly well and is silently ignored by the UI, which is the worst of both
+# worlds: the metadata looks maintained and nobody ever sees it.
+#
+# Spec reference: https://github.com/citation-file-format/citation-file-format
+# Validate with: cffconvert --validate
+
 cff-version: 1.2.0
-title: "eskaks: Fast pairwise dN/dS calculation"
 message: "If you use this software, please cite it as below."
+
+# `type: software` rather than `dataset`, and deliberately no `preferred-citation`
+# block. There is no paper and no preprint for eskaks yet. A `preferred-citation`
+# pointing at a publication that does not exist would silently redirect every
+# downstream citation manager to a dead reference, so the software itself is the
+# thing being cited until that changes.
 type: software
+
+# Title matches the BibTeX entry in README.md word for word. The two are read by
+# different tools and copied by different users, and a citation that disagrees with
+# itself is a citation that gets normalised into two separate records.
+title: "eskaks: fast pairwise dN/dS and per-gene pN/pS from sequences or VCFs"
+
 authors:
   - family-names: Ruiz-Rodriguez
     given-names: Paula
     orcid: "https://orcid.org/0000-0003-0727-5974"
-    affiliation: "Institute for Integrative Systems Biology (I2SysBio), CSIC - University of Valencia"
-  - family-names: Coscolla
+    affiliation: >-
+      Institute for Integrative Systems Biology (I2SysBio), University of
+      Valencia-CSIC, Valencia, Spain
+  # Spelled with the accent, as in the README citation line and its BibTeX entry.
+  # Cargo.toml carries the unaccented form because that field is package metadata
+  # rather than a bibliographic record; this file is the bibliographic record, so
+  # the name is written the way the author writes it.
+  - family-names: Coscollá
     given-names: Mireia
-    affiliation: "Institute for Integrative Systems Biology (I2SysBio), CSIC - University of Valencia"
+    orcid: "https://orcid.org/0000-0003-0752-0538"
+    affiliation: >-
+      Institute for Integrative Systems Biology (I2SysBio), University of
+      Valencia-CSIC, Valencia, Spain
+
 repository-code: "https://github.com/PathoGenOmics-Lab/eskaks"
+# The repository rather than the documentation site, because this is the landing
+# page a reader is sent to and it has to resolve. GitHub Pages is not enabled on
+# this repository yet, so https://pathogenomics-lab.github.io/eskaks/ currently
+# returns 404. Point this at the site in the same change that turns Pages on.
 url: "https://github.com/PathoGenOmics-Lab/eskaks"
-license: GPL-3.0-only
+
+# Quoted so YAML keeps it a string. Unquoted, a two component version such as 0.1
+# parses as a float and a future 1.10 would round-trip as 1.1, which is a silent
+# corruption of the one field a reader uses to reproduce your run.
 version: "0.1.0"
+license: GPL-3.0-only
+
+# No `date-released` and no `doi` on purpose. Nothing has been released or archived
+# yet, and CFF treats both fields as optional precisely so that unreleased software
+# can still be cited honestly. Inventing a release date or a placeholder DOI here
+# would put a claim into every generated bibliography that nothing can resolve.
+# Add both in the same commit that cuts the first tagged release.
+
 keywords:
   - dN/dS
   - Ka/Ks
+  - pN/pS
   - synonymous substitutions
   - nonsynonymous substitutions
   - molecular evolution
   - bioinformatics
   - Rust
+
 abstract: >-
   eskaks is a high-performance command-line tool for evolutionary rate analysis.
   It calculates pairwise dN/dS (Ka/Ks) from codon-aligned sequences and per-gene
@@ -30,4 +79,5 @@ abstract: >-
   1,000× speedup compared to existing tools while maintaining numerical accuracy
   (R² = 1.0 vs KaKs_Calculator for the Li model). Supports 20 NCBI genetic code
   tables, VCF-based pN/pS analysis, parallel computation, sliding window analysis,
-  and multiple output formats (TSV, CSV, JSON).
+  multiple output formats (TSV, CSV, JSON) and a self-contained interactive HTML
+  report.

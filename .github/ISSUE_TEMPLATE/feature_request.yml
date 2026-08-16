@@ -1,0 +1,70 @@
+name: Feature request
+description: Suggest something eskaks should be able to do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!TIP]
+        > If you are not sure whether eskaks already does this, ask in
+        > [Q&A](https://github.com/PathoGenOmics-Lab/eskaks/discussions/categories/q-a) first. It is a shorter path to an answer than a feature
+        > request for something that turns out to be a flag. `eskaks help fasta`
+        > and `eskaks help vcf` list every option for each mode, and there are
+        > more of them than the top-level help suggests.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: >-
+        The analysis you are trying to carry out, and where eskaks stops being
+        able to help. Describing the problem rather than the solution usually
+        leads somewhere better: selection statistics have a lot of published
+        variants, and knowing what you want to conclude tells us which one
+        actually answers your question.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which part this concerns
+      options:
+        - eskaks fasta (pairwise dN/dS from a codon alignment)
+        - eskaks vcf (per-gene pN/pS from VCF + reference + GFF3)
+        - Substitution models and statistics
+        - HTML report and plots
+        - Output formats (TSV, CSV, JSON)
+        - Documentation
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: reference
+    attributes:
+      label: Where it is defined, if it is a method
+      description: >-
+        For anything that changes the arithmetic, a paper or a reference
+        implementation saves a great deal of guessing. Counting conventions
+        differ between sources that describe the same estimator, so the exact
+        formulation you expect matters more than its name.
+      placeholder: |
+        Nei & Gojobori (1986), Mol Biol Evol 3(5):418-426, equation 3
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: >-
+        Any workaround you use now, or another tool that does this. Both help
+        judge how the feature should behave; if another tool already produces
+        the number you want, matching its output is something we can test
+        against.

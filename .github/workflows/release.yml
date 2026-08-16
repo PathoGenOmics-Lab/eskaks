@@ -1,0 +1,211 @@
+name: Release
+
+# Builds the binaries for a tagged version and publishes them on a GitHub
+# Release, with checksums and build provenance.
+#
+# What this workflow deliberately does NOT do is publish to crates.io. Pushing a
+# version there is permanent: a release cannot be deleted, only yanked, and the
+# name is claimed forever. That is a decision to make on purpose rather than a
+# side effect of pushing a tag, so `cargo publish` stays a manual step. The CI
+# `package` job already rehearses it on every pull request, so the packaging
+# itself is known to work by the time anyone runs it.
+#
+# The release is created as a DRAFT. Nothing is visible until the assets are all
+# attached, checksummed and the draft is published by hand, which means a build
+# that fails on one platform never produces a half-populated release that people
+# start downloading.
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build a release for
+        required: true
+
+# Tag builds are not interchangeable the way pull request runs are: cancelling
+# one halfway leaves a draft release with some platforms attached and some not.
+# Queue instead of cancelling.
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+# Read-only by default. The two jobs that need to write to the release say so
+# themselves, so a step added later does not silently inherit write access.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset_suffix }}
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    strategy:
+      # One platform failing must not cancel the others. A release missing a
+      # single target is worth knowing about precisely; a release missing three
+      # because the first one failed early tells you nothing.
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-15
+            rust_target: aarch64-apple-darwin
+            asset_suffix: macos-aarch64
+          - platform: macos-15
+            rust_target: x86_64-apple-darwin
+            asset_suffix: macos-x86_64
+          - platform: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+            asset_suffix: linux-x86_64
+          - platform: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            asset_suffix: windows-x86_64
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.rust_target }}
+
+      # Plain `cargo build --release`, NOT the Makefile's `release` target. That
+      # target adds -C target-cpu=native, which compiles for whatever machine
+      # happens to be running the build and produces a binary that can die with
+      # an illegal instruction on an older CPU. Native tuning is right for a
+      # local build and wrong for one handed to strangers. The [profile.release]
+      # section in Cargo.toml (opt-level 3, fat LTO) still applies here.
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.rust_target }}
+
+      # ubuntu-22.04 rather than ubuntu-latest for the Linux build, on purpose:
+      # a glibc-linked binary runs on the glibc it was built against or newer,
+      # never older, so building on the oldest supported runner is what makes the
+      # artefact usable on an older cluster node. Building on latest would
+      # silently narrow who can run it.
+      - name: Package (unix)
+        if: matrix.platform != 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ github.event.inputs.tag || github.ref_name }}"
+          name="eskaks-${version}-${{ matrix.asset_suffix }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.rust_target }}/release/eskaks" "dist/$name/"
+          cp README.md LICENSE "dist/$name/"
+          tar -C dist -czf "dist/${name}.tar.gz" "$name"
+          echo "ASSET=dist/${name}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package (windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ github.event.inputs.tag || github.ref_name }}"
+          name="eskaks-${version}-${{ matrix.asset_suffix }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.rust_target }}/release/eskaks.exe" "dist/$name/"
+          cp README.md LICENSE "dist/$name/"
+          (cd dist && 7z a "${name}.zip" "$name")
+          echo "ASSET=dist/${name}.zip" >> "$GITHUB_ENV"
+
+      # The binary is asked for its own version before it is published. A tag
+      # pushed without bumping Cargo.toml is an easy mistake and produces a
+      # release whose contents disagree with its name, which is only ever found
+      # by a confused user weeks later.
+      - name: The binary runs and reports a version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            bin="target/${{ matrix.rust_target }}/release/eskaks.exe"
+          else
+            bin="target/${{ matrix.rust_target }}/release/eskaks"
+          fi
+          # Cross-built macOS x86_64 cannot run on an arm64 runner; skip the
+          # smoke test there rather than pretend it passed.
+          if [ "${{ matrix.rust_target }}" = "x86_64-apple-darwin" ]; then
+            echo "cross-built for x86_64 on an arm64 runner, skipping execution"
+            exit 0
+          fi
+          "$bin" --version
+
+      - name: Attach to the draft release
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: ${{ env.ASSET }}
+          fail_on_unmatched_files: true
+
+  finalize:
+    name: Publish checksums and provenance
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      # Provenance is signed with the workflow's own short-lived identity, which
+      # is what makes the attestation say something a person could not forge by
+      # uploading a file next to the binaries.
+      id-token: write
+      attestations: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Checksum every asset on the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          # The release is still a draft here. Draft assets are downloadable by
+          # an authenticated token, which is what makes this possible before
+          # anyone can see the release.
+          gh release download "$TAG" --repo "$REPO" --dir release-assets --pattern '*' --clobber
+
+          # On a rerun the previous SHA256SUMS is itself an asset, and would be
+          # checksummed into its own successor.
+          rm -f release-assets/SHA256SUMS
+
+          count=$(find release-assets -maxdepth 1 -type f | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "the release carries no assets: refusing to publish an empty checksums file" >&2
+            exit 1
+          fi
+
+          (cd release-assets && sha256sum ./* > SHA256SUMS)
+          cat release-assets/SHA256SUMS
+          gh release upload "$TAG" release-assets/SHA256SUMS --repo "$REPO" --clobber
+
+      - name: Attest the built binaries
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release-assets/*.tar.gz release-assets/*.zip
+
+      # Left as a draft on purpose. Publishing is the one step a person should
+      # take after looking at what is attached, because it is the step that
+      # cannot be quietly undone once people have the URL.
+      - name: Say what is left to do
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Draft release $TAG is ready with its assets, checksums and provenance."
+          echo "Review it and publish when it looks right:"
+          echo "  https://github.com/$REPO/releases"

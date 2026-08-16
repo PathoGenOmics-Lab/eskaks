@@ -1,0 +1,187 @@
+name: Bug report
+description: eskaks crashed, refused to run, or produced a number that is plainly wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]
+        > **Is this a question rather than a defect?**
+        >
+        > The test is not how serious it is, it is what you are saying. If you can
+        > show the tool is wrong, this is the right form. If you are asking
+        > *whether* it is wrong, or why a gene came out the way it did, that is a
+        > question and it belongs in [Q&A](https://github.com/PathoGenOmics-Lab/eskaks/discussions/categories/q-a), where the answer gets marked as the
+        > answer and the next person finds it.
+        >
+        > A question filed here gets an answer that only you ever see.
+
+        Thanks for taking the time to report this.
+
+        If the run finished cleanly and you disagree with a dN/dS or pN/pS value,
+        that goes to [Q&A](https://github.com/PathoGenOmics-Lab/eskaks/discussions/categories/q-a) as well, with the command and the row that produced it.
+        `NaN` and `NA` are frequently the correct answer rather than a defect: see
+        [the FAQ](https://github.com/PathoGenOmics-Lab/eskaks/blob/main/docs/faq.md) before filing, because a gene with no synonymous sites has no
+        finite ratio to report.
+
+  - type: markdown
+    attributes:
+      value: |
+        > [!WARNING]
+        > **Please do not attach real sequencing data.**
+        >
+        > eskaks is used on *M. tuberculosis* and other clinical isolates, and a
+        > VCF or an alignment from a real patient sample can be identifying even
+        > after the sample name is stripped out. Nothing on this form needs your
+        > actual data. A cut-down or synthetic example that still reproduces the
+        > failure is more useful anyway, because it tells us which part of the
+        > input matters. If you cannot reduce it, describe the input instead and
+        > we will work from the description.
+
+  - type: dropdown
+    id: subcommand
+    attributes:
+      label: Which subcommand
+      description: >-
+        The two modes share almost no input handling, so this narrows the search
+        more than anything else on the form.
+      options:
+        - eskaks fasta (pairwise dN/dS from a codon alignment)
+        - eskaks vcf (per-gene pN/pS from VCF + reference + GFF3)
+        - The HTML report (--report)
+        - Neither, it failed before parsing arguments
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        The output of `eskaks --version`. If you built from a checkout rather
+        than a tag, the commit hash you built is more useful than the number.
+      placeholder: eskaks 0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How it was installed
+      description: >-
+        There is no tagged release yet, so building from source is currently the
+        only supported path. The other options are listed because the recipes
+        exist and someone will eventually arrive through them; if you picked one
+        of those, say where you got the package.
+      options:
+        - Built from source (cargo install / cargo build)
+        - Bioconda (conda install -c bioconda eskaks)
+        - Pre-built binary
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The command you ran
+      description: >-
+        The whole command, exactly as run, including every flag. Flags such as
+        `--genetic-code`, `--model`, `--kappa` and `--genomic-control` change the
+        arithmetic, so a paraphrased command sends us looking in the wrong place.
+      render: shell
+      placeholder: |
+        eskaks fasta alignment.fasta --genetic-code 11 --lineage -o results
+
+        # or
+
+        eskaks vcf --ref genome.fa --gff genes.gff3 --vcf sample.vcf \
+            --genetic-code 11 --kappa 2 -o results
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Error message or output
+      description: >-
+        Everything the tool printed, including the warnings before the failure.
+        eskaks warns about data quality on stderr before it gives up, and those
+        lines usually name the sequence or the gene that caused the problem.
+        Re-running with `-vv` adds the debug log if the error alone is not
+        conclusive.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Your input files
+      description: >-
+        How they were produced matters far more than what is in them, so please
+        describe rather than attach. For `fasta`: how the alignment was made,
+        roughly how many sequences and how long, whether every record is a
+        multiple of three, and whether the IDs carry the lineage prefix that
+        `--lineage` splits on. For `vcf`: which caller wrote the VCF, whether it
+        holds one sample or many, where the reference and the GFF3 came from, and
+        whether the two agree on contig names.
+      placeholder: |
+        Mode: eskaks vcf
+        VCF: 1 sample, called with a GATK-style pipeline
+        FASTA: NC_000962.3 from NCBI
+        GFF3: from the same NCBI assembly, contig named "Chromosome" in the GFF3
+              but "NC_000962.3" in the FASTA
+        Genetic code: 11 (bacterial)
+    validations:
+      required: true
+
+  - type: textarea
+    id: minimal-example
+    attributes:
+      label: A minimal example that reproduces it
+      description: >-
+        Synthetic or reduced, never real patient data. A handful of VCF lines
+        with the one gene from the GFF3 they fall in, or three short sequences
+        from the alignment, is usually enough; you can rename the samples and
+        replace the surrounding sequence with anything. If reducing it is not
+        practical, leave this empty and the description above will do.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and did not find this one.
+          required: true
+        - label: I confirmed that nothing I pasted here contains real patient or sample data.
+          required: true
+        - label: I checked that this still happens on the current `main` branch.
+          required: false

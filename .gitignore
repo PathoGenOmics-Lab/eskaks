@@ -13,3 +13,8 @@ docs/book/
 # cargo-mutants output
 /mutants.out/
 /mutants.out.old/
+
+# macOS Finder metadata. Left untracked these make the tree look dirty, so a
+# release binary built from an otherwise clean checkout reports its version as
+# "-dirty" because somebody opened a folder in Finder.
+.DS_Store
