@@ -163,15 +163,16 @@
    gone. It was there because the wordmark paints its lettering near-black, which
    vanishes on the slate canvas; a white plate under it bought legibility by
    putting a lit slab in the middle of a dark header, which is the problem moved
-   rather than solved. The header now carries the emblem, one colour throughout
-   and needing no plate: #e05252 is 4.3:1 on the slate masthead and 1.9:1 on the
-   #305595 light one. That second figure cannot be raised by choosing another
-   red, because the masthead blue sits mid-luminance and any colour reaching 3:1
-   against it drops below 3:1 against a white browser tab. It is accepted, since
-   a logotype carries no contrast minimum, but it is the weakest mark on the
-   site: rendered at the 24px the header actually draws, the king keeps its
-   shape while its internal strokes go soft. The lever that would fix it is the
-   masthead colour, not the emblem's.
+   rather than solved. The header now carries the emblem, which needs no plate.
+   It holds both chess pieces, and their colours sit at almost the same
+   luminance on purpose, so each is about 4.3:1 on the slate masthead and 1.9:1
+   on the #305595 light one. That second figure cannot be raised by choosing
+   another colour, because the masthead blue sits mid-luminance and anything
+   reaching 3:1 against it drops below 3:1 against a white browser tab. It is
+   accepted, since a logotype carries no contrast minimum, but it is the weakest
+   mark on the site: at the 24px the header actually draws, both pieces keep
+   their silhouettes while their internal strokes go soft. The lever that would
+   fix that is the masthead colour, not the emblem's.
 
    The wordmark is left for the home hero, where it is large. It ships in two
    cuts with identical geometry and different fills, and the hero now emits both

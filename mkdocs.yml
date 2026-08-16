@@ -21,12 +21,17 @@ theme:
   # The masthead prints the site name in type immediately to the right of this,
   # so the mark beside it is the emblem rather than the wordmark: the wordmark is
   # 2:1 and the theme draws the header logo 24px tall, which is too small to read
-  # and says the same thing the type already says. Cut from the same vector at
-  # the same coordinates, so the emblem and the wordmark are one drawing.
+  # and says the same thing the type already says. The emblem carries the two
+  # chess pieces the wordmark spells its letters with, the red king of the "a"
+  # and the blue knight of the "s", lifted straight out of the same vector with
+  # their path data untouched. Only their placement differs: in the wordmark they
+  # sit 200 units apart with lettering between them, and packing them together
+  # is what lets them fill 95% of the square instead of 38%.
   logo: assets/emblem.svg
   # A browser squeezing the 2:1 wordmark into a 16px square produced a smear. The
-  # emblem is a single colour (#e05252) that clears 3.8:1 on a light tab strip
-  # and 5.0:1 on a dark one, so the tab icon needs no dark-ground twin.
+  # emblem's two colours sit at almost the same luminance by design, so both
+  # clear about 3.8:1 on a light tab strip and 4.3:1 on a dark one and the icon
+  # needs no dark-ground twin. They are told apart by hue, never by lightness.
   favicon: assets/emblem.svg
   icon:
     repo: fontawesome/brands/github
