@@ -1,7 +1,18 @@
 name: Docs
 
-# Build the MkDocs Material site: validate every pull request with --strict, and
-# deploy to GitHub Pages (gh-pages branch) on push to main.
+# Builds the MkDocs Material site and publishes it to GitHub Pages.
+#
+# Pages on this repository is configured with "GitHub Actions" as its source
+# rather than "deploy from a branch". That distinction is the whole reason this
+# file looks the way it does: the previous version ran `mkdocs gh-deploy`, which
+# force-pushes the built site to a `gh-pages` branch, and with a workflow-sourced
+# Pages site nothing ever reads that branch. The branch was built and current, the
+# workflow went green every time, and the site served a 404 throughout, because
+# succeeding at the wrong thing looks exactly like succeeding.
+#
+# The build now produces an artifact and actions/deploy-pages publishes it, which
+# is the only route a workflow-sourced Pages site accepts.
+
 on:
   push:
     branches: [main]
@@ -21,53 +32,27 @@ on:
 permissions:
   contents: read
 
+# One deployment at a time, and never cancel one in flight: a half-finished
+# deployment is a half-published site. Pull request builds have nothing to
+# serialise against each other, so they are keyed separately and may cancel.
+concurrency:
+  group: pages-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  # PR gate: a strict build that fails on broken links, a page missing from the
-  # nav, or unrecognised config — but never deploys.
-  validate:
-    if: github.event_name == 'pull_request'
+  # One build, used for both purposes. On a pull request it is the gate: --strict
+  # turns a link to a page or a heading that does not exist into a failure, so a
+  # renamed section is caught here rather than by a reader. On main the same build
+  # produces the artifact that gets deployed, which means the thing published is
+  # the thing that was checked.
+  build:
+    name: Build the documentation site
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       CI: "true" # enables Material's social-card generation
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # full history so git-revision-date-localized works
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - run: echo "cache_id=$(date --utc '+%V')" >> "$GITHUB_ENV"
-      - uses: actions/cache@v4
-        with:
-          key: mkdocs-material-${{ env.cache_id }}
-          path: .cache
-          restore-keys: |
-            mkdocs-material-
-
-      - name: Install imaging system dependencies
-        run: >-
-          sudo apt-get update && sudo apt-get install -y
-          libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev pngquant
-
-      - name: Install MkDocs Material and plugins
-        run: >-
-          pip install "mkdocs-material[imaging]"
-          mkdocs-git-revision-date-localized-plugin mkdocs-jupyter
-
-      - name: Build (strict)
-        run: mkdocs build --strict
-
-  deploy:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # gh-deploy pushes the built site to the gh-pages branch
-    env:
-      CI: "true" # enables Material's social-card generation
-    steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history so git-revision-date-localized works
 
@@ -84,7 +69,7 @@ jobs:
           restore-keys: |
             mkdocs-material-
 
-      # System libraries required by the social plugin (cairo/pango/…).
+      # System libraries required by the social plugin (cairo/pango and friends).
       - name: Install imaging system dependencies
         run: >-
           sudo apt-get update && sudo apt-get install -y
@@ -95,5 +80,38 @@ jobs:
           pip install "mkdocs-material[imaging]"
           mkdocs-git-revision-date-localized-plugin mkdocs-jupyter
 
-      - name: Build and deploy
-        run: mkdocs gh-deploy --force --strict
+      - name: Build (strict)
+        run: mkdocs build --strict
+
+      # Sets the base URL the site is built against. Harmless on a pull request,
+      # where nothing is deployed afterwards.
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload the built site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Deploying needs more than the read-only default: `pages: write` to publish
+    # and `id-token: write` so the deployment can prove which workflow run
+    # produced it. They are scoped to this job so the build above, which runs
+    # third-party plugin code over the docs, never holds them.
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
