@@ -69,19 +69,65 @@
   margin: 0.6rem 0;
 }
 
-/* The home hero. */
+/* ------------------------------------------------------------------ hero -- */
+
+/* The landing page opens on what the tool is and the three things a reader
+   arriving cold wants: how to start, how to install, where the source lives. */
 .eskaks-hero {
-  text-align: center;
-  padding: 1.4rem 0 0.4rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  margin-bottom: 2rem;
+  padding: 0.6rem 0 1.8rem;
 }
-.eskaks-hero img {
-  height: 96px;
+
+/* The wordmark opens the page and carries no frame, having no edges of its own
+   to lose. Two files rather than one that decides for itself: Material swaps
+   them on the reader's chosen theme, which is not always the system's. The two
+   cuts share the same drawing and differ only in fill, #0b0b0b on the light
+   canvas (18.7:1) and #f2f2f0 on the dark one (17.3:1). */
+.md-typeset .eskaks-hero .eskaks-wordmark {
+  border: none;
+  border-radius: 0;
+  display: block;
+  width: min(14rem, 70%);
+  height: auto;
+  margin: 0 0 0.4rem -0.2rem;
 }
-.eskaks-hero .tagline {
-  color: var(--md-default-fg-color--light);
+
+/* Material hides the variant that does not match the chosen theme with a
+   `display: none` on `img[src$="#only-light"]`. Setting `display: block` on the
+   mark above outranks it, so both variants would be drawn, one on top of the
+   other. The hiding is restated here at a weight that survives it. */
+[data-md-color-scheme="slate"] .md-typeset .eskaks-hero img[src$="#only-light"],
+[data-md-color-scheme="default"] .md-typeset .eskaks-hero img[src$="#only-dark"] {
+  display: none;
+}
+
+/* The name is already set in type by the mark right above. The heading is kept
+   for the document outline and for anyone not seeing the image, and taken out
+   of the visual flow rather than deleted. */
+.md-typeset .eskaks-hero h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  margin-bottom: 0.6rem;
+}
+
+.md-typeset .eskaks-hero .eskaks-hero__lead {
   font-size: 0.95rem;
-  max-width: 42rem;
-  margin: 0.4rem auto 1rem;
+  line-height: 1.6;
+  color: var(--md-default-fg-color--light);
+  max-width: 34em;
+}
+
+.md-typeset .eskaks-hero .eskaks-hero__actions {
+  margin-top: 1.4rem;
+}
+
+.md-typeset .eskaks-hero .eskaks-hero__actions .md-button + .md-button {
+  margin-left: 0.4rem;
 }
 
 /* Give tables from the report/benchmarks a little more breathing room. */
@@ -111,7 +157,7 @@
   color: #0d0d0d !important;
 }
 
-/* Theme-aware logo.
+/* Note on the marks, which no rule here implements any more.
 
    The white chip that used to sit behind the header logo and the home hero is
    gone. It was there because the wordmark paints its lettering near-black, which
@@ -127,29 +173,18 @@
    shape while its internal strokes go soft. The lever that would fix it is the
    masthead colour, not the emblem's.
 
-   The wordmark is left for the home hero, where it is large, and there are now
-   two files of it with identical geometry and different fills, so it can be
-   drawn in the colours each ground needs: #0b0b0b on the light canvas (18.7:1),
-   #f2f2f0 on the dark one (17.3:1).
-
-   The swap is `content: url()` on the same <img> rather than Material's usual
-   trick of shipping both images and toggling visibility, because both places the
-   wordmark can appear emit exactly one <img>: the theme's logo partial, and the
-   hero in index.md. A visibility toggle needs a second element that neither of
-   them writes and that a stylesheet cannot add. Element content replacement is
-   Chrome and Safari everywhere, Firefox 128 and up.
-
-   The selector matches the light wordmark by src rather than by a page-specific
-   class, so it covers the hero today and would cover the header too if the
-   wordmark were ever put back up there. */
-[data-md-color-scheme="slate"] img[src$="assets/logo.svg"] {
-  content: url("../assets/logo-dark.svg");
-}
+   The wordmark is left for the home hero, where it is large. It ships in two
+   cuts with identical geometry and different fills, and the hero now emits both
+   and lets Material pick, through the `#only-light` and `#only-dark` suffixes it
+   understands natively. The `content: url()` swap that used to stand here was
+   written when the hero emitted a single <img>; it is redundant now and gone,
+   since two elements are on the page and the theme hides one of them. See the
+   hero block above, which restates that hiding at a surviving weight. */
 
 /* The embedded example report is tall (84vh). On a phone a full-height scrolling
    iframe traps the touch gesture, so the reader can't scroll the page past it.
-   Shorten it on small screens — there's an "Open full-screen" button above it —
-   so there's always page to grab, and let the whole frame scroll if it overflows. */
+   Shorten it on small screens, since there is an "Open full-screen" button above
+   it, so there is always page to grab, and let the frame scroll if it overflows. */
 @media screen and (max-width: 44.9375em) {
   .example-report-frame {
     height: 62vh !important;

@@ -217,7 +217,13 @@ nav:
       - Output formats: output-formats.md
       - Interpreting results: interpreting-results.md
       - VCF analysis (pN/pS): vcf-analysis.md
-      - Example report (live): example-report.md
+      # One page holds both dashboards, embedded and explained side by side, and
+      # the two raw files hang under it: a reader who only wants the dN/dS one
+      # should not have to know it is on a page named after the other.
+      - Example reports:
+          - Both reports (live): example-report.md
+          - pN/pS report (raw HTML): assets/example-report.html
+          - dN/dS report (raw HTML): assets/example-report-fasta.html
   - Reference:
       - Glossary: glossary.md
       - CLI reference: cli-reference.md

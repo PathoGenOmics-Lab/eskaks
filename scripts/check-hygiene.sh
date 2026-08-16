@@ -13,10 +13,13 @@ set -eu
 range="${1:---cached}"
 
 # Added lines of the diff (body lines starting with a single '+', never '+++').
-# Excludes: generated golden fixtures (data, not prose) and the hygiene tooling
-# itself, whose source necessarily spells out the very patterns it forbids.
+# Excludes: generated golden fixtures (data, not prose), the example reports (also
+# generated: the binary writes them, and the prose inside them comes from
+# src/report/, which this check already covers at its source), and the hygiene
+# tooling itself, whose source necessarily spells out the very patterns it forbids.
 added="$(git diff --no-color -U0 $range -- . \
   ':(exclude)tests/golden/**' \
+  ':(exclude)docs/assets/example-report*.html' \
   ':(exclude)scripts/check-hygiene.sh' \
   ':(exclude).githooks/**' 2>/dev/null \
   | grep -E '^\+' | grep -Ev '^\+\+\+' || true)"

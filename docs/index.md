@@ -10,15 +10,25 @@ hide:
 ---
 
 <div class="eskaks-hero" markdown>
-![eskaks](assets/logo.svg){ .off-glb }
+
+![eskaks](assets/logo.svg#only-light){ .eskaks-wordmark }
+![eskaks](assets/logo-dark.svg#only-dark){ .eskaks-wordmark }
 
 # eskaks
 
-<p class="tagline">Fast pairwise <strong>dN/dS</strong> and per-gene <strong>pN/pS</strong> for molecular-evolution and <em>Mycobacterium tuberculosis</em> selection analysis — Nei-Gojobori & Li (1993) with precomputed lookup tables, <strong>1000×</strong> faster than existing tools.</p>
+<p class="eskaks-hero__lead">
+Fast pairwise <strong>dN/dS</strong> and per-gene <strong>pN/pS</strong> for
+molecular evolution and <em>Mycobacterium tuberculosis</em> selection analysis.
+Nei-Gojobori and Li (1993) with precomputed lookup tables, <strong>1000×</strong>
+faster than existing tools.
+</p>
 
+<div class="eskaks-hero__actions" markdown>
 [Get started :material-rocket-launch:](tutorial.md){ .md-button .md-button--primary }
 [Install :material-download:](installation.md){ .md-button }
 [View on GitHub :fontawesome-brands-github:](https://github.com/PathoGenOmics-Lab/eskaks){ .md-button }
+</div>
+
 </div>
 
 !!! tip "New to selection analysis?"
