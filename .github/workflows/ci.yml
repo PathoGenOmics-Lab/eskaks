@@ -130,7 +130,7 @@ jobs:
       # to compile with the oldest compiler the crate claims to support. Bumping
       # `rust-version` means bumping this line in the same commit.
       - name: Install the declared minimum toolchain
-        uses: dtolnay/rust-toolchain@1.85
+        uses: dtolnay/rust-toolchain@1.100
       - uses: Swatinem/rust-cache@v2
       # `rust-version` was 1.70 for a long time while dependencies moved on past
       # it, so the number in Cargo.toml stopped describing anything real: the
