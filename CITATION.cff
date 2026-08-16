@@ -43,11 +43,7 @@ authors:
       Valencia-CSIC, Valencia, Spain
 
 repository-code: "https://github.com/PathoGenOmics-Lab/eskaks"
-# The repository rather than the documentation site, because this is the landing
-# page a reader is sent to and it has to resolve. GitHub Pages is not enabled on
-# this repository yet, so https://pathogenomics-lab.github.io/eskaks/ currently
-# returns 404. Point this at the site in the same change that turns Pages on.
-url: "https://github.com/PathoGenOmics-Lab/eskaks"
+url: "https://pathogenomics-lab.github.io/eskaks/"
 
 # Quoted so YAML keeps it a string. Unquoted, a two component version such as 0.1
 # parses as a float and a future 1.10 would round-trip as 1.1, which is a silent

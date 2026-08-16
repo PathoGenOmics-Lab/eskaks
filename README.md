@@ -4,18 +4,24 @@
 
 <div align="center">
 
-[![Docs](https://img.shields.io/badge/docs-pathogenomics--lab.github.io%2Feskaks-%23149389?style=flat-square)](https://pathogenomics-lab.github.io/eskaks/)
-[![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-%23dea584?style=flat-square)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-0.1.0-%23149389?style=flat-square)](https://github.com/PathoGenOmics-Lab/eskaks/releases)
-[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-%233EB049?style=flat-square)](https://bioconda.github.io/recipes/eskaks/README.html)
-[![CI](https://github.com/PathoGenOmics-Lab/eskaks/actions/workflows/ci.yml/badge.svg)](https://github.com/PathoGenOmics-Lab/eskaks/actions/workflows/ci.yml)
-[![PGO](https://img.shields.io/badge/PathoGenOmics-lab-%23E52421?style=flat-square)](https://github.com/PathoGenOmics-Lab)
+<!-- Each badge is wrapped in <picture> so it gets a darker label segment under a dark
+     theme, matching get_MNV. The CI and Discussions badges are live queries rather than
+     hand-written text: a badge that has to be edited to stay true eventually stops being
+     edited, and then it lies. There is deliberately no bioconda or crates.io badge yet,
+     because eskaks is on neither, and no version badge, because no release is tagged. -->
+<a href="https://pathogenomics-lab.github.io/eskaks/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/docs-online-%230a7ea4?style=flat-square&labelColor=21262d"><img alt="Documentation" src="https://img.shields.io/badge/docs-online-%230a7ea4?style=flat-square"></picture></a>
+<a href="https://github.com/PathoGenOmics-Lab/eskaks/actions/workflows/ci.yml"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/github/actions/workflow/status/PathoGenOmics-Lab/eskaks/ci.yml?branch=main&style=flat-square&label=CI&labelColor=21262d"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/PathoGenOmics-Lab/eskaks/ci.yml?branch=main&style=flat-square&label=CI"></picture></a>
+<a href="LICENSE"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square&labelColor=21262d"><img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square"></picture></a>
+<a href="https://www.rust-lang.org/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/rust-1.85%2B-%23dea584?style=flat-square&labelColor=21262d"><img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-%23dea584?style=flat-square"></picture></a>
+<a href="https://github.com/PathoGenOmics-Lab/eskaks/discussions"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/github/discussions/PathoGenOmics-Lab/eskaks?style=flat-square&color=f5a623&labelColor=21262d"><img alt="Discussions" src="https://img.shields.io/github/discussions/PathoGenOmics-Lab/eskaks?style=flat-square&color=f5a623"></picture></a>
+<a href="https://github.com/PathoGenOmics-Lab"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/PathoGenOmics-lab-%23E52421?style=flat-square&labelColor=21262d"><img alt="PGO" src="https://img.shields.io/badge/PathoGenOmics-lab-%23E52421?style=flat-square"></picture></a>
 
 **Pairwise dN/dS (Ka/Ks) and per-gene pN/pS from codon-aligned sequences or VCF files.**
 **Pure Rust · no C dependencies · self-contained interactive HTML reports.**
 
 ### 📖 [Read the documentation](https://pathogenomics-lab.github.io/eskaks/)
+
+[Install](#install) · [Tutorial](https://pathogenomics-lab.github.io/eskaks/tutorial/) · [CLI reference](https://pathogenomics-lab.github.io/eskaks/cli-reference/) · [Citation](#citation) · [Ask a question](https://github.com/PathoGenOmics-Lab/eskaks/discussions/categories/q-a)
 
 New to eskaks? Start with the **[hands-on tutorial](https://pathogenomics-lab.github.io/eskaks/tutorial/)**.
 
@@ -51,19 +57,18 @@ on the Li model).
 
 ## Install
 
-```bash
-conda install -c bioconda eskaks
-```
-
-Or build from source (requires [Rust](https://www.rust-lang.org/tools/install) ≥ 1.85):
+Build from source, which needs a [Rust](https://www.rust-lang.org/tools/install)
+toolchain of 1.85 or newer:
 
 ```bash
 git clone https://github.com/PathoGenOmics-Lab/eskaks.git
 cd eskaks && make release && cp target/release/eskaks ~/.local/bin/
 ```
 
-Other installation routes are covered in the
-[installation guide](https://pathogenomics-lab.github.io/eskaks/installation/).
+`cargo install eskaks`, pre-built binaries and a Bioconda recipe will arrive with the
+first tagged release. Until then this is the only route, and the
+[installation guide](https://pathogenomics-lab.github.io/eskaks/installation/) has the
+details, including what `make release` does differently from a plain `cargo build`.
 
 ## Try it
 
