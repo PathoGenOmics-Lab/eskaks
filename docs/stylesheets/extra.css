@@ -111,21 +111,39 @@
   color: #0d0d0d !important;
 }
 
-/* The wordmark is painted in dark red/blue, so it disappears on the blue header
-   and in dark mode. Sit it on a small white chip (as the HTML report does) so it
-   reads on any background, in either theme. */
-.md-header__button.md-logo img,
-.md-header__button.md-logo svg {
-  background: #fff;
-  border-radius: 4px;
-  padding: 2px 4px;
-  box-sizing: content-box;
-}
-.eskaks-hero img {
-  background: #fff;
-  border-radius: 12px;
-  padding: 8px 14px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+/* Theme-aware logo.
+
+   The white chip that used to sit behind the header logo and the home hero is
+   gone. It was there because the wordmark paints its lettering near-black, which
+   vanishes on the slate canvas; a white plate under it bought legibility by
+   putting a lit slab in the middle of a dark header, which is the problem moved
+   rather than solved. The header now carries the emblem, one colour throughout
+   and needing no plate: #e05252 is 4.3:1 on the slate masthead and 1.9:1 on the
+   #305595 light one. That second figure cannot be raised by choosing another
+   red, because the masthead blue sits mid-luminance and any colour reaching 3:1
+   against it drops below 3:1 against a white browser tab. It is accepted, since
+   a logotype carries no contrast minimum, but it is the weakest mark on the
+   site: rendered at the 24px the header actually draws, the king keeps its
+   shape while its internal strokes go soft. The lever that would fix it is the
+   masthead colour, not the emblem's.
+
+   The wordmark is left for the home hero, where it is large, and there are now
+   two files of it with identical geometry and different fills, so it can be
+   drawn in the colours each ground needs: #0b0b0b on the light canvas (18.7:1),
+   #f2f2f0 on the dark one (17.3:1).
+
+   The swap is `content: url()` on the same <img> rather than Material's usual
+   trick of shipping both images and toggling visibility, because both places the
+   wordmark can appear emit exactly one <img>: the theme's logo partial, and the
+   hero in index.md. A visibility toggle needs a second element that neither of
+   them writes and that a stylesheet cannot add. Element content replacement is
+   Chrome and Safari everywhere, Firefox 128 and up.
+
+   The selector matches the light wordmark by src rather than by a page-specific
+   class, so it covers the hero today and would cover the header too if the
+   wordmark were ever put back up there. */
+[data-md-color-scheme="slate"] img[src$="assets/logo.svg"] {
+  content: url("../assets/logo-dark.svg");
 }
 
 /* The embedded example report is tall (84vh). On a phone a full-height scrolling

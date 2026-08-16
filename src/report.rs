@@ -88,9 +88,14 @@ fn num(v: f64) -> String {
     }
 }
 
-/// The original eskaks logo, embedded so the self-contained report needs no
-/// external assets.
-const LOGO_SVG: &[u8] = include_bytes!("../img/esKaKs.svg");
+/// The eskaks wordmark in its two ground-specific cuts, embedded so the
+/// self-contained report needs no external assets. Same drawing in both; they
+/// differ only in fill values, because an `<img>`-embedded SVG cannot read the
+/// report's theme and so the report has to ship both and choose in its own CSS.
+/// These are the same files the documentation site serves, so the two surfaces
+/// cannot drift apart the way they did while the report had its own copy.
+const LOGO_SVG_LIGHT: &[u8] = include_bytes!("../docs/assets/logo.svg");
+const LOGO_SVG_DARK: &[u8] = include_bytes!("../docs/assets/logo-dark.svg");
 
 /// Minimal, dependency-free base64 encoder (standard alphabet, padded).
 fn base64(data: &[u8]) -> String {
@@ -109,10 +114,12 @@ fn base64(data: &[u8]) -> String {
     out
 }
 
-/// A `data:` URI for the eskaks logo, safe to drop into an `<img src>` (the SVG's
-/// own `<style>`/ids stay isolated inside the image document).
-fn logo_data_uri() -> String {
-    format!("data:image/svg+xml;base64,{}", base64(LOGO_SVG))
+/// A `data:` URI for one wordmark cut, safe to drop into an `<img src>` (the SVG's
+/// own `<style>`/ids stay isolated inside the image document). That isolation is
+/// what makes shipping both cuts safe: they share their `.cls-*` class names, so
+/// inlining them into one document would let the last one loaded repaint the other.
+fn logo_data_uri(svg: &[u8]) -> String {
+    format!("data:image/svg+xml;base64,{}", base64(svg))
 }
 
 /// Write the interactive HTML report; returns the output path.
@@ -251,7 +258,8 @@ pub fn write_html_report(
     html.push_str(HEAD);
     html.push_str(
         &BODY
-            .replace("__ESKAKS_LOGO__", &logo_data_uri())
+            .replace("__ESKAKS_LOGO_LIGHT__", &logo_data_uri(LOGO_SVG_LIGHT))
+            .replace("__ESKAKS_LOGO_DARK__", &logo_data_uri(LOGO_SVG_DARK))
             .replace("__ESKAKS_VERSION__", env!("CARGO_PKG_VERSION")),
     );
     html.push_str("<script>\nconst DATA = ");
@@ -390,7 +398,8 @@ pub fn write_fasta_report(
     html.push_str(HEAD);
     html.push_str(
         &FASTA_BODY
-            .replace("__ESKAKS_LOGO__", &logo_data_uri())
+            .replace("__ESKAKS_LOGO_LIGHT__", &logo_data_uri(LOGO_SVG_LIGHT))
+            .replace("__ESKAKS_LOGO_DARK__", &logo_data_uri(LOGO_SVG_DARK))
             .replace("__ESKAKS_VERSION__", env!("CARGO_PKG_VERSION")),
     );
     html.push_str("<script>\nconst DATA = ");
@@ -424,10 +433,25 @@ mod tests {
     }
 
     #[test]
-    fn logo_data_uri_is_a_nonempty_svg_data_uri() {
-        let uri = logo_data_uri();
-        assert!(uri.starts_with("data:image/svg+xml;base64,"));
-        assert!(uri.len() > 1000, "logo data URI unexpectedly small");
+    fn logo_data_uris_are_nonempty_svg_data_uris() {
+        for uri in [logo_data_uri(LOGO_SVG_LIGHT), logo_data_uri(LOGO_SVG_DARK)] {
+            assert!(uri.starts_with("data:image/svg+xml;base64,"));
+            assert!(uri.len() > 1000, "logo data URI unexpectedly small");
+        }
+        // Wiring both <img> to the same file would still render and still pass every
+        // check above; it would only show up as an invisible wordmark in one theme.
+        assert_ne!(logo_data_uri(LOGO_SVG_LIGHT), logo_data_uri(LOGO_SVG_DARK));
+    }
+
+    #[test]
+    fn both_body_templates_carry_both_logo_placeholders() {
+        // The substitutions are plain string replaces: a renamed placeholder in one
+        // template fails silently, leaving a literal "__ESKAKS_LOGO_DARK__" as an
+        // image source that only breaks in the theme nobody tested.
+        for body in [BODY, FASTA_BODY] {
+            assert!(body.contains("__ESKAKS_LOGO_LIGHT__"));
+            assert!(body.contains("__ESKAKS_LOGO_DARK__"));
+        }
     }
 
     #[test]

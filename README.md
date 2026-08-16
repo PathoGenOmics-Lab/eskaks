@@ -1,5 +1,11 @@
+<!-- Two files rather than one self-recolouring SVG: GitHub strips media queries out of the
+     SVGs it renders, so a single file would keep its light palette on the dark theme, where
+     the wordmark is near-black on near-black. The #gh-light-mode-only and #gh-dark-mode-only
+     fragments are GitHub's own theme switch: it hides the copy that does not apply. Both
+     files sit in docs/assets/ so the README and the documentation site share one pair. -->
 <p align="center">
-  <img src="img/esKaKs.svg" height="200" alt="eskaks logo" />
+  <img src="docs/assets/logo.svg#gh-light-mode-only" height="200" alt="eskaks logo" />
+  <img src="docs/assets/logo-dark.svg#gh-dark-mode-only" height="200" alt="eskaks logo" />
 </p>
 
 <div align="center">

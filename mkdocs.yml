@@ -18,8 +18,16 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   language: en
-  logo: assets/logo.svg
-  favicon: assets/logo.svg
+  # The masthead prints the site name in type immediately to the right of this,
+  # so the mark beside it is the emblem rather than the wordmark: the wordmark is
+  # 2:1 and the theme draws the header logo 24px tall, which is too small to read
+  # and says the same thing the type already says. Cut from the same vector at
+  # the same coordinates, so the emblem and the wordmark are one drawing.
+  logo: assets/emblem.svg
+  # A browser squeezing the 2:1 wordmark into a 16px square produced a smear. The
+  # emblem is a single colour (#e05252) that clears 3.8:1 on a light tab strip
+  # and 5.0:1 on a dark one, so the tab icon needs no dark-ground twin.
+  favicon: assets/emblem.svg
   icon:
     repo: fontawesome/brands/github
     edit: material/pencil
@@ -31,6 +39,24 @@ theme:
       warning: material/alert
       danger: material/skull
   palette:
+    # Three states rather than two. With only light and dark, the first toggle a
+    # reader touches pins the site to that choice forever: there is no third
+    # position that hands control back to the machine, so a reader who dims their
+    # laptop at sunset has to dim the site by hand as well. The icon names the
+    # state you are in; the label names what pressing it does.
+    #
+    # This entry is first for a second reason: Material stamps the first entry's
+    # scheme, primary and accent onto <body> when it renders the page, and its
+    # JavaScript only resolves the system preference afterwards. Left to their
+    # defaults those three attributes are Material indigo, so every cold load
+    # would paint the masthead the wrong blue for one frame.
+    - media: "(prefers-color-scheme)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
     # Light mode (mycolorsTB brand)
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -46,7 +72,7 @@ theme:
       accent: custom
       toggle:
         icon: material/weather-night
-        name: Switch to light mode
+        name: Follow the system setting
   # Use the system font stack — no Google Fonts request, so the site contacts no
   # third party for typography (keeps the privacy claim honest).
   font: false
@@ -140,7 +166,13 @@ markdown_extensions:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
-      anchor_linenums: true
+      # anchor_linenums is deliberately off. No block on this site asks for line
+      # numbers, but it still put an empty <a href> in front of every line of
+      # code: 248 of them across the built site, 53 on the tutorial page alone.
+      # Each is a tab stop with no accessible name and nothing to see when
+      # focused, so a keyboard reader paid for anchors to lines that are never
+      # numbered and never linked. line_spans stays: the code selection button
+      # and code annotations are built on it.
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
@@ -161,6 +193,17 @@ markdown_extensions:
           case: lower
   - pymdownx.tasklist:
       custom_checkbox: true
+
+# CI builds with --strict, which promotes every warning to a failure. MkDocs
+# already warns about a link to a page that does not exist, but reports a link to
+# a heading that does not exist as info, so renaming a section used to break
+# every cross-reference to it in silence. Raised to warn, the build catches it
+# instead of a reader hitting a dead anchor.
+validation:
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn
 
 nav:
   - Home: index.md
@@ -188,6 +231,13 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/PathoGenOmics-Lab/eskaks
       name: eskaks on GitHub
+    # In the footer of every page, because the moment someone needs to ask is
+    # whichever page they were reading when it stopped answering them. The
+    # repository has discussions enabled and this Q&A category exists, so the
+    # link lands on a form and not on a 404.
+    - icon: material/comment-question-outline
+      link: https://github.com/PathoGenOmics-Lab/eskaks/discussions/categories/q-a
+      name: Ask a question
   consent:
     title: Cookie consent
     description: >-

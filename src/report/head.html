@@ -55,9 +55,20 @@ h1{font-size:1.5rem;font-weight:700;line-height:1.2;letter-spacing:-.012em;margi
 border:1px solid color-mix(in srgb,var(--accent) 35%,var(--border));border-radius:999px;padding:1px 9px;align-self:center}
 .brand .gh{display:inline-flex;align-items:center;gap:5px;margin-left:auto;color:var(--muted);font-size:.85rem;text-decoration:none;align-self:center;border:1px solid var(--border);border-radius:8px;padding:3px 10px}
 .brand .gh:hover{color:var(--accent);border-color:var(--accent)}
-/* The logo is designed for a light background (it has both white and black parts),
-   so sit it on a small white chip that reads correctly in either theme. */
-.brand-logo{height:52px;width:auto;display:block;background:#fff;border-radius:12px;padding:7px 11px;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+/* The wordmark ships as two cuts, one per ground, and the report picks. An <img>-embedded
+   SVG is its own document: it cannot see this document's data-theme, so the choice has to be
+   made out here. Two <img> with one hidden beats a background-image swap because the SVG
+   keeps its intrinsic aspect ratio (no hard-coded width) and the alt text survives; only one
+   is ever in the accessibility tree, since display:none removes the other. The three blocks
+   mirror the custom properties above, for the same reason: the media query serves readers who
+   never touch the toggle, the data-theme attribute serves readers who do, and :where() keeps
+   an explicit data-theme="light" from being overruled by a dark system preference. */
+.brand-logo{height:52px;width:auto;display:block}
+.brand-logo.logo-dark{display:none}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])) .brand-logo.logo-light{display:none}
+:root:where(:not([data-theme="light"])) .brand-logo.logo-dark{display:block}}
+:root[data-theme="dark"] .brand-logo.logo-light{display:none}
+:root[data-theme="dark"] .brand-logo.logo-dark{display:block}
 .sub{color:var(--muted);font-size:.85rem;margin-bottom:16px}
 .topbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:20px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
@@ -185,7 +196,7 @@ button.btn:active,button.tog:active{transform:none!important}}
 .grid{display:block}.panel{margin-bottom:16px}.guide[open] summary{display:none}
 /* Shadows waste ink on paper. The hero card (:has, 0,2,0) and the dot halo (.verdict .dot, 0,2,0)
    need their own specificity here or they out-rank a bare .card/.dot reset and bleed onto the page. */
-.panel,.card,.card:has([data-help="card_gw"]),.card.hero,.toc,.tablewrap,.verdict,.verdict .dot,.tip,.info-pop,.brand-logo{box-shadow:none}}
+.panel,.card,.card:has([data-help="card_gw"]),.card.hero,.toc,.tablewrap,.verdict,.verdict .dot,.tip,.info-pop{box-shadow:none}}
 </style>
 </head>
 <body>
