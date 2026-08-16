@@ -129,8 +129,26 @@ jobs:
       # rather than to something like "1.85 or newer", because the whole point is
       # to compile with the oldest compiler the crate claims to support. Bumping
       # `rust-version` means bumping this line in the same commit.
+      #
+      # The toolchain is given as an INPUT and not as the action's ref, and that
+      # distinction is the whole point of this block. Written the obvious way, as
+      # `dtolnay/rust-toolchain@1.85`, the MSRV is encoded in a git ref, and
+      # Dependabot reads git refs on actions as versions to keep current: within
+      # minutes of this workflow landing it opened a pull request "bumping"
+      # dtolnay/rust-toolchain from 1.85 to 1.100, which silently changed the
+      # question this job asks from "does it build on our declared floor" to "does
+      # it build on some newer compiler". That pull request merged itself, and the
+      # job then failed with a 404 from static.rust-lang.org because Rust 1.100.0
+      # does not exist. The 404 was luck: had the number been a real release, the
+      # job would have gone green while testing the wrong thing.
+      #
+      # As an input the version is invisible to Dependabot, so the floor only moves
+      # when a person moves it. Bumping `rust-version` in Cargo.toml means bumping
+      # the number below in the same commit.
       - name: Install the declared minimum toolchain
-        uses: dtolnay/rust-toolchain@1.100
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85"
       - uses: Swatinem/rust-cache@v2
       # `rust-version` was 1.70 for a long time while dependencies moved on past
       # it, so the number in Cargo.toml stopped describing anything real: the
