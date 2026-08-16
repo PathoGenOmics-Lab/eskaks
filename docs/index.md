@@ -2,10 +2,15 @@
 title: eskaks
 description: >-
   Fast pairwise dN/dS and per-gene pN/pS for molecular evolution and
-  Mycobacterium tuberculosis selection analysis — Nei-Gojobori & Li (1993),
+  Mycobacterium tuberculosis selection analysis. Nei-Gojobori and Li (1993),
   1000× faster than existing tools.
+# The sidebar is NOT hidden here, matching get_MNV. Hiding it gives the landing
+# page a wider hero, at the cost of the one thing a first-time reader needs from
+# a landing page: the shape of the documentation. Arriving with no visible map
+# and having to click before seeing what exists is a worse trade than a narrower
+# hero. Only the table of contents is hidden, since the hero and the card grid
+# below it are the page's own navigation.
 hide:
-  - navigation
   - toc
 ---
 
