@@ -194,7 +194,7 @@ jobs:
           gh release upload "$TAG" release-assets/SHA256SUMS --repo "$REPO" --clobber
 
       - name: Attest the built binaries
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: release-assets/*.tar.gz release-assets/*.zip
 
