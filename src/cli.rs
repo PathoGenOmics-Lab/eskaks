@@ -315,6 +315,36 @@ pub struct VcfArgs {
     #[arg(long, help_heading = "Statistics options")]
     pub codon_scan: bool,
 
+    /// Newick tree over the cohort's samples. Adds independent-origin counting to
+    /// --codon-scan (columns Nonsyn_Origins, Max_Allele_Origins, Exp_Nonsyn_Origins,
+    /// P_Origins, Q_Origins) and to --variants (column Origins), which is what lets a
+    /// SINGLE allele that arose many times independently be seen as convergent. Tip
+    /// names must match the VCF's sample names exactly (for one VCF per sample: the
+    /// file's own sample column, else its basename); any mismatch is a hard error.
+    ///
+    /// Read the caveats. Origins are counted by Fitch parsimony, so: a genotyping
+    /// error inflates them (mitigated, not removed, by --min-origin-support); missing
+    /// data is invisible, since a carrier set cannot tell REF from a no-call, so heavy
+    /// missingness inflates them too; a mutational or mapping hotspot is
+    /// indistinguishable from selection, so pair this with --exclude-repetitive;
+    /// RECOMBINATION reads as convergence, which is near-zero in M. tuberculosis but
+    /// not in every organism; an unresolved tree inflates origins; and the counts are a
+    /// property of the sampling frame, not of nature, so they are not portable between
+    /// collections. The ranking is what is trustworthy, not the literal p-values.
+    #[arg(long, value_name = "FILE", help_heading = "Statistics options")]
+    pub tree: Option<String>,
+
+    /// Minimum carriers in the clade an origin subtends for that origin to count
+    /// (requires --tree). The default of 2 is deliberate and load-bearing: raw
+    /// parsimony counts every isolated false call as its own origin, and three of them
+    /// on top of one real clade allele are enough to fake genome-wide significance.
+    /// Requiring two carriers per origin removes that failure mode and demotes calling
+    /// artefacts below real signals. It biases conservative: a mutation that genuinely
+    /// arose once in one sampled genome goes uncounted. Use 1 only for a cohort you
+    /// trust completely.
+    #[arg(long, default_value_t = 2, requires = "tree", help_heading = "Statistics options")]
+    pub min_origin_support: u32,
+
     /// Allele frequency at/above which a variant is treated as "fixed"
     /// (divergence) rather than polymorphic in the McDonald-Kreitman test.
     #[arg(long, default_value_t = 0.99, help_heading = "Statistics options")]

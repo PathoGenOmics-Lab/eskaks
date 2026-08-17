@@ -20,7 +20,7 @@ mod tests;
 pub use carriers::CarrierSet;
 pub use filter::filter_snps;
 pub use merge::merge_vcfs;
-pub use parse::{parse_vcf, sample_count};
+pub use parse::{parse_vcf, sample_count, sample_names};
 
 /// Exact derived-allele counts read from the per-sample GT columns, when present.
 /// Used by the diversity statistics, which need the true per-site allele counts

@@ -39,6 +39,8 @@ divergence table for the report's reconciliation panel:
 | `genes.gff3` | gene annotation (CDS features) |
 | `variants.vcf` | the SNPs, with `AF` and `DP` in the INFO field |
 | `variants_mixed.vcf` | 12 `gene01` SNPs with a mix of `PASS` and `LowQual` FILTERs, to try `--pass-only` |
+| `variants_multisample.vcf` | the same SNPs with genotypes for 20 samples (`S01`..`S20`), for `--diversity` and anything needing per-sample carriers |
+| `samples.nwk` | a Newick tree over those 20 samples, for `--tree` (independent-origin counting) |
 | `divergence.tsv` | a per-gene dN/dS table (`gene <TAB> dN/dS`) |
 
 ```bash

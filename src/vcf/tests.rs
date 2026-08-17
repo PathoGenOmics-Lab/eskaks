@@ -8,6 +8,34 @@ fn write_temp_vcf(content: &str) -> tempfile::NamedTempFile {
 }
 
 #[test]
+fn sample_names_are_the_header_columns_in_column_order() {
+    // The one place eskaks reads sample NAMES rather than column positions, so a tree's
+    // tips can be matched to the cohort. Order matters absolutely: position i in this
+    // list is the sample index every carrier set was built with.
+    let vcf = "\
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tERR_9\tERR_1\tERR_5
+chr1\t100\t.\tA\tG\t30\tPASS\tDP=50\tGT\t1\t0\t1\n";
+    let f = write_temp_vcf(vcf);
+    assert_eq!(sample_names(f.path()).unwrap(), vec!["ERR_9", "ERR_1", "ERR_5"]);
+    assert_eq!(sample_count(f.path()).unwrap(), 3, "count and names must agree");
+    // And the carrier set is indexed by that same order: ERR_9 and ERR_5 carry the ALT.
+    let snps = parse_vcf(f.path()).unwrap();
+    let carriers = &snps[0].carriers.as_ref().expect("genotyped")[0];
+    assert_eq!(carriers.samples().collect::<Vec<_>>(), vec![0, 2]);
+
+    // An AF-only VCF has no sample columns, so there are no names to match at all.
+    let af_only = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chr1\t100\t.\tA\tG\t30\tPASS\tDP=50;AF=0.5\n";
+    let g = write_temp_vcf(af_only);
+    assert!(sample_names(g.path()).unwrap().is_empty());
+    assert_eq!(sample_count(g.path()).unwrap(), 0);
+}
+
+#[test]
 fn parse_simple_snps() {
     let vcf = "\
 ##fileformat=VCFv4.2

@@ -2,6 +2,30 @@
 
 use super::*;
 
+/// The sample (genotype) column NAMES of a VCF: the fields after the fixed 9
+/// (CHROM..FORMAT) on the `#CHROM` header line, in column order, so index `i` is the
+/// sample index every carrier set uses. Empty for an AF-only VCF with no per-sample
+/// columns.
+///
+/// eskaks identifies samples by column position everywhere else; this is the one place
+/// the names are read, and it exists so a phylogeny's tips can be matched to the cohort
+/// (`--tree`). Reading them is deliberately separate from parsing the records: the
+/// join has to fail loudly before a genome's worth of work is done.
+pub fn sample_names(path: &Path) -> anyhow::Result<Vec<String>> {
+    let reader = crate::input::open_text(path, "VCF file")?;
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with("#CHROM") {
+            let fields: Vec<&str> = line.trim_end().split('\t').collect();
+            return Ok(fields.iter().skip(9).map(|s| s.to_string()).collect());
+        }
+        if !line.starts_with('#') {
+            break; // reached data with no #CHROM header
+        }
+    }
+    Ok(Vec::new())
+}
+
 /// Number of sample (genotype) columns in a VCF: the fields after the fixed
 /// 9 (CHROM..FORMAT) on the `#CHROM` header line. Returns 0 for an AF-only VCF
 /// with no per-sample columns (so a caller can tell "sample size unknown").

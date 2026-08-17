@@ -181,6 +181,60 @@ fn upper_tail_is_the_whole_atom_and_matches_an_independent_pmf() {
 }
 
 #[test]
+fn poisson_upper_tail_matches_a_hand_sum_and_survives_the_deep_tail() {
+    // Against a direct sum of the pmf, written here without ln_gamma so the two are
+    // independent implementations.
+    let ref_tail = |x: u64, l: f64| -> f64 {
+        let (mut term, mut acc) = ((-l).exp(), 0.0f64);
+        for i in 0..2_000u64 {
+            if i >= x {
+                acc += term;
+            }
+            term = term * l / (i + 1) as f64;
+        }
+        acc
+    };
+    for l in [0.03f64, 0.5, 1.0, 3.7, 25.0] {
+        for x in [1u64, 2, 3, 5, 10, 30] {
+            let got = poisson_upper_tail_p(x, l);
+            let want = ref_tail(x, l);
+            assert!(
+                (got - want).abs() <= 1e-12 + 1e-9 * want,
+                "P(X>={x}) at lambda {l}: {got} vs {want}"
+            );
+        }
+    }
+
+    // The case the feature exists for: a codon with A_c = 5 possible nonsynonymous
+    // changes, lambda = 0.0058 per change, and 5 supported independent origins of one
+    // allele. `1 - CDF` would return 0 here; the upward sum keeps the value.
+    let p = poisson_upper_tail_p(5, 5.0 * 0.0058);
+    assert!(p > 0.0 && p < 1e-9, "five origins must be a real, tiny p: {p}");
+    let deep = poisson_upper_tail_p(20, 0.03);
+    assert!(deep > 0.0 && deep < 1e-45, "twenty origins at lambda 0.03: {deep}");
+    assert!(deep.is_finite());
+
+    // Boundaries and monotonicity.
+    assert_eq!(poisson_upper_tail_p(0, 2.5), 1.0);
+    assert_eq!(poisson_upper_tail_p(0, 0.0), 1.0);
+    assert_eq!(poisson_upper_tail_p(3, 0.0), 0.0, "nothing can happen at rate 0");
+    assert!(poisson_upper_tail_p(1, -1.0).is_nan());
+    assert!(poisson_upper_tail_p(1, f64::NAN).is_nan());
+    assert!(poisson_upper_tail_p(3, 0.1) < poisson_upper_tail_p(2, 0.1));
+    assert!(poisson_upper_tail_p(2, 0.01) < poisson_upper_tail_p(2, 0.1));
+
+    // And it agrees with the binomial it generalises: Binomial(n, p) tends to
+    // Poisson(n*p) as n grows with n*p fixed, which is exactly the claim that the
+    // origin null is the allele-count null one step up.
+    let (n, np) = (100_000u64, 0.05f64);
+    for x in [1u64, 2, 3] {
+        let (a, b) = (binomial_upper_tail_p(x, n, np / n as f64), poisson_upper_tail_p(x, np));
+        // The two differ only by the O(n·p²) convergence error, ~1e-5 relative here.
+        assert!((a - b).abs() < 1e-4 * b.max(1e-30), "x={x}: binomial {a} vs poisson {b}");
+    }
+}
+
+#[test]
 fn bh_with_an_explicit_family_is_bh_when_the_family_is_complete() {
     // Same inputs, same answers: the per-gene path must be untouched by the codon
     // scan's need for a larger m.

@@ -86,11 +86,18 @@ pub fn write_results(
 /// legible instead of having to be inferred from two rows. They are opt-in, and appended
 /// last, so the default table keeps the exact column layout its downstream parsers were
 /// written against.
+///
+/// `origins` appends `Origins` (see [`Variant::origins`]) under `--tree`: how many times
+/// this ALT arose independently on the supplied phylogeny. This is the row on which a
+/// single-allele convergent site such as *rpoB* S450L finally states its case, since
+/// every other column reports it as one ordinary allele. Appended last for the same
+/// reason, after `Codon_Change` when both flags are given.
 pub fn write_variants(
     results: &[GenePnPs],
     prefix: &str,
     format: &crate::models::OutputFormat,
     shared_codons: bool,
+    origins: bool,
 ) -> anyhow::Result<String> {
     use std::fs::File;
     use std::io::{BufWriter, Write};
@@ -107,6 +114,15 @@ pub fn write_variants(
     };
     let shared_json = |v: &Variant| match v.codon_shared {
         Some(b) => b.to_string(),
+        None => "null".to_string(),
+    };
+    // An allele with no per-sample carriers has an UNKNOWN number of origins, not zero.
+    let origins_cell = |v: &Variant| match v.origins {
+        Some(n) => n.to_string(),
+        None => "NA".to_string(),
+    };
+    let origins_json = |v: &Variant| match v.origins {
+        Some(n) => n.to_string(),
         None => "null".to_string(),
     };
     // Both codons on the CODING strand, so they read in the same orientation as Ref_AA
@@ -143,6 +159,9 @@ pub fn write_variants(
                             codon_change(v)
                         )?;
                     }
+                    if origins {
+                        write!(file, ",\"origins\":{}", origins_json(v))?;
+                    }
                     write!(file, "}}")?;
                 }
             }
@@ -158,6 +177,9 @@ pub fn write_variants(
             if shared_codons {
                 write!(file, "{sep}Codon_Shared{sep}Codon_Change")?;
             }
+            if origins {
+                write!(file, "{sep}Origins")?;
+            }
             writeln!(file)?;
             for g in results {
                 for v in &g.variants {
@@ -171,6 +193,9 @@ pub fn write_variants(
                     )?;
                     if shared_codons {
                         write!(file, "{sep}{}{sep}{}", shared_cell(v), codon_change(v))?;
+                    }
+                    if origins {
+                        write!(file, "{sep}{}", origins_cell(v))?;
                     }
                     writeln!(file)?;
                 }
@@ -191,6 +216,12 @@ pub fn write_variants(
 /// independent origins. `Gene_pN_pS` and `Gene_Q_BH` are joined from the parent gene so
 /// a globally elevated gene is not misread as a codon-specific hit. See
 /// [`crate::vcf_analysis::compute_codon_scan`] for the null and its limits.
+///
+/// **With `--tree`** a phylogeny makes that "cannot be told" false, and five further
+/// columns are appended: `Nonsyn_Origins` (`E_c`), `Max_Allele_Origins`,
+/// `Exp_Nonsyn_Origins`, `P_Origins` and `Q_Origins`. They are appended only when a tree
+/// was supplied, so a run without one writes byte-identical output. Two nulls about one
+/// codon; a hit in either is a candidate.
 pub fn write_codon_scan(
     scan: &CodonScan,
     prefix: &str,
@@ -229,9 +260,9 @@ pub fn write_codon_scan(
                 } else {
                     format!("\"{}\"", json_escape(&r.aa_changes))
                 };
-                writeln!(
+                write!(
                     file,
-                    "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"strand\":\"{}\",\"aa_pos\":{},\"ref_aa\":\"{}\",\"ref_codon\":\"{}\",\"poss_nonsyn\":{},\"poss_syn\":{},\"nonsyn_alleles\":{},\"syn_alleles\":{},\"nonsense_alleles\":{},\"distinct_aa\":{},\"aa_changes\":{},\"carriers_max\":{},\"carriers_sum\":{},\"max_af\":{},\"exp_nonsyn_alleles\":{},\"p_recurrence\":{},\"q_recurrence_bh\":{},\"cooccurring\":{},\"repetitive\":{},\"gene_pn_ps\":{},\"gene_q_bh\":{}}}{}",
+                    "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"strand\":\"{}\",\"aa_pos\":{},\"ref_aa\":\"{}\",\"ref_codon\":\"{}\",\"poss_nonsyn\":{},\"poss_syn\":{},\"nonsyn_alleles\":{},\"syn_alleles\":{},\"nonsense_alleles\":{},\"distinct_aa\":{},\"aa_changes\":{},\"carriers_max\":{},\"carriers_sum\":{},\"max_af\":{},\"exp_nonsyn_alleles\":{},\"p_recurrence\":{},\"q_recurrence_bh\":{},\"cooccurring\":{},\"repetitive\":{},\"gene_pn_ps\":{},\"gene_q_bh\":{}",
                     json_escape(&r.gene), json_escape(&r.chrom), r.strand, r.aa_pos,
                     r.ref_aa as char, codon(r),
                     r.poss_nonsyn, r.poss_syn,
@@ -241,21 +272,50 @@ pub fn write_codon_scan(
                     format_json_num(r.max_af), format_json_num(r.exp_nonsyn_alleles),
                     format_json_num(r.p_recurrence), format_json_num(r.q_recurrence),
                     r.cooccurring, r.repetitive,
-                    format_json_num(r.gene_pn_ps), format_json_num(r.gene_q_bh),
-                    comma
+                    format_json_num(r.gene_pn_ps), format_json_num(r.gene_q_bh)
                 )?;
+                // The origin block exists only under --tree, so a run without one emits
+                // exactly the keys it always did.
+                if scan.origins_available {
+                    let count = |v: Option<u32>| match v {
+                        Some(n) => n.to_string(),
+                        None => "null".to_string(),
+                    };
+                    write!(
+                        file,
+                        ",\"nonsyn_origins\":{},\"max_allele_origins\":{},\"exp_nonsyn_origins\":{},\"p_origins\":{},\"q_origins\":{}",
+                        count(r.nonsyn_origins), count(r.max_allele_origins),
+                        format_json_num(r.exp_nonsyn_origins),
+                        format_json_num(r.p_origins), format_json_num(r.q_origins)
+                    )?;
+                }
+                writeln!(file, "}}{}", comma)?;
             }
             writeln!(file, "]")?;
         }
         _ => {
             let sep = format.separator();
-            writeln!(
+            write!(
                 file,
                 "Gene{s}Chrom{s}Strand{s}AA_Pos{s}Ref_AA{s}Ref_Codon{s}Poss_Nonsyn{s}Poss_Syn{s}Nonsyn_Alleles{s}Syn_Alleles{s}Nonsense_Alleles{s}Distinct_AA{s}AA_Changes{s}Carriers_Max{s}Carriers_Sum{s}Max_AF{s}Exp_Nonsyn_Alleles{s}P_Recurrence{s}Q_Recurrence_BH{s}Cooccurring{s}Repetitive{s}Gene_pN_pS{s}Gene_Q_BH",
                 s = sep
             )?;
+            if scan.origins_available {
+                write!(
+                    file,
+                    "{s}Nonsyn_Origins{s}Max_Allele_Origins{s}Exp_Nonsyn_Origins{s}P_Origins{s}Q_Origins",
+                    s = sep
+                )?;
+            }
+            writeln!(file)?;
             let carriers = |v: Option<usize>| match v {
                 Some(c) => c.to_string(),
+                None => "NA".to_string(),
+            };
+            // Unknown origins are "NA", never 0: an allele with no per-sample carriers
+            // has an unknown history, and a zero there would read as "never arose".
+            let count = |v: Option<u32>| match v {
+                Some(n) => n.to_string(),
                 None => "NA".to_string(),
             };
             // 4 dp like the variants table's AF, but "NA" rather than a bare "NaN" when
@@ -268,7 +328,7 @@ pub fn write_codon_scan(
                 }
             };
             for r in &scan.rows {
-                writeln!(
+                write!(
                     file,
                     "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
                     name_field(&r.gene, sep), name_field(&r.chrom, sep), r.strand, r.aa_pos,
@@ -284,6 +344,17 @@ pub fn write_codon_scan(
                     format_ratio(r.gene_pn_ps), format_pval(r.gene_q_bh),
                     s = sep
                 )?;
+                if scan.origins_available {
+                    write!(
+                        file,
+                        "{s}{}{s}{}{s}{}{s}{}{s}{}",
+                        count(r.nonsyn_origins), count(r.max_allele_origins),
+                        format_pval(r.exp_nonsyn_origins),
+                        format_pval(r.p_origins), format_pval(r.q_origins),
+                        s = sep
+                    )?;
+                }
+                writeln!(file)?;
             }
         }
     }
@@ -620,6 +691,7 @@ mod tests {
             alt_codon: *b"GCC", ref_aa: b'A', alt_aa: b'C',
             af, gt_derived, gt_called, effect,
             codon_shared: Some(false),
+            origins: None,
         }
     }
 
