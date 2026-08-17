@@ -336,6 +336,19 @@ impl NeiTables {
     }
 }
 
+/// The pathway-analysis entry for one pair of Nei codon indices, so the VCF path's
+/// per-codon scorer can be checked against this table rather than trusted to agree with
+/// it (see `vcf_analysis::mnv::pathway_diffs`). Test-only: nothing outside the tests
+/// needs to reach into the table, and exposing it in a normal build would read as dead
+/// code in the binary target.
+#[cfg(test)]
+impl NeiTables {
+    pub(crate) fn diff_entry(&self, idx_a: usize, idx_b: usize) -> (f64, f64) {
+        let e = self.diff_table[idx_a * 64 + idx_b];
+        (e.0 as f64, e.1 as f64)
+    }
+}
+
 /// Jukes-Cantor delta-method variance of a corrected distance:
 /// `V(d) = p(1-p) / [L · (1 - 4/3·p)²]`. NaN at/above saturation or L == 0.
 #[inline]

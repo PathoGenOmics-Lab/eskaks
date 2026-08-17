@@ -342,24 +342,52 @@ $("#methods").innerHTML = [
   + `<div class="prov">Command: <code>${hesc(M.command||"")}</code><br>`
   + `Inputs: VCF <code>${hesc(M.vcfFile||"?")}</code> · ref <code>${hesc(M.refFile||"?")}</code> · GFF <code>${hesc(M.gffFile||"?")}</code></div>`
   + sameCodonNote();
-// Same-codon SNPs: each SNP is classified against the REFERENCE codon, so a codon
-// carrying two of them is scored one SNP at a time and its joint (multi-nucleotide)
-// change is never evaluated. Stated next to the provenance so a reader can see how much
-// of the table rests on that approximation, and flagged only where the allele
-// frequencies leave no doubt that the SNPs share a haplotype: in a population VCF two
-// SNPs in one codon usually sit on different backgrounds, where scoring them apart is
+// Same-codon SNPs. A codon carrying two of them, in one genome, is a multi-nucleotide
+// change: stated next to the provenance so a reader knows how much of the table it
+// touches, and flagged only where the SNPs provably occur together, since in a population
+// VCF two SNPs in one codon often sit on different backgrounds where scoring them apart is
 // the correct thing to do.
+//
+// The basis is named, because the two are not equally strong, and after the joint scoring
+// landed they no longer lead to the same answer. With per-sample genotypes it is a set
+// intersection over haploid samples, so it is an observation, exact in both directions,
+// and the codon those samples carry is what was scored (Nei-Gojobori pathway averaging).
+// Without them it is the allele-frequency pigeonhole bound, which is a floor, and there is
+// no codon to score jointly, so those residues keep the reference-codon classification and
+// their calls can be wrong.
 function sameCodonNote(){
-  const multi=M.multiSnpCodons||0, cooc=M.cooccurringCodons||0;
+  const multi=M.multiSnpCodons||0, cooc=M.cooccurringCodons||0, exact=M.cooccurringExact||0;
+  const mnv=M.mnvAlleles||0, stops=M.mnvNewStops||0;
   if(!multi) return "";
-  if(!cooc) return `<div class="prov"><b>Same-codon SNPs:</b> ${multi} codon(s) carry more than one SNP. `
-    + `None is at frequencies that force its SNPs onto a single haplotype, so each was classified `
-    + `against the reference codon on its own.</div>`;
+  if(!cooc) return `<div class="prov"><b>Same-codon SNPs:</b> ${multi} codon(s) carry more than one SNP, `
+    + `and no genome carries two of them, so each was classified against the reference codon on `
+    + `its own.</div>`;
   const rest = multi>cooc ? ` (of ${multi} codon(s) carrying more than one SNP)` : "";
-  return `<div class="prov"><b>Same-codon SNPs:</b> ${cooc} codon(s)${rest} carry two or more SNPs that `
-    + `the allele frequencies place on the same haplotype. Each SNP is classified against the reference `
-    + `codon on its own, so the joint codon change is not the one reported, and those residues' `
-    + `synonymous / nonsynonymous calls, plus the ${hesc(M.ratioName)} they feed, can be wrong. `
+  const stopNote = stops
+    ? ` ${stops} codon(s) encode a premature <b>stop</b> only when their SNPs are taken `
+      + `together, and are reported as nonsense.`
+    : "";
+  if(exact===cooc){
+    return `<div class="prov"><b>Same-codon SNPs:</b> ${cooc} codon(s)${rest} carry two or more SNPs `
+      + `that at least one sample carries together, read from the per-sample genotypes. Each was `
+      + `scored as the codon those samples actually carry, by Nei-Gojobori pathway averaging over `
+      + `the orders the changes could have happened in, so the ${mnv} allele(s) involved are `
+      + `classified on the joint change rather than one base at a time.${stopNote} `
+      + `Re-run with <code>--variants --shared-codons</code> to see them row by row.</div>`;
+  }
+  const bound = cooc-exact;
+  const lead = exact
+    ? `<div class="prov"><b>Same-codon SNPs:</b> ${cooc} codon(s)${rest} carry two or more SNPs that `
+      + `occur together in one genome. ${exact} of them were read from the per-sample genotypes and `
+      + `scored as the codon those samples carry.${stopNote} The other ${bound} rest on the `
+      + `allele-frequency bound alone`
+    : `<div class="prov"><b>Same-codon SNPs:</b> ${cooc} codon(s)${rest} carry two or more SNPs whose `
+      + `allele frequencies leave no room to avoid one another (a bound, so a floor: supply `
+      + `genotypes to have it checked exactly)`;
+  return lead
+    + `: with no genotypes there is no codon to score jointly, so each of those SNPs was `
+    + `classified against the reference codon on its own, and those residues' synonymous / `
+    + `nonsynonymous calls, plus the ${hesc(M.ratioName)} they feed, can be wrong. `
     + `Re-run with <code>-vv</code> to list the codons.</div>`;
 }
 

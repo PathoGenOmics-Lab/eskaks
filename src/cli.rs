@@ -287,6 +287,16 @@ pub struct VcfArgs {
     #[arg(long, help_heading = "Output options")]
     pub variants: bool,
 
+    /// Add Codon_Shared and Codon_Change columns to the --variants table. Codon_Shared is
+    /// true when a sample carrying this ALT also carries another SNP in the same codon,
+    /// so the row's amino-acid change is the JOINT (multi-nucleotide) one; false when no
+    /// sample does; NA when the input has no per-sample genotypes to check, in which case
+    /// the row was scored against the reference codon alone and may be wrong.
+    /// Codon_Change is the codon change itself (CTT>TTA, coding strand). Opt-in so the
+    /// default table keeps its column layout.
+    #[arg(long, requires = "variants", help_heading = "Output options")]
+    pub shared_codons: bool,
+
     /// Write per-gene population-diversity statistics (<output>_diversity.<ext>):
     /// per-site πN and πS (nucleotide diversity) and their ratio, Watterson's θ,
     /// and Tajima's D (the SFS neutrality test). Needs the sample size, so it

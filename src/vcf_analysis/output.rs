@@ -75,10 +75,22 @@ pub fn write_results(
 /// (synonymous / missense / nonsense / stop_loss). This is the mutation-level key
 /// a user joins to the WHO catalogue or TB-Profiler; nonsense/stop-loss changes
 /// are included even though they are excluded from the pN/pS site & SNP counts.
+///
+/// `Alt_AA`, `Change` and `Effect` describe the codon this ALT's carriers **actually
+/// hold**: where a sample carries a second SNP in the same codon, that is the joint
+/// (multi-nucleotide) change, not this ALT's own (see [`crate::vcf_analysis::mnv`]).
+///
+/// `shared_codons` appends two columns: `Codon_Shared` (see [`Variant::codon_shared`]),
+/// which says whether this row's amino-acid change is a joint one, and `Codon_Change`,
+/// the codon change itself (`CTT>TTA`, coding strand) so a multi-nucleotide change is
+/// legible instead of having to be inferred from two rows. They are opt-in, and appended
+/// last, so the default table keeps the exact column layout its downstream parsers were
+/// written against.
 pub fn write_variants(
     results: &[GenePnPs],
     prefix: &str,
     format: &crate::models::OutputFormat,
+    shared_codons: bool,
 ) -> anyhow::Result<String> {
     use std::fs::File;
     use std::io::{BufWriter, Write};
@@ -87,6 +99,25 @@ pub fn write_variants(
     let output_path = format!("{}_variants.{}", prefix, ext);
     let mut file = BufWriter::new(File::create(&output_path)?);
     let change = |v: &Variant| format!("{}{}{}", v.ref_aa as char, v.aa_pos, v.alt_aa as char);
+    // An unknowable answer is "NA" in the delimited tables and `null` in JSON, the same
+    // convention every other absent value in eskaks follows.
+    let shared_cell = |v: &Variant| match v.codon_shared {
+        Some(b) => b.to_string(),
+        None => "NA".to_string(),
+    };
+    let shared_json = |v: &Variant| match v.codon_shared {
+        Some(b) => b.to_string(),
+        None => "null".to_string(),
+    };
+    // Both codons on the CODING strand, so they read in the same orientation as Ref_AA
+    // and Alt_AA rather than as the VCF's Ref/Alt bases.
+    let codon_change = |v: &Variant| {
+        format!(
+            "{}>{}",
+            String::from_utf8_lossy(&v.ref_codon),
+            String::from_utf8_lossy(&v.alt_codon)
+        )
+    };
 
     match format {
         crate::models::OutputFormat::Json => {
@@ -98,26 +129,39 @@ pub fn write_variants(
                     first = false;
                     write!(
                         file,
-                        "{comma}  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"pos\":{},\"strand\":\"{}\",\"ref\":\"{}\",\"alt\":\"{}\",\"aa_pos\":{},\"ref_aa\":\"{}\",\"alt_aa\":\"{}\",\"change\":\"{}\",\"af\":{},\"effect\":\"{}\"}}",
+                        "{comma}  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"pos\":{},\"strand\":\"{}\",\"ref\":\"{}\",\"alt\":\"{}\",\"aa_pos\":{},\"ref_aa\":\"{}\",\"alt_aa\":\"{}\",\"change\":\"{}\",\"af\":{},\"effect\":\"{}\"",
                         json_escape(&g.name), json_escape(&g.chrom), v.pos, g.strand,
                         v.ref_allele as char, v.alt_allele as char, v.aa_pos,
                         v.ref_aa as char, v.alt_aa as char, change(v),
                         format_json_num(v.af), v.effect.label()
                     )?;
+                    if shared_codons {
+                        write!(
+                            file,
+                            ",\"codon_shared\":{},\"codon_change\":\"{}\"",
+                            shared_json(v),
+                            codon_change(v)
+                        )?;
+                    }
+                    write!(file, "}}")?;
                 }
             }
             writeln!(file, "\n]")?;
         }
         _ => {
             let sep = format.separator();
-            writeln!(
+            write!(
                 file,
                 "Gene{s}Chrom{s}Pos{s}Strand{s}Ref{s}Alt{s}AA_Pos{s}Ref_AA{s}Alt_AA{s}Change{s}AF{s}Effect",
                 s = sep
             )?;
+            if shared_codons {
+                write!(file, "{sep}Codon_Shared{sep}Codon_Change")?;
+            }
+            writeln!(file)?;
             for g in results {
                 for v in &g.variants {
-                    writeln!(
+                    write!(
                         file,
                         "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{:.4}{s}{}",
                         name_field(&g.name, sep), name_field(&g.chrom, sep), v.pos, g.strand,
@@ -125,6 +169,10 @@ pub fn write_variants(
                         v.ref_aa as char, v.alt_aa as char, change(v), v.af, v.effect.label(),
                         s = sep
                     )?;
+                    if shared_codons {
+                        write!(file, "{sep}{}{sep}{}", shared_cell(v), codon_change(v))?;
+                    }
+                    writeln!(file)?;
                 }
             }
         }
@@ -265,6 +313,13 @@ type SegSite = (usize, usize);
 /// The per-site denominator is what makes a no-call-heavy site score as fixed or
 /// segregating consistently with the AF path, instead of diluting its frequency with
 /// samples that were never genotyped.
+///
+/// The split follows `Variant::effect`, which is the effect of the codon this ALT's
+/// carriers actually hold: an allele inside a multi-nucleotide change is bucketed by the
+/// joint amino-acid outcome, and one whose joint codon is a stop is dropped like any
+/// other nonsense allele. That keeps every count a whole allele (π, θ_W and Tajima's D
+/// all need integers) while still describing what the samples carry, so unlike the
+/// McDonald-Kreitman table this needs no exclusion.
 fn segregating_counts(
     variants: &[Variant],
     n: usize,
@@ -461,6 +516,12 @@ pub fn write_diversity(
 /// polarized MK); this conflates high-frequency derived alleles with true
 /// between-species divergence, so it is a screen, not a substitute for an
 /// outgroup-based MK test.
+///
+/// `MNV_Excluded` is how many of the gene's classified alleles were left out of the 2x2:
+/// Fisher's exact needs whole alleles in one class, and an allele inside an observed
+/// multi-nucleotide change splits between the synonymous and nonsynonymous classes (see
+/// [`crate::vcf_analysis::mnv`]). Excluding them keeps the table integral; the column
+/// keeps the exclusion visible instead of silently shrinking the test.
 pub fn write_mk_results(
     results: &[GenePnPs],
     prefix: &str,
@@ -469,10 +530,12 @@ pub fn write_mk_results(
     use std::fs::File;
     use std::io::{BufWriter, Write};
 
-    // Only genes with at least one classified difference are informative.
+    // Only genes with at least one classified difference are informative, plus any gene
+    // whose 2x2 was emptied by the multi-nucleotide exclusion, which is precisely the
+    // gene a reader must not be left to infer from a missing row.
     let genes: Vec<&GenePnPs> = results
         .iter()
-        .filter(|r| r.mk_dn + r.mk_ds + r.mk_pn + r.mk_ps > 0)
+        .filter(|r| r.mk_dn + r.mk_ds + r.mk_pn + r.mk_ps + r.mk_mnv_excluded > 0)
         .collect();
 
     // Two-sided Fisher p per gene, then Benjamini-Hochberg across tested genes.
@@ -516,11 +579,11 @@ pub fn write_mk_results(
             let comma = if i + 1 < genes.len() { "," } else { "" };
             writeln!(
                 file,
-                "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"Dn\":{},\"Ds\":{},\"Pn\":{},\"Ps\":{},\"NI\":{},\"alpha\":{},\"fisher_p\":{},\"fisher_q_bh\":{}}}{}",
+                "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"start\":{},\"end\":{},\"strand\":\"{}\",\"Dn\":{},\"Ds\":{},\"Pn\":{},\"Ps\":{},\"NI\":{},\"alpha\":{},\"fisher_p\":{},\"fisher_q_bh\":{},\"mnv_excluded\":{}}}{}",
                 json_escape(&r.name), json_escape(&r.chrom), r.genome_start, r.genome_end, r.strand,
                 r.mk_dn, r.mk_ds, r.mk_pn, r.mk_ps,
                 format_json_num(ni(r)), format_json_num(alpha(r)),
-                format_json_num(pvals[i]), format_json_num(qvals[i]), comma
+                format_json_num(pvals[i]), format_json_num(qvals[i]), r.mk_mnv_excluded, comma
             )?;
         }
         writeln!(file, "]")?;
@@ -528,17 +591,17 @@ pub fn write_mk_results(
         let sep = format.separator();
         writeln!(
             file,
-            "Gene{s}Chrom{s}Start{s}End{s}Strand{s}Dn{s}Ds{s}Pn{s}Ps{s}NI{s}alpha{s}Fisher_p{s}Fisher_q_BH",
+            "Gene{s}Chrom{s}Start{s}End{s}Strand{s}Dn{s}Ds{s}Pn{s}Ps{s}NI{s}alpha{s}Fisher_p{s}Fisher_q_BH{s}MNV_Excluded",
             s = sep
         )?;
         for (i, r) in genes.iter().enumerate() {
             writeln!(
                 file,
-                "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
+                "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
                 name_field(&r.name, sep), name_field(&r.chrom, sep), r.genome_start, r.genome_end, r.strand,
                 r.mk_dn, r.mk_ds, r.mk_pn, r.mk_ps,
                 format_pval(ni(r)), format_pval(alpha(r)),
-                format_pval(pvals[i]), format_pval(qvals[i]),
+                format_pval(pvals[i]), format_pval(qvals[i]), r.mk_mnv_excluded,
                 s = sep
             )?;
         }
@@ -554,7 +617,9 @@ mod tests {
     fn var(effect: SnpEffect, gt_derived: Option<usize>, gt_called: Option<usize>, af: f64) -> Variant {
         Variant {
             pos: 1, ref_allele: b'A', alt_allele: b'C', aa_pos: 1, ref_codon: *b"GCT",
-            ref_aa: b'A', alt_aa: b'C', af, gt_derived, gt_called, effect,
+            alt_codon: *b"GCC", ref_aa: b'A', alt_aa: b'C',
+            af, gt_derived, gt_called, effect,
+            codon_shared: Some(false),
         }
     }
 

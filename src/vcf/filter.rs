@@ -51,6 +51,15 @@ pub fn filter_snps(
                         gc.alt.retain(|_| *it.next().unwrap());
                     }
                 }
+                // Carriers are per-ALT too, and the same-codon check reads them by ALT
+                // index: a stale vector here would intersect the wrong allele's samples
+                // and report co-occurrence for a variant that was filtered out.
+                if let Some(cs) = snp.carriers.as_mut() {
+                    if cs.len() == keep.len() {
+                        let mut it = keep.iter();
+                        cs.retain(|_| *it.next().unwrap());
+                    }
+                }
             }
             Some(snp)
         })

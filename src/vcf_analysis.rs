@@ -6,13 +6,14 @@
 
 use crate::gff::{Gene, Strand};
 use crate::genetic_code::GeneticCode;
-use crate::vcf::VcfSnp;
+use crate::vcf::{CarrierSet, VcfSnp};
 use log::{debug, info, warn};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod codons;
+mod mnv;
 mod neutrality;
 mod output;
 mod plots;
@@ -33,8 +34,6 @@ pub use pnps::{
     bootstrap_genome_wide_ci, compute_pn_ps, genome_wide_core_repetitive, genome_wide_pn_ps,
     ComputeDiagnostics,
 };
-// The per-codon scan reuses the phase test rather than re-deriving the bound.
-pub(crate) use pnps::forced_cooccurrence;
 pub use sites::parse_reference_fasta;
 
 // Internal helpers shared across submodules.
@@ -98,6 +97,14 @@ pub struct GenePnPs {
     pub mk_pn: u32,
     /// McDonald-Kreitman polymorphic synonymous count (Ps)
     pub mk_ps: u32,
+    /// Classified ALT alleles this gene kept OUT of the McDonald-Kreitman 2x2 and the
+    /// SFS bins because they sit inside an observed multi-nucleotide codon change.
+    /// Fisher's exact test and the SFS need whole alleles, and a multi-nucleotide change
+    /// splits between the synonymous and nonsynonymous classes (see
+    /// [`crate::vcf_analysis::mnv`]), so those alleles are excluded and counted here
+    /// rather than rounded into a cell they do not belong in. Always 0 for an input
+    /// without per-sample genotypes.
+    pub mk_mnv_excluded: u32,
     /// Two-sided binomial −log10(p) in log space — finite even where `p_value`
     /// underflows to 0 (NaN when untested).
     pub neglog10p: f64,
@@ -113,7 +120,9 @@ pub struct GenePnPs {
     pub repetitive: bool,
     /// Site-frequency-spectrum counts of nonsynonymous / synonymous SNPs binned
     /// by allele frequency (see [`SFS_EDGES`]). Pooled genome-wide for the SFS
-    /// panel; not written to the per-gene table.
+    /// panel; not written to the per-gene table. Like the McDonald-Kreitman 2x2 these
+    /// need whole alleles, so they count only alleles that stand alone in their codon;
+    /// `mk_mnv_excluded` is how many were left out.
     pub sfs_nonsyn: [u32; SFS_NBINS],
     pub sfs_syn: [u32; SFS_NBINS],
     /// Per-coding-SNP records behind this gene's counts, in genomic order. Written
@@ -170,6 +179,16 @@ pub struct Variant {
     /// is a property of these three bases; recomputing it would mean reconstructing
     /// the CDS a second time.
     pub ref_codon: [u8; 3],
+    /// The codon this ALT's carriers actually hold, on the coding strand.
+    ///
+    /// Equal to `ref_codon` with this ALT's base substituted, **except** where a sample
+    /// carrying this ALT also carries another SNP in the same codon: then it is the
+    /// joint (multi-nucleotide) codon that sample encodes, which is what `alt_aa`,
+    /// `Change` and `effect` describe. Where the carriers disagree (some hold the ALT
+    /// alone, some with a neighbour) it is the codon most of them hold. How many bases
+    /// it changes is its distance from `ref_codon`, and `codon_shared` says the same
+    /// thing as a flag.
+    pub alt_codon: [u8; 3],
     /// Reference and alternate amino acid (one-letter; `*` = stop).
     pub ref_aa: u8,
     pub alt_aa: u8,
@@ -185,6 +204,18 @@ pub struct Variant {
     /// the AF path) instead of being diluted by the full column count.
     pub gt_called: Option<usize>,
     pub effect: SnpEffect,
+    /// Does a sample carrying this ALT also carry another SNP in the same codon?
+    ///
+    /// `Some(true)` means the amino-acid change on this row is the JOINT
+    /// (multi-nucleotide) change that sample's genome encodes, not the effect of this base
+    /// on its own; `alt_codon` spells it out. `Some(false)` means the row is an ordinary
+    /// single substitution. `None` means unknowable from the input (an AF-only VCF whose
+    /// frequencies also fall short of the forcing bound), in which case the row was scored
+    /// against the reference codon and may be wrong.
+    ///
+    /// Written as the `Codon_Shared` column under `--variants --shared-codons`. Kept out
+    /// of the default table so the existing one stays byte-identical for its parsers.
+    pub codon_shared: Option<bool>,
 }
 
 /// Number of allele-frequency bins for the site-frequency-spectrum panel.

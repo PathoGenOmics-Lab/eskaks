@@ -81,9 +81,10 @@ pub struct CodonRow {
     /// the whole coding genome. Both NaN where the test is not meaningful.
     pub p_recurrence: f64,
     pub q_recurrence: f64,
-    /// True when the allele frequencies force this codon's SNPs onto one haplotype:
-    /// they are then a single multi-nucleotide event, not independent origins, so the
-    /// codon is not tested and is dropped from the family.
+    /// True when some sample carries two of this codon's SNPs: they are then a single
+    /// multi-nucleotide event, not independent origins, so the codon is not tested and is
+    /// dropped from the family. Read from the per-sample genotypes where the input has
+    /// them, and from the allele-frequency pigeonhole bound where it does not.
     pub cooccurring: bool,
     /// Parent-gene context, so a globally elevated gene is not mistaken for a
     /// codon-specific hit. `gene_q_bh` is the gene's neutrality-test BH q-value.
@@ -212,10 +213,6 @@ pub fn compute_codon_scan(
             let mut changes: Vec<String> = Vec::new();
             let mut alt_aas: Vec<u8> = Vec::new();
             let mut max_af = f64::NEG_INFINITY;
-            // Highest AF per distinct genomic position: alternative alleles of one site
-            // exclude each other, so a multiallelic site is one position for the phase
-            // test, never a haplotype of two.
-            let mut pos_af: BTreeMap<usize, f64> = BTreeMap::new();
             let (mut carriers_known, mut c_max, mut c_sum) = (true, 0usize, 0usize);
 
             for v in &vars {
@@ -231,8 +228,6 @@ pub fn compute_codon_scan(
                 if v.af.is_finite() {
                     max_af = max_af.max(v.af);
                 }
-                let e = pos_af.entry(v.pos).or_insert(f64::NEG_INFINITY);
-                *e = e.max(v.af);
                 match carriers_of(v, n_samples) {
                     Some(c) => {
                         c_max = c_max.max(c);
@@ -246,8 +241,14 @@ pub fn compute_codon_scan(
             alt_aas.sort_unstable();
             alt_aas.dedup();
 
-            let afs: Vec<f64> = pos_af.values().copied().collect();
-            let cooccurring = forced_cooccurrence(&afs);
+            // A codon whose SNPs one sample carries together is ONE multi-nucleotide event,
+            // not several independent origins, so testing it would count a single mutation
+            // several times. `Variant::codon_shared` is that verdict, already decided per
+            // allele: read from the per-sample genotypes where they exist (so a codon whose
+            // SNPs sit in disjoint samples is correctly NOT suppressed, which the
+            // allele-frequency floor could never tell), and from the frequency bound alone
+            // for an AF-only VCF, which is what this used to be everywhere.
+            let cooccurring = vars.iter().any(|v| v.codon_shared == Some(true));
 
             rows.push(CodonRow {
                 gene: g.name.clone(),
@@ -392,6 +393,7 @@ mod tests {
             alt_alleles: vec![alt],
             alt_freqs: vec![af],
             gt_counts: None,
+            carriers: None,
             filter: "PASS".to_string(),
             depth: None,
         }
@@ -543,6 +545,7 @@ mod tests {
             alt_alleles: vec![b'G', b'A'],
             alt_freqs: vec![0.6, 0.4],
             gt_counts: None,
+            carriers: None,
             filter: "PASS".to_string(),
             depth: None,
         };
