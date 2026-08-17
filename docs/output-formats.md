@@ -91,6 +91,7 @@ honour `--format tsv|csv|json` and the same quoting / special-value rules as abo
 | `<prefix>_pnps.<ext>` | (default) | Per-gene pN/pS: counts, fractional N/S sites, the ratio, the neutrality-test p-value and BH/Bonferroni corrections, plus gene coordinates. [Full column list](vcf-analysis.md#output). |
 | `<prefix>_variants.<ext>` | `--variants` | One row per coding SNP: position, base change, `S315T`-style amino-acid change, AF, and effect (synonymous / missense / nonsense / stop_loss). [Details](vcf-analysis.md#per-variant-table-variants). |
 | `<prefix>_diversity.<ext>` | `--diversity` | Per-gene πN/πS, Watterson θ and Tajima's D (needs a sample size — a multi-sample VCF or `--vcf-list`). [Details](vcf-analysis.md#population-diversity-diversity). |
+| `<prefix>_codons.<ext>` | `--codon-scan` | Per-codon recurrence: distinct nonsynonymous alleles per residue, the codon's combinatorial opportunity, carrier bounds, and a one-sided upper-tail p/q over the whole coding genome. [Details](vcf-analysis.md#codon-scan). |
 | `<prefix>_mk.<ext>` | `--mk` | Per-gene McDonald-Kreitman 2×2 table, Neutrality Index, α and a Fisher p/q. [Details](vcf-analysis.md#mcdonald-kreitman-test). |
 | `<prefix>_pnps_manhattan.svg`, `<prefix>_pvalue_manhattan.svg` | `--plot` | Manhattan plots of pN/pS and of `−log10(p)` by genome position, significant genes outlined. |
 | `<prefix>_report.html` | `--report` | Self-contained [interactive dashboard](vcf-analysis.md#interactive-html-report) — no CDN or internet needed. See the [live example](example-report.md). |

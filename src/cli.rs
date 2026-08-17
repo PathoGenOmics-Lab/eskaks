@@ -296,6 +296,15 @@ pub struct VcfArgs {
     #[arg(long, help_heading = "Statistics options")]
     pub diversity: bool,
 
+    /// Rank codons by how many DISTINCT nonsynonymous alleles they carry
+    /// (writes <output>_codons.<ext>). Tests allelic multiplicity, not carrier
+    /// counts and not a per-codon pN/pS: a codon has at most 9 possible alleles,
+    /// so no per-codon pN/pS can reach even p = 0.05. Recurrence at one residue is
+    /// a hallmark of drug resistance, but a mutational or mapping hotspot looks
+    /// identical, so pair it with --exclude-repetitive.
+    #[arg(long, help_heading = "Statistics options")]
+    pub codon_scan: bool,
+
     /// Allele frequency at/above which a variant is treated as "fixed"
     /// (divergence) rather than polymorphic in the McDonald-Kreitman test.
     #[arg(long, default_value_t = 0.99, help_heading = "Statistics options")]

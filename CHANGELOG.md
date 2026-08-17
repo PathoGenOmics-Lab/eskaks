@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`--codon-scan`: a per-codon recurrence table (`<prefix>_codons.<ext>`).** A per-gene
+  pN/pS averages over hundreds of residues, so one strongly selected codon is diluted to
+  nothing. The scan ranks each codon by how many **distinct** nonsynonymous alleles it
+  carries, against a genome-wide plug-in rate per possible change, with a one-sided
+  binomial upper tail and a BH q-value whose family is the whole coding genome rather
+  than the printed rows. Distinct alleles are a phylogeny-free lower bound on the number
+  of independent mutational events, and the one quantity clonal expansion does not
+  inflate: carrier counts and allele frequencies are reported and never tested. Codons
+  whose SNPs are forced onto one haplotype are suppressed rather than counted twice, and
+  `--exclude-repetitive` removes PE/PPE/PGRS and IS codons from the family, which the
+  scan needs because a mapping or mutational hotspot is indistinguishable from selection.
+  Deliberately **no per-codon pN/pS test** is offered: a codon has at most 9 possible
+  alleles ever, and over all 61 sense codons the smallest reachable two-sided mid-p is
+  0.0529, so such a column could never be significant anywhere. Opt-in, so a run without
+  the flag is byte-for-byte what it was.
+
 ### Changed
 
 - **The per-gene neutrality test now uses the mid-p convention, so every p-value moves.**

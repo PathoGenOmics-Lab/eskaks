@@ -60,6 +60,28 @@ fn every_pnps_column_is_documented() {
     );
 }
 
+/// The sibling of `every_pnps_column_is_documented` for the per-codon scan. Without it
+/// the contract would quietly exempt the newest table: the test above reads only
+/// `toy_pnps.tsv`, so a `_codons` column could ship undocumented.
+#[test]
+fn every_codon_scan_column_is_documented() {
+    let header: Vec<String> = read("tests/golden/toy_codons.tsv")
+        .lines()
+        .next()
+        .expect("golden codons has a header")
+        .split('\t')
+        .map(str::to_string)
+        .collect();
+
+    let section = section_of(&read("docs/vcf-analysis.md"), "## Per-codon recurrence scan");
+    let missing: Vec<&String> = header.iter().filter(|c| !section.contains(c.as_str())).collect();
+    assert!(
+        missing.is_empty(),
+        "these per-codon columns are written but not documented in vcf-analysis.md \
+         '## Per-codon recurrence scan': {missing:?}"
+    );
+}
+
 #[test]
 fn every_vcf_help_flag_is_documented() {
     check_flags_documented("vcf", "docs/cli-reference.md");

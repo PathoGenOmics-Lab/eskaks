@@ -75,6 +75,7 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--fdr <FLOAT>` | FDR threshold for calling genes significant in the [neutrality test](#per-gene-neutrality-test) | `0.05` |
 | `--variants` | Write a [per-coding-SNP table](#per-variant-table-variants) (`<prefix>_variants.<ext>`) with position, `S315T`-style change, AF, and effect | off |
 | `--diversity` | Write per-gene [πN/πS, Watterson θ, Tajima's D](#population-diversity-diversity) (`<prefix>_diversity.<ext>`); needs a sample size | off |
+| `--codon-scan` | Write the [per-codon recurrence scan](#codon-scan) (`<prefix>_codons.<ext>`): codons ranked by how many *distinct* nonsynonymous alleles they carry | off |
 | `--mk` | Also run a per-gene [McDonald-Kreitman test](#mcdonald-kreitman-test) (writes `<prefix>_mk.<ext>`) | off |
 | `--mk-fixed-af <FLOAT>` | AF at/above which a variant is "fixed" (divergence) vs polymorphic in the MK test | `0.99` |
 | `--bootstrap <INT>` | Bootstrap replicates for a 95% CI on the genome-wide pooled pN/pS (0 = off) | `0` |
@@ -393,6 +394,159 @@ catalogue] or TB-Profiler.
 
   [WHO mutation catalogue]: https://www.who.int/publications/i/item/9789240082410
 
+## Per-codon recurrence scan (`--codon-scan`) { #codon-scan }
+
+A per-gene pN/pS averages over hundreds of residues, so a single strongly selected
+codon is diluted to nothing by the rest of the protein. `--codon-scan` writes
+`<prefix>_codons.<ext>`: one row per codon carrying at least one coding SNP, ranked by
+how unlikely its number of **distinct** nonsynonymous alleles is.
+
+```bash
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
+  --genetic-code 11 --codon-scan --exclude-repetitive -o mtb_codons
+# → mtb_codons_codons.tsv, ranked by P_Recurrence
+```
+
+### What is tested
+
+For codon `c`, let `X_c` be the number of **distinct missense ALT alleles** observed
+there, and `A_c` the number of single-nucleotide changes that codon could make to a
+different amino acid (an integer from 0 to 9, with changes that create a stop excluded,
+exactly as in the [site counting](#how-it-works)). Under the null:
+
+\[ X_c \sim \mathrm{Binomial}(A_c,\ \theta), \qquad
+   \theta = \frac{\sum_c X_c}{\sum_c A_c}, \qquad
+   P_\mathrm{Recurrence} = P(X \ge x_c) \]
+
+`θ` is a plug-in estimate of the rate per *possible* nonsynonymous change, pooled over
+the whole coding genome, and the p-value is the **one-sided upper tail** counting the
+whole point mass at `x_c`. That is deliberately not the mid-p convention the [per-gene
+neutrality test](#per-gene-neutrality-test) uses: this is a different, one-sided test
+on a tiny `θ`, where the atom dominates the tail and mid-p would only be a flat factor
+of about two, far inside the error of the null model itself. Both the family size `m`
+and `θ` are printed in the run summary, so any row can be recomputed by hand.
+
+**Why distinct alleles, and not carriers.** Each distinct allele is at minimum one
+independent mutational event, which is the only recurrence claim a tool with no
+phylogeny can make, and it is the one quantity clonal expansion does not inflate. One
+ancestral mutation carried by 20% of a 10,000-isolate collection gives 2,000 carriers
+and `X_c = 1`; three independent origins at 0.2% each give 60 carriers and `X_c = 3`.
+Ranking on carriers puts those two the wrong way round. Carrier counts are still
+reported, and never tested.
+
+`θ` is small (roughly 1e-3 to 4e-2 at realistic cohort sizes), unlike a codon's own
+nonsynonymous fraction (median 0.667), so the upper tail is steep and the test has
+real power. Note that `--af-weighted` does **not** disable this scan: `X_c` is an
+integer count of alleles, unaffected by frequency weighting, which is another way of
+saying it measures something the pN/pS columns do not.
+
+### Columns
+
+File: `<prefix>_codons.tsv` (or `.csv` / `.json`, with lowercase keys).
+
+| Column | Description |
+|---|---|
+| Gene | Parent gene name, from the per-gene results |
+| Chrom | Contig the gene sits on |
+| Strand | `+` or `-`, copied from the parent gene |
+| AA_Pos | 1-based residue (codon) number in the protein |
+| Ref_AA | Reference amino acid (one letter) |
+| Ref_Codon | The reference codon, on the **coding** strand |
+| Poss_Nonsyn | `A_c`: possible nonsynonymous single-nucleotide changes at this codon (0 to 9) |
+| Poss_Syn | `S_c`: possible synonymous changes. Reported for context; **never tested** (see below) |
+| Nonsyn_Alleles | `X_c`, the tested statistic: distinct missense ALT alleles observed |
+| Syn_Alleles | Distinct synonymous ALT alleles observed |
+| Nonsense_Alleles | Distinct alleles creating a stop (nonsense) or replacing a reference stop (stop-loss). Excluded from `X_c` and `A_c`, like the [pN/pS counts](#per-variant-table-variants), but shown because loss of function matters |
+| Distinct_AA | Distinct alternate amino acids over all amino-acid-changing alleles. Below `Nonsyn_Alleles` when two nucleotide alleles encode the same residue |
+| AA_Changes | The changes themselves, `S315I;S315N;S315T` (sorted). `NA` in TSV/CSV and `null` in JSON when the codon carries no amino-acid change |
+| Carriers_Max | Largest single-allele carrier count: a **lower** bound on the codon's carriers |
+| Carriers_Sum | Their sum: an **upper** bound (a sample carrying two of them is counted twice) |
+| Max_AF | Highest allele frequency among the codon's alleles |
+| Exp_Nonsyn_Alleles | `A_c · θ`: distinct nonsynonymous alleles expected here by chance. The effect-size anchor |
+| P_Recurrence | One-sided upper-tail p-value `P(X ≥ X_c)`. `NA` where the test is not meaningful (see below) |
+| Q_Recurrence_BH | Benjamini-Hochberg q-value over the **whole coding genome**, not over the printed rows |
+| Cooccurring | `true` when the allele frequencies force the codon's SNPs onto one haplotype: one multi-nucleotide event, not independent origins, so it is not tested |
+| Repetitive | `true` for PE/PPE/PGRS/IS-family genes ([core-genome mode](#core-genome-mode)) |
+| Gene_pN_pS | The parent gene's pN/pS, joined so a globally elevated gene is not misread as a codon-specific hit |
+| Gene_Q_BH | The parent gene's neutrality-test BH q-value (`NA` if the gene was not tested, e.g. dropped by `--min-snps`) |
+
+Rows are sorted by `P_Recurrence` ascending (`NA` last), then `Nonsyn_Alleles`
+descending, `Carriers_Max` descending, gene, and residue.
+
+### When the test is not meaningful
+
+- **`Cooccurring = true`**: `P_Recurrence` and `Q_Recurrence_BH` are `NA` and the codon
+  leaves the multiple-testing family. The [same-codon bound](#same-codon-snps) proves
+  those changes share a haplotype, so they are one event and the independence
+  assumption is provably false. This also makes single-sample runs self-guarding: every
+  AF is 1.0 there, so any multi-SNP codon is suppressed automatically.
+- **Two ALTs at the same position** are mutually exclusive alleles, so they *are* two
+  independent events and both count toward `X_c`. Only distinct positions can share a
+  haplotype.
+- **`X_c = 0`** (a codon with only synonymous SNPs) gets `P_Recurrence = 1.0`. That is a
+  real p-value, not a missing one.
+- **`Poss_Nonsyn = 0`** (a stop or ambiguous reference codon) has no null at all, so the
+  row is `NA` and is outside the family.
+- **No genotype columns**: the carrier columns are `NA` and the test still runs. It only
+  needs allele identity, never counts.
+- With **fewer than about 10 samples** the run warns: a residue has to collect several
+  independent alleles before it can stand out, and that is not observable in a handful
+  of genomes.
+
+### There is deliberately no per-codon pN/pS test
+
+The obvious alternative, a binomial on a codon's own nonsynonymous-versus-synonymous
+split, cannot work, and the bound is combinatorial rather than statistical. A codon has
+3 positions x 3 alternate bases = **9 possible SNP alleles, ever**. Enumerating all 61
+sense codons of code 11 and every achievable (k, n) with eskaks's own mid-p binomial,
+the smallest p reachable in the nonsynonymous-excess direction is **0.0529** (codon
+`CTA`, 5 alleles of 5). **No sense codon can ever reach even a nominal 0.05**, let alone
+survive a correction over 1e6 codons. The null fraction `N_c/(N_c+S_c)` has median
+0.667 and minimum 0.500, so the alternative hypothesis has almost nowhere to go, and
+`ATG` and `TGG` have `S_c = 0`, i.e. no null at all (embB M306 is `ATG`). A column that
+is significant nowhere would be a scan in name only, so eskaks emits none. `Poss_Nonsyn`
+and `Poss_Syn` are printed so you can see the arithmetic for yourself.
+
+### Limitations
+
+1. **This tests allelic multiplicity, not carrier recurrence.** At a 1000-isolate scale
+   the scan recovers *gyrA* D94 (`X = 6`, p ≈ 4e-13) and *embB* M306 (`X = 4`, p ≈ 8e-8)
+   comfortably and *katG* S315 (`X = 3`) marginally, but it does **not** flag *rpoB*
+   S450L or *rpsL* K43R: those are single-allele signals (`X = 2`, p ≈ 2e-4, hundreds
+   expected genome-wide by chance) whose evidence is carrier recurrence.
+2. **Clonality.** Carrier counts are reported and never tested. Without a phylogeny, one
+   old mutation in an expanded lineage is indistinguishable from many origins.
+3. **A mutational or mapping hotspot is indistinguishable from selection.** Simulated
+   with a contaminated null, 2% of codons mutating at 10x the genome rate gives **0**
+   BH false positives and at 20x gives about **540**; 1% at 50x gives about **2,700**.
+   Re-estimating `θ` from the contaminated data does not rescue it. So the scan tolerates
+   roughly 10x local rate heterogeneity and is destroyed by 20x: use
+   `--exclude-repetitive`, which removes PE/PPE/PGRS and IS codons from the family and
+   from `θ`.
+4. **Multi-nucleotide codon changes are still not evaluated**, and phase-forced codons
+   return `NA` (see above).
+5. **`θ` is a plug-in estimate from the same data**, so real hits mildly inflate it,
+   which is conservative. The null is uniform over the `A_c` possible changes and
+   ignores the transition bias [`--kappa`](#kappa) models elsewhere (about a 1.5x
+   per-codon effect, well inside the tolerated range). `--kappa` therefore does not
+   change `A_c`: it belongs to the pN/pS site denominators, not to this null.
+6. **`m` is the whole coding genome, not the printed rows.** It counts every codon of
+   every analysed gene with `A_c > 0`, built from the **unfiltered** results (so
+   `--min-snps` decides which genes are tabulated, not how many codons a genome has),
+   minus repetitive genes under `--exclude-repetitive` and minus phase-suppressed
+   codons. A codon in overlapping genes contributes once per gene, as `--variants` and
+   `--diversity` already do.
+7. **BH power depends on how many real hits exist.** Simulated at m = 1.3e6 with
+   `θ = 5e-3`, a pure null gives 0 rejections, and so do 20 or 50 true `X = 3` codons;
+   200 true `X = 3` codons give 203 rejections. Every true `X = 4` or `X = 5` codon is
+   recovered. An **empty table is not evidence of no selection**, it is evidence that no
+   residue collected more independent alleles than chance allows in this cohort.
+
+The levers that matter here are the existing ones: `--min-af` sets what counts as a
+real allele (and so sets `θ`), `--min-depth` and `--pass-only` keep artefactual alleles
+out of `X_c`, `--exclude-repetitive` controls the family, and `--fdr` sets the
+significance threshold reported in the summary.
+
 ## Population diversity (`--diversity`)
 
 pN/pS counts each SNP once, so it is neither a divergence dN/dS nor a diversity
@@ -560,3 +714,8 @@ AF 0.55 and 0.45 may well sit on one haplotype without the frequencies proving i
 codons are still counted in `Codons with >1 SNP` and still listed under `-vv`, they simply
 do not raise a warning. The alternative, warning on every multi-SNP codon, would fire on
 essentially every population VCF and train you to ignore it.
+
+The [per-codon recurrence scan](#codon-scan) reuses this same bound the other way round:
+a codon whose SNPs are forced onto one haplotype is one multi-nucleotide event rather
+than several independent origins, so the scan reports it with `Cooccurring = true` and
+`P_Recurrence = NA` instead of testing it.

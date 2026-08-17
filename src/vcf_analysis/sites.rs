@@ -126,41 +126,12 @@ pub(crate) fn count_sites(cds: &[u8], gc: &GeneticCode) -> (f64, f64) {
     let codons = cds.len() / 3;
     for i in 0..codons {
         let codon = [cds[i * 3], cds[i * 3 + 1], cds[i * 3 + 2]];
-        let ref_aa = codon_to_aa(&codon, gc);
-        if ref_aa.is_none() {
-            continue; // Skip ambiguous codons
-        }
-        let ref_aa = ref_aa.unwrap();
-
-        if ref_aa == b'*' {
-            continue; // Skip stop codons
-        }
-
-        let mut syn = 0;
-        let mut nonsyn = 0;
-
-        for pos in 0..3 {
-            for &alt_base in b"ACGT" {
-                if alt_base == codon[pos] {
-                    continue;
-                }
-                let mut alt_codon = codon;
-                alt_codon[pos] = alt_base;
-                if let Some(alt_aa) = codon_to_aa(&alt_codon, gc) {
-                    if alt_aa == b'*' {
-                        continue; // Exclude changes to stop codons from site counts
-                    } else if alt_aa == ref_aa {
-                        syn += 1;
-                    } else {
-                        nonsyn += 1;
-                    }
-                }
-                // Skip ambiguous codons entirely (don't count as either)
-            }
-        }
+        let (nonsyn, syn) = codon_change_split(&codon, gc);
 
         // Each codon contributes exactly 3 sites. With stop-codon changes
-        // excluded, redistribute proportionally: S = 3 × syn/(syn+nonsyn)
+        // excluded, redistribute proportionally: S = 3 × syn/(syn+nonsyn).
+        // An ambiguous or stop REFERENCE codon splits (0, 0) and so contributes
+        // nothing, exactly as the explicit skips it replaced did.
         let valid_changes = (syn + nonsyn) as f64;
         if valid_changes > 0.0 {
             s_sites += 3.0 * syn as f64 / valid_changes;
@@ -169,6 +140,73 @@ pub(crate) fn count_sites(cds: &[u8], gc: &GeneticCode) -> (f64, f64) {
     }
 
     (n_sites, s_sites)
+}
+
+/// Split one codon's possible single-nucleotide changes into
+/// `(nonsynonymous, synonymous)` counts: the codon-level core of [`count_sites`],
+/// and the mutational opportunity the per-codon recurrence scan tests against.
+///
+/// Enumerates the 3 positions x 3 alternate bases = 9 candidate changes and applies
+/// the same exclusions as [`count_sites`], so the two can never drift apart:
+/// changes to a **stop** codon are excluded, changes producing an **ambiguous**
+/// codon are excluded, and an ambiguous or stop **reference** codon yields `(0, 0)`.
+/// The two counts therefore sum to at most 9.
+///
+/// This is deliberately NOT rate-weighted: `--kappa` belongs to the site
+/// denominators of pN/pS, not to the recurrence null (see
+/// [`count_sites_weighted`]), so the scan's `A_c` is the same integer whatever
+/// `--kappa` is set to.
+pub(crate) fn codon_change_split(codon: &[u8; 3], gc: &GeneticCode) -> (u32, u32) {
+    let Some(ref_aa) = codon_to_aa(codon, gc) else {
+        return (0, 0); // Ambiguous reference codon
+    };
+    if ref_aa == b'*' {
+        return (0, 0); // Stop reference codon
+    }
+
+    let (mut nonsyn, mut syn) = (0u32, 0u32);
+    for pos in 0..3 {
+        for &alt_base in b"ACGT" {
+            if alt_base == codon[pos] {
+                continue;
+            }
+            let mut alt_codon = *codon;
+            alt_codon[pos] = alt_base;
+            if let Some(alt_aa) = codon_to_aa(&alt_codon, gc) {
+                if alt_aa == b'*' {
+                    continue; // Exclude changes to stop codons
+                } else if alt_aa == ref_aa {
+                    syn += 1;
+                } else {
+                    nonsyn += 1;
+                }
+            }
+            // Skip ambiguous alternates entirely (they count as neither)
+        }
+    }
+    (nonsyn, syn)
+}
+
+/// The per-codon mutational opportunity of a whole CDS, for the recurrence scan's
+/// null: `(number of codons with A_c > 0, sum of A_c over them)`, where `A_c` is the
+/// codon's count of possible **nonsynonymous** single-nucleotide changes.
+///
+/// The first number is this gene's contribution to the multiple-testing family `m`
+/// (every codon that could show a nonsynonymous allele is a test, whether or not a
+/// SNP landed on it); the second is its contribution to the denominator of the
+/// plug-in rate `theta = Σ X_c / Σ A_c`. Stop and ambiguous codons contribute to
+/// neither, matching [`count_sites`].
+pub(crate) fn codon_space(cds: &[u8], gc: &GeneticCode) -> (usize, u64) {
+    let (mut codons_with_opportunity, mut poss_nonsyn) = (0usize, 0u64);
+    for i in 0..cds.len() / 3 {
+        let codon = [cds[i * 3], cds[i * 3 + 1], cds[i * 3 + 2]];
+        let (nonsyn, _syn) = codon_change_split(&codon, gc);
+        if nonsyn > 0 {
+            codons_with_opportunity += 1;
+            poss_nonsyn += nonsyn as u64;
+        }
+    }
+    (codons_with_opportunity, poss_nonsyn)
 }
 
 /// Is the change `from`→`to` a transition (A↔G or C↔T)? Purine↔purine or

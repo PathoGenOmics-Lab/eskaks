@@ -133,6 +133,116 @@ pub fn write_variants(
     Ok(output_path)
 }
 
+/// Write the per-codon recurrence table (`<output>_codons.<ext>`): one row per codon
+/// carrying at least one coding SNP, ranked by how unlikely its number of **distinct**
+/// nonsynonymous alleles is under a genome-wide per-change rate.
+///
+/// The only tested column is `P_Recurrence` (with its BH q-value). Carrier counts and
+/// allele frequencies are descriptive and deliberately carry no p-value: without a
+/// phylogeny, one old mutation in an expanded lineage cannot be told from many
+/// independent origins. `Gene_pN_pS` and `Gene_Q_BH` are joined from the parent gene so
+/// a globally elevated gene is not misread as a codon-specific hit. See
+/// [`crate::vcf_analysis::compute_codon_scan`] for the null and its limits.
+pub fn write_codon_scan(
+    scan: &CodonScan,
+    prefix: &str,
+    format: &crate::models::OutputFormat,
+) -> anyhow::Result<String> {
+    use std::fs::File;
+    use std::io::{BufWriter, Write};
+
+    let ext = format.extension();
+    let output_path = format!("{}_codons.{}", prefix, ext);
+    let mut file = BufWriter::new(File::create(&output_path)?);
+
+    // "NA" for a codon with no amino-acid change, so an empty cell is never ambiguous.
+    fn changes(r: &CodonRow) -> &str {
+        if r.aa_changes.is_empty() {
+            "NA"
+        } else {
+            r.aa_changes.as_str()
+        }
+    }
+    let codon = |r: &CodonRow| String::from_utf8_lossy(&r.ref_codon).into_owned();
+
+    match format {
+        crate::models::OutputFormat::Json => {
+            writeln!(file, "[")?;
+            for (i, r) in scan.rows.iter().enumerate() {
+                let comma = if i + 1 < scan.rows.len() { "," } else { "" };
+                let carriers = |v: Option<usize>| match v {
+                    Some(c) => c.to_string(),
+                    None => "null".to_string(),
+                };
+                // A codon with no amino-acid change is `null`, not the string "NA":
+                // JSON's rule everywhere else in eskaks is that an absent value is null.
+                let aa_changes = if r.aa_changes.is_empty() {
+                    "null".to_string()
+                } else {
+                    format!("\"{}\"", json_escape(&r.aa_changes))
+                };
+                writeln!(
+                    file,
+                    "  {{\"gene\":\"{}\",\"chrom\":\"{}\",\"strand\":\"{}\",\"aa_pos\":{},\"ref_aa\":\"{}\",\"ref_codon\":\"{}\",\"poss_nonsyn\":{},\"poss_syn\":{},\"nonsyn_alleles\":{},\"syn_alleles\":{},\"nonsense_alleles\":{},\"distinct_aa\":{},\"aa_changes\":{},\"carriers_max\":{},\"carriers_sum\":{},\"max_af\":{},\"exp_nonsyn_alleles\":{},\"p_recurrence\":{},\"q_recurrence_bh\":{},\"cooccurring\":{},\"repetitive\":{},\"gene_pn_ps\":{},\"gene_q_bh\":{}}}{}",
+                    json_escape(&r.gene), json_escape(&r.chrom), r.strand, r.aa_pos,
+                    r.ref_aa as char, codon(r),
+                    r.poss_nonsyn, r.poss_syn,
+                    r.nonsyn_alleles, r.syn_alleles, r.nonsense_alleles,
+                    r.distinct_aa, aa_changes,
+                    carriers(r.carriers_max), carriers(r.carriers_sum),
+                    format_json_num(r.max_af), format_json_num(r.exp_nonsyn_alleles),
+                    format_json_num(r.p_recurrence), format_json_num(r.q_recurrence),
+                    r.cooccurring, r.repetitive,
+                    format_json_num(r.gene_pn_ps), format_json_num(r.gene_q_bh),
+                    comma
+                )?;
+            }
+            writeln!(file, "]")?;
+        }
+        _ => {
+            let sep = format.separator();
+            writeln!(
+                file,
+                "Gene{s}Chrom{s}Strand{s}AA_Pos{s}Ref_AA{s}Ref_Codon{s}Poss_Nonsyn{s}Poss_Syn{s}Nonsyn_Alleles{s}Syn_Alleles{s}Nonsense_Alleles{s}Distinct_AA{s}AA_Changes{s}Carriers_Max{s}Carriers_Sum{s}Max_AF{s}Exp_Nonsyn_Alleles{s}P_Recurrence{s}Q_Recurrence_BH{s}Cooccurring{s}Repetitive{s}Gene_pN_pS{s}Gene_Q_BH",
+                s = sep
+            )?;
+            let carriers = |v: Option<usize>| match v {
+                Some(c) => c.to_string(),
+                None => "NA".to_string(),
+            };
+            // 4 dp like the variants table's AF, but "NA" rather than a bare "NaN" when
+            // no allele carried a usable frequency.
+            let af_cell = |v: f64| {
+                if v.is_nan() {
+                    "NA".to_string()
+                } else {
+                    format!("{:.4}", crate::textfmt::norm_zero(v))
+                }
+            };
+            for r in &scan.rows {
+                writeln!(
+                    file,
+                    "{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}{s}{}",
+                    name_field(&r.gene, sep), name_field(&r.chrom, sep), r.strand, r.aa_pos,
+                    r.ref_aa as char, codon(r),
+                    r.poss_nonsyn, r.poss_syn,
+                    r.nonsyn_alleles, r.syn_alleles, r.nonsense_alleles,
+                    r.distinct_aa, name_field(changes(r), sep),
+                    carriers(r.carriers_max), carriers(r.carriers_sum),
+                    af_cell(r.max_af),
+                    format_pval(r.exp_nonsyn_alleles),
+                    format_pval(r.p_recurrence), format_pval(r.q_recurrence),
+                    r.cooccurring, r.repetitive,
+                    format_ratio(r.gene_pn_ps), format_pval(r.gene_q_bh),
+                    s = sep
+                )?;
+            }
+        }
+    }
+
+    Ok(output_path)
+}
+
 /// Keep a derived count only if the site is genuinely *segregating*: `None` when it is
 /// monomorphic (`k == 0` absent, or `k >= n` fixed for the ALT), so it is excluded
 /// from π / θ_W / Tajima's D, never clamped into range.
@@ -443,7 +553,7 @@ mod tests {
 
     fn var(effect: SnpEffect, gt_derived: Option<usize>, gt_called: Option<usize>, af: f64) -> Variant {
         Variant {
-            pos: 1, ref_allele: b'A', alt_allele: b'C', aa_pos: 1,
+            pos: 1, ref_allele: b'A', alt_allele: b'C', aa_pos: 1, ref_codon: *b"GCT",
             ref_aa: b'A', alt_aa: b'C', af, gt_derived, gt_called, effect,
         }
     }

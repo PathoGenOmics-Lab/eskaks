@@ -141,6 +141,83 @@ fn binomial_mid_p_is_calibrated_where_the_whole_atom_version_was_not() {
 }
 
 #[test]
+fn upper_tail_is_the_whole_atom_and_matches_an_independent_pmf() {
+    // Checked against `ref_pmf` (plain factorial ratio, no ln_gamma), so this is a
+    // second implementation, not the same code twice.
+    for &(n, p0) in &[(5u64, 0.153_323_8), (9, 0.02), (6, 0.5), (3, 0.9)] {
+        let row = ref_pmf(n, p0);
+        for x in 0..=n {
+            let want: f64 = row[x as usize..].iter().sum();
+            let got = binomial_upper_tail_p(x, n, p0);
+            assert!((got - want).abs() < 1e-12, "n={n} p0={p0} x={x}: {got} vs {want}");
+        }
+    }
+
+    // The whole point mass at x, NOT mid-p: the tail must exceed the mid-p version by
+    // exactly half the atom. The codon scan's convention and the per-gene test's
+    // convention deliberately differ, so pin the difference.
+    let (n, p0, x) = (5u64, 0.153_323_8, 2usize);
+    let row = ref_pmf(n, p0);
+    let mid: f64 = row[x + 1..].iter().sum::<f64>() + 0.5 * row[x];
+    assert!((binomial_upper_tail_p(x as u64, n, p0) - mid - 0.5 * row[x]).abs() < 1e-12);
+
+    // The per-codon scan's own numbers: A_c = 5 possible nonsynonymous changes at a
+    // TCG codon, 2 observed, theta = 140/9131 (the bundled toy genome's plug-in rate).
+    let theta = 140.0 / 9131.0;
+    let p = binomial_upper_tail_p(2, 5, theta);
+    assert!((p - 0.002_279_558_259_877_733_6).abs() < 1e-15, "toy gene06 S44: {p}");
+
+    // Boundaries. P(X >= 0) is 1 for every n and p0, including the empty binomial.
+    assert_eq!(binomial_upper_tail_p(0, 9, 0.3), 1.0);
+    assert_eq!(binomial_upper_tail_p(0, 0, 0.3), 1.0);
+    assert_eq!(binomial_upper_tail_p(1, 4, 0.0), 0.0); // no change is possible
+    assert_eq!(binomial_upper_tail_p(4, 4, 1.0), 1.0); // every change is certain
+    assert!(binomial_upper_tail_p(5, 4, 0.3).is_nan(), "x > n is undefined");
+    assert!(binomial_upper_tail_p(1, 4, f64::NAN).is_nan());
+    assert!(binomial_upper_tail_p(1, 4, 1.5).is_nan());
+    // Monotone in x, and a rarer null makes the same count more surprising.
+    assert!(binomial_upper_tail_p(3, 9, 0.1) < binomial_upper_tail_p(2, 9, 0.1));
+    assert!(binomial_upper_tail_p(2, 9, 0.01) < binomial_upper_tail_p(2, 9, 0.1));
+}
+
+#[test]
+fn bh_with_an_explicit_family_is_bh_when_the_family_is_complete() {
+    // Same inputs, same answers: the per-gene path must be untouched by the codon
+    // scan's need for a larger m.
+    for p in [
+        vec![0.01, 0.02, 0.03, 0.04, 0.05],
+        vec![0.001, 0.5],
+        vec![0.01, f64::NAN, 0.02],
+    ] {
+        let k = p.iter().filter(|v| v.is_finite()).count();
+        let a = benjamini_hochberg(&p);
+        for m in [k, 0] {
+            // m == 0 is the understated-family case: it is floored at k, so an
+            // under-count can never inflate significance.
+            let b = benjamini_hochberg_with_m(&p, m);
+            for (x, y) in a.iter().zip(&b) {
+                assert!(
+                    (x - y).abs() < 1e-15 || (x.is_nan() && y.is_nan()),
+                    "m={m}: {x} vs {y} for {p:?}"
+                );
+            }
+        }
+    }
+
+    // A family larger than the supplied tests scales every q by m/k. The codon scan
+    // hands over only the codons carrying a SNP, while m is the whole coding genome.
+    let q = benjamini_hochberg_with_m(&[0.001, 0.5], 1000);
+    assert!((q[0] - 1.0).abs() < 1e-12, "0.001*1000/1 caps at 1: {}", q[0]);
+    assert!((q[1] - 1.0).abs() < 1e-12, "rank 2 caps at 1: {}", q[1]);
+    let q1 = benjamini_hochberg_with_m(&[1e-6, 0.5], 1000);
+    assert!((q1[0] - 1e-3).abs() < 1e-15, "1e-6*1000/1: {}", q1[0]);
+    // Still monotone in p, and still capped.
+    let q2 = benjamini_hochberg_with_m(&[1e-9, 2e-9, 0.4], 1_317_000);
+    assert!(q2[0] <= q2[1] && q2[1] <= q2[2]);
+    assert!((q2[2] - 1.0).abs() < 1e-12);
+}
+
+#[test]
 fn bh_uniform_and_monotone() {
     // Equal-spaced p give equal q here
     let q = benjamini_hochberg(&[0.01, 0.02, 0.03, 0.04, 0.05]);
