@@ -1,14 +1,14 @@
 [
-  {"gene":"gene01","chrom":"chr1","start":1,"end":399,"strand":"+","Dn":1,"Ds":1,"Pn":9,"Ps":14,"NI":0.6428571428571429,"alpha":0.3571428571428571,"fisher_p":0.999999999999999,"fisher_q_bh":1},
-  {"gene":"gene02","chrom":"chr1","start":441,"end":695,"strand":"+","Dn":0,"Ds":1,"Pn":12,"Ps":16,"NI":null,"alpha":null,"fisher_p":1,"fisher_q_bh":1},
-  {"gene":"gene03","chrom":"chr1","start":733,"end":999,"strand":"+","Dn":0,"Ds":0,"Pn":4,"Ps":11,"NI":null,"alpha":null,"fisher_p":0.9999999999999964,"fisher_q_bh":1},
-  {"gene":"PPE_toy1","chrom":"chr1","start":1038,"end":1439,"strand":"+","Dn":1,"Ds":0,"Pn":17,"Ps":4,"NI":0,"alpha":1,"fisher_p":0.9999999999999928,"fisher_q_bh":1},
-  {"gene":"gene05","chrom":"chr1","start":1472,"end":1840,"strand":"+","Dn":0,"Ds":0,"Pn":19,"Ps":7,"NI":null,"alpha":null,"fisher_p":0.9999999999999893,"fisher_q_bh":1},
-  {"gene":"gene06","chrom":"chr1","start":1878,"end":2198,"strand":"+","Dn":2,"Ds":1,"Pn":11,"Ps":11,"NI":0.5,"alpha":0.5,"fisher_p":1,"fisher_q_bh":1},
-  {"gene":"gene07","chrom":"chr1","start":2233,"end":2592,"strand":"+","Dn":0,"Ds":1,"Pn":2,"Ps":10,"NI":null,"alpha":null,"fisher_p":0.9999999999999993,"fisher_q_bh":1},
-  {"gene":"gene08","chrom":"chr1","start":2631,"end":3065,"strand":"+","Dn":1,"Ds":2,"Pn":18,"Ps":2,"NI":18,"alpha":-17,"fisher_p":0.0666290231507631,"fisher_q_bh":0.7995482778091573},
-  {"gene":"PE_PGRS_toy2","chrom":"chr1","start":3107,"end":3478,"strand":"+","Dn":2,"Ds":0,"Pn":19,"Ps":7,"NI":0,"alpha":1,"fisher_p":0.9999999999999991,"fisher_q_bh":1},
-  {"gene":"gene10","chrom":"chr1","start":3524,"end":3895,"strand":"+","Dn":0,"Ds":0,"Pn":7,"Ps":3,"NI":null,"alpha":null,"fisher_p":0.9999999999999996,"fisher_q_bh":1},
-  {"gene":"gene11","chrom":"chr1","start":3947,"end":4426,"strand":"+","Dn":2,"Ds":0,"Pn":11,"Ps":12,"NI":0,"alpha":1,"fisher_p":0.4800000000000071,"fisher_q_bh":1},
-  {"gene":"gene12","chrom":"chr1","start":4459,"end":4764,"strand":"+","Dn":2,"Ds":0,"Pn":9,"Ps":12,"NI":0,"alpha":1,"fisher_p":0.21739130434782516,"fisher_q_bh":1}
+  {"gene":"gene01","chrom":"chr1","start":1,"end":399,"strand":"+","Dn":1,"Ds":1,"Pn":8,"Ps":13,"NI":0.6153846153846154,"alpha":0.3846153846153846,"fisher_p":0.9999999999999999,"fisher_q_bh":1,"mnv_excluded":2},
+  {"gene":"gene02","chrom":"chr1","start":441,"end":695,"strand":"+","Dn":0,"Ds":1,"Pn":11,"Ps":14,"NI":null,"alpha":null,"fisher_p":0.9999999999999961,"fisher_q_bh":1,"mnv_excluded":3},
+  {"gene":"gene03","chrom":"chr1","start":733,"end":999,"strand":"+","Dn":0,"Ds":0,"Pn":4,"Ps":11,"NI":null,"alpha":null,"fisher_p":0.9999999999999964,"fisher_q_bh":1,"mnv_excluded":0},
+  {"gene":"PPE_toy1","chrom":"chr1","start":1038,"end":1439,"strand":"+","Dn":1,"Ds":0,"Pn":17,"Ps":4,"NI":0,"alpha":1,"fisher_p":0.9999999999999928,"fisher_q_bh":1,"mnv_excluded":0},
+  {"gene":"gene05","chrom":"chr1","start":1472,"end":1840,"strand":"+","Dn":0,"Ds":0,"Pn":17,"Ps":5,"NI":null,"alpha":null,"fisher_p":1,"fisher_q_bh":1,"mnv_excluded":4},
+  {"gene":"gene06","chrom":"chr1","start":1878,"end":2198,"strand":"+","Dn":2,"Ds":1,"Pn":7,"Ps":9,"NI":0.3888888888888889,"alpha":0.6111111111111112,"fisher_p":0.5820433436532568,"fisher_q_bh":1,"mnv_excluded":6},
+  {"gene":"gene07","chrom":"chr1","start":2233,"end":2592,"strand":"+","Dn":0,"Ds":1,"Pn":2,"Ps":10,"NI":null,"alpha":null,"fisher_p":0.9999999999999993,"fisher_q_bh":1,"mnv_excluded":0},
+  {"gene":"gene08","chrom":"chr1","start":2631,"end":3065,"strand":"+","Dn":1,"Ds":2,"Pn":18,"Ps":2,"NI":18,"alpha":-17,"fisher_p":0.0666290231507631,"fisher_q_bh":0.7995482778091573,"mnv_excluded":0},
+  {"gene":"PE_PGRS_toy2","chrom":"chr1","start":3107,"end":3478,"strand":"+","Dn":2,"Ds":0,"Pn":16,"Ps":6,"NI":0,"alpha":1,"fisher_p":1,"fisher_q_bh":1,"mnv_excluded":4},
+  {"gene":"gene10","chrom":"chr1","start":3524,"end":3895,"strand":"+","Dn":0,"Ds":0,"Pn":7,"Ps":3,"NI":null,"alpha":null,"fisher_p":0.9999999999999996,"fisher_q_bh":1,"mnv_excluded":0},
+  {"gene":"gene11","chrom":"chr1","start":3947,"end":4426,"strand":"+","Dn":2,"Ds":0,"Pn":9,"Ps":10,"NI":0,"alpha":1,"fisher_p":0.4761904761904773,"fisher_q_bh":1,"mnv_excluded":4},
+  {"gene":"gene12","chrom":"chr1","start":4459,"end":4764,"strand":"+","Dn":1,"Ds":0,"Pn":8,"Ps":10,"NI":0,"alpha":1,"fisher_p":0.47368421052631615,"fisher_q_bh":1,"mnv_excluded":2}
 ]

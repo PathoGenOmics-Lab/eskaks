@@ -657,7 +657,7 @@ fn vcf_mk_writes_table_and_stats() {
     assert_eq!(
         rows[0],
         vec!["Gene", "Chrom", "Start", "End", "Strand", "Dn", "Ds", "Pn", "Ps",
-             "NI", "alpha", "Fisher_p", "Fisher_q_BH"],
+             "NI", "alpha", "Fisher_p", "Fisher_q_BH", "MNV_Excluded"],
         "MK header mismatch: {:?}", rows[0]
     );
     // geneA has variation → present; Dn+Ds+Pn+Ps must be > 0 for listed genes.

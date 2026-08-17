@@ -184,6 +184,30 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     };
     info!("{} SNPs after filtering", snps.len());
 
+    // What retaining per-sample carriers actually costs, reported rather than assumed:
+    // one u64 per 64 samples per ALT allele. Absent (0 alleles) for an AF-only VCF with
+    // no genotype columns, which is exactly the input that falls back to the AF bound.
+    {
+        let (mut alleles, mut bytes) = (0usize, 0usize);
+        for cs in snps.iter().filter_map(|s| s.carriers.as_ref()) {
+            alleles += cs.len();
+            bytes += cs.iter().map(|c| c.heap_bytes()).sum::<usize>();
+        }
+        if alleles > 0 {
+            info!(
+                "Per-sample carriers retained for {} allele(s): {:.2} MiB ({} bytes)",
+                alleles,
+                bytes as f64 / (1024.0 * 1024.0),
+                bytes
+            );
+        } else if n_effective > 0 {
+            info!(
+                "No per-sample carriers available; the same-codon check falls back to the \
+                 allele-frequency bound."
+            );
+        }
+    }
+
     if snps.is_empty() {
         // Not fatal (0 SNPs is a valid, if uninformative, result), but make it
         // loud so it is never mistaken for a silently-empty output file.
@@ -362,7 +386,8 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
 
     // Per-variant table (optional): the mutation-level detail behind each gene.
     if args.variants {
-        let var_path = vcf_analysis::write_variants(&results, &args.output, &args.format)?;
+        let var_path =
+            vcf_analysis::write_variants(&results, &args.output, &args.format, args.shared_codons)?;
         info!("Per-variant table saved to {}", var_path);
         written.push(var_path);
     }
@@ -441,6 +466,9 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             genes_with_snps,
             multi_snp_codons: diag.multi_snp_codons,
             cooccurring_codons: diag.cooccurring_codons,
+            cooccurring_exact: diag.cooccurring_exact,
+            mnv_alleles: diag.mnv_alleles,
+            mnv_new_stops: diag.mnv_new_stops,
         };
         let divergence = match &args.divergence {
             Some(p) => Some(parse_divergence(p)?),
@@ -473,17 +501,58 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         if diag.ref_mismatch > 0 {
             eprintln!("  SNPs skipped (REF≠ref): {}", diag.ref_mismatch);
         }
-        // Codons carrying more than one SNP are scored one SNP at a time against the
-        // reference codon, so their joint (multi-nucleotide) change is never evaluated.
-        // The parenthesised subset is the one where the allele frequencies leave no
-        // doubt that the SNPs share a haplotype, which is what compute_pn_ps warns about.
+        // Codons carrying more than one SNP. The indented subset is the one where the SNPs
+        // provably occur together in one genome. Where per-sample genotypes survived
+        // parsing that subset is exact AND the codon those samples carry is what was
+        // scored; otherwise it rests on the allele-frequency bound, which is a floor and
+        // leaves the joint change unevaluated. The basis is named rather than left to
+        // guess, because the two lead to different numbers.
         if diag.multi_snp_codons > 0 {
             eprintln!("  Codons with >1 SNP:  {}", diag.multi_snp_codons);
+            let basis = if diag.codons_with_carriers == diag.multi_snp_codons {
+                "exact, from per-sample genotypes"
+            } else if diag.codons_with_carriers == 0 {
+                "allele-frequency bound: a floor, not a count"
+            } else {
+                "part exact, part allele-frequency bound"
+            };
+            eprintln!("    checked:           {}", basis);
             if diag.cooccurring_codons > 0 {
                 eprintln!(
-                    "    same haplotype:    {}  (in {} gene(s), joint change not evaluated)",
+                    "    shared by a sample: {}  (in {} gene(s))",
                     diag.cooccurring_codons, diag.genes_with_cooccurring
                 );
+                let bound = diag.cooccurring_codons - diag.cooccurring_exact;
+                if diag.cooccurring_exact > 0 && bound > 0 {
+                    eprintln!(
+                        "      observed / bound: {} / {}",
+                        diag.cooccurring_exact, bound
+                    );
+                }
+                if diag.mnv_alleles > 0 {
+                    eprintln!(
+                        "      scored jointly:   {} allele(s), by Nei-Gojobori pathway averaging",
+                        diag.mnv_alleles
+                    );
+                }
+                if diag.mnv_excluded_from_mk > 0 {
+                    eprintln!(
+                        "      out of MK / SFS:  {}  (both need whole alleles)",
+                        diag.mnv_excluded_from_mk
+                    );
+                }
+                if diag.mnv_new_stops > 0 {
+                    eprintln!(
+                        "      premature stops:  {} codon(s) stop only when taken together",
+                        diag.mnv_new_stops
+                    );
+                }
+                if bound > 0 {
+                    eprintln!(
+                        "      not evaluated:    {} codon(s): no genotypes, so no codon to score",
+                        bound
+                    );
+                }
             }
         }
         if args.min_snps > 0 {

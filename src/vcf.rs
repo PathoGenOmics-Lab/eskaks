@@ -10,12 +10,14 @@ use rayon::prelude::*;
 use std::io::BufRead;
 use std::path::Path;
 
+mod carriers;
 mod filter;
 mod merge;
 mod parse;
 #[cfg(test)]
 mod tests;
 
+pub use carriers::CarrierSet;
 pub use filter::filter_snps;
 pub use merge::merge_vcfs;
 pub use parse::{parse_vcf, sample_count};
@@ -50,6 +52,16 @@ pub struct VcfSnp {
     /// Exact GT-derived allele counts, `Some` only when the record carries genotype
     /// columns. The diversity path prefers these over `round(AF * n)`.
     pub gt_counts: Option<GtCounts>,
+    /// Which samples carry each *valid* ALT (same order as `alt_alleles`), `Some`
+    /// whenever per-sample identity survived parsing: genotype columns in a single
+    /// multi-sample VCF, or the file index in a `--vcf-list` merge (one haploid sample
+    /// per file). Kept alongside `gt_counts`, never instead of it, so every existing
+    /// count stays byte-identical.
+    ///
+    /// This is what turns the same-codon check from an allele-frequency bound into an
+    /// observation: two alleles listed for the same sample are on the same molecule,
+    /// because the genotypes are haploid.
+    pub carriers: Option<Vec<CarrierSet>>,
     /// FILTER field value
     pub filter: String,
     /// Read depth from INFO/DP (if available)

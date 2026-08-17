@@ -255,6 +255,10 @@ as allele frequency rises is a signature of constraint. This panel is informativ
 for **multi-sample cohorts**; with a single sample (all variants at one frequency)
 it shows an explicit empty-state note.
 
+Like the [McDonald-Kreitman table](#mcdonald-kreitman-test), the bins count whole alleles,
+so an allele any sample carries inside a [multi-nucleotide change](#same-codon-snps) is
+excluded rather than split; the run reports how many.
+
 ## McDonald-Kreitman test
 
 `--mk` writes `<prefix>_mk.<ext>` with a per-gene McDonald-Kreitman test. eskaks
@@ -267,6 +271,19 @@ input: ALTs with `AF >= --mk-fixed-af` (default 0.99) are treated as **fixed**
 - **NI** (Neutrality Index) = `(Pn/Ps)/(Dn/Ds)`, > 1 suggests purifying selection, < 1 adaptive.
 - **alpha** = `1 − (Ds·Pn)/(Dn·Ps)`: the estimated proportion of adaptive substitutions.
 - **Fisher_p**: a two-sided Fisher exact test on the table, with a **Fisher_q_BH** FDR q-value across genes.
+- **MNV_Excluded**: classified alleles left *out* of the 2×2 (see below). `0` for an AF-only VCF.
+
+Fisher's exact test needs whole alleles in one cell, and an allele inside an observed
+[multi-nucleotide change](#same-codon-snps) splits between the synonymous and
+nonsynonymous classes. Rather than round it into a cell it does not belong in, eskaks
+**restricts the 2×2 to alleles that stand alone in their codon for every sample carrying
+them**, and reports how many it dropped in `MNV_Excluded`, so
+`Dn + Ds + Pn + Ps + MNV_Excluded` always equals the gene's `Total_SNPs`. Note that an
+allele carried by 300 samples of whom only 50 also carry a neighbour is dropped too: its
+contribution is still a blend of the two backgrounds, so it is no more a whole allele than
+one carried jointly by everyone. The **site-frequency spectrum** in the report is
+restricted the same way and for the same reason. A gene whose 2×2 is emptied entirely by
+the exclusion still gets a row, with `Fisher_p = NA`, so the omission is never silent.
 
 ```bash
 eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
@@ -386,6 +403,14 @@ A per-gene pN/pS is a summary; to act on a hit you need the individual variants.
 The `Change` column (`S315T`-style) is the key you join to the [WHO mutation
 catalogue] or TB-Profiler.
 
+!!! note "`Alt_AA` is the residue the carriers encode, not the base substituted"
+    Where a sample carrying this ALT also carries another SNP in the same codon, `Alt_AA`,
+    `Change` and `Effect` describe the **joint** (multi-nucleotide) codon change that
+    genome encodes, not what this base would do on its own. Two rows of one codon can
+    therefore report the same `Change`; `--shared-codons` marks them and spells the codon
+    change out. This needs per-sample genotypes; with an AF-only VCF every row is the
+    single substitution, as before. See [Same-codon SNPs](#same-codon-snps).
+
 !!! note "Nonsense mutations are included here"
     A change that creates a stop codon (`W315*`, `nonsense`) is a loss-of-function
     a resistance analyst must see, so it is **listed in the variants table** — even
@@ -393,6 +418,39 @@ catalogue] or TB-Profiler.
     Nei-Gojobori exclude-nonsense convention). The two views stay consistent by design.
 
   [WHO mutation catalogue]: https://www.who.int/publications/i/item/9789240082410
+
+### Which rows are joint changes: `Codon_Shared`, `Codon_Change` (`--shared-codons`) { #shared-codons }
+
+A row whose codon carries a second SNP in the same genome describes the **joint**
+amino-acid change that genome encodes, not the effect of its own base (see
+[Same-codon SNPs](#same-codon-snps)). Before joining this table to a resistance catalogue
+you want to know which rows those are, and what the codon actually did. `--shared-codons`
+appends two columns:
+
+| Column | Value | Meaning |
+|---|---|---|
+| `Codon_Shared` | `true` | A sample carrying **this ALT** also carries another SNP in the same codon, so this row's `Change` is the joint one. Its neighbour's row reports the same change. |
+| | `false` | No sample carries this ALT together with another SNP in the codon, so the row is an ordinary single substitution. |
+| | `NA` | Unknowable from the input: no per-sample genotypes, and the allele frequencies do not force the SNPs together either. The row was scored against the reference codon and may be wrong. |
+| `Codon_Change` | `CTT>TTA` | The reference codon and the codon this ALT's carriers hold, on the **coding** strand. One base differs for an ordinary SNP, two or three for a multi-nucleotide change. |
+
+`true` and `false` are read from the per-sample genotypes, which makes them statements
+about named samples rather than inferences: eskaks assumes **haploid** genotypes, so two
+alleles listed for one sample are two alleles in one molecule, and no phasing is needed.
+For an input with no genotypes at all, a codon that the [frequency bound](#same-codon-snps)
+forces is marked `true` for every one of its rows (the bound cannot say *which* allele, and
+nothing was scored jointly), and the rest are `NA`.
+
+The columns are opt-in and appended last, so the default `--variants` table keeps exactly
+the layout its downstream parsers were written against. In JSON they are the extra
+`codon_shared` (`true` / `false` / `null`) and `codon_change` keys.
+
+```bash
+eskaks vcf --ref ref.fa --gff genes.gff3 --vcf calls.vcf \
+    --variants --shared-codons -o results
+# every multi-nucleotide change in the run, with the codon it produced:
+awk -F'\t' 'NR==1 || $13=="true"' results_variants.tsv
+```
 
 ## Per-codon recurrence scan (`--codon-scan`) { #codon-scan }
 
@@ -465,7 +523,7 @@ File: `<prefix>_codons.tsv` (or `.csv` / `.json`, with lowercase keys).
 | Exp_Nonsyn_Alleles | `A_c · θ`: distinct nonsynonymous alleles expected here by chance. The effect-size anchor |
 | P_Recurrence | One-sided upper-tail p-value `P(X ≥ X_c)`. `NA` where the test is not meaningful (see below) |
 | Q_Recurrence_BH | Benjamini-Hochberg q-value over the **whole coding genome**, not over the printed rows |
-| Cooccurring | `true` when the allele frequencies force the codon's SNPs onto one haplotype: one multi-nucleotide event, not independent origins, so it is not tested |
+| Cooccurring | `true` when some sample carries two of the codon's SNPs: one multi-nucleotide event, not independent origins, so it is not tested. Read from the per-sample genotypes, or from the allele-frequency bound for an AF-only VCF |
 | Repetitive | `true` for PE/PPE/PGRS/IS-family genes ([core-genome mode](#core-genome-mode)) |
 | Gene_pN_pS | The parent gene's pN/pS, joined so a globally elevated gene is not misread as a codon-specific hit |
 | Gene_Q_BH | The parent gene's neutrality-test BH q-value (`NA` if the gene was not tested, e.g. dropped by `--min-snps`) |
@@ -584,6 +642,14 @@ population-genetics statistics for that, writing `<output>_diversity.<ext>`:
     diversity (like pooled pN/pS) is reported over all genes and is unaffected by
     `--min-snps`.
 
+!!! note "Multi-nucleotide changes are bucketed by their joint outcome"
+    πN and πS split alleles by `Effect`, which is the effect of the codon that allele's
+    carriers actually hold. An allele inside a [multi-nucleotide change](#same-codon-snps)
+    is therefore counted under the **joint** amino-acid outcome, and one whose joint codon
+    is a stop is dropped like any other nonsense allele. Every count stays a whole allele,
+    which is what π, θ_W and Tajima's D need, so unlike the McDonald-Kreitman table
+    nothing has to be excluded here.
+
 ## Examples
 
 ```bash
@@ -669,14 +735,13 @@ flowchart LR
 3. **Overlapping genes**: Each SNP is assigned to all genes whose CDS regions overlap its position. Overlapping genes on opposite strands will classify the same SNP differently.
 4. **Fixed variants**: By default, fixed variants (AF=1.0) are included. Use `--max-af 0.99` to exclude them and analyze only segregating polymorphisms.
 5. **pN/pS vs πN/πS**: Without `--af-weighted`, all SNPs count equally (pN/pS). With `--af-weighted`, rare variants contribute less than common ones (πN/πS). Choose based on your question.
-6. **Two SNPs in one codon**: each SNP is classified against the *reference* codon, never against its neighbour, so a codon carrying two SNPs is scored twice instead of once. See [Same-codon SNPs](#same-codon-snps) below.
+6. **Two SNPs in one codon**: with per-sample genotypes the codon each sample carries is scored jointly; **without** them each SNP is still classified against the *reference* codon, never against its neighbour. See [Same-codon SNPs](#same-codon-snps) below.
 
 ## Same-codon SNPs (multi-nucleotide changes) { #same-codon-snps }
 
-eskaks builds every alternate codon by copying the reference codon and mutating a single
-position. Two SNPs inside one codon are therefore each compared with the reference and
-never with each other, so the amino-acid change that a genome actually carries is not the
-one reported.
+Two SNPs inside one codon, carried by the same genome, are one **multi-nucleotide
+change**. Scoring each of them against the reference codon answers a question no genome
+asked, and can report an amino acid nobody carries.
 
 Take a reference codon `CTT` (Leu) with a C>T at its first base and a T>A at its third,
 both at AF 1.0, so every sample carries both:
@@ -685,37 +750,118 @@ both at AF 1.0, so every sample carries both:
 | --- | --- | --- | --- |
 | C>T alone | `CTT` → `TTT` | Leu → Phe | missense |
 | T>A alone | `CTT` → `CTA` | Leu → Leu | synonymous |
-| **Both, as carried** | `CTT` → `TTA` | **Leu → Leu** | **one synonymous change** |
+| **Both, as carried** | `CTT` → `TTA` | **Leu → Leu** | **no amino-acid change** |
 
-The run reports a missense plus a synonymous change where the real haplotype carries one
-synonymous multi-nucleotide change, which inflates pN. Resolving it needs read-backed or
-statistical phasing, which eskaks does not do; what it does instead is tell you:
+**With per-sample genotypes, eskaks scores the bottom row.** For every codon carrying
+variants at more than one base it enumerates the codons the cohort actually holds, from
+the carrier sets, and scores each of those against the reference. Both `--variants` rows
+above now read `L2L`, with `Codon_Change = CTT>TTA`, and the missense `L2F` that no genome
+carries is gone.
 
-- **A warning**, whenever the allele frequencies leave no doubt that the SNPs share a
-  haplotype (see below). It names how many codons and how many genes are affected.
-- **A summary line**, `Codons with >1 SNP`, counting every such codon in the run, with the
-  same-haplotype subset underneath it.
-- **A line in the report's Methods panel**, so a shared HTML report carries the caveat.
-- **`-vv`** lists every affected codon: gene, residue number, positions and allele
-  frequencies, so you can re-check those residues by hand.
+### How the joint change is counted
 
-### When the warning fires
+The joint change is classified by **Nei-Gojobori pathway averaging**, exactly as the
+`eskaks fasta` path classifies a multi-difference codon pair: average over the orders in
+which the changes could have happened, skipping any order whose intermediate codon is a
+**stop**. For `CTT → TTA` there are two orders, `CTT→TTT→TTA` (nonsyn, nonsyn) and
+`CTT→CTA→TTA` (syn, syn), so the pair scores **1 synonymous and 1 nonsynonymous**
+difference.
 
-In a multi-sample population VCF two SNPs in one codon are often on *different* genomic
-backgrounds, and scoring them separately is then the correct thing to do. So the warning is
-raised only when co-occurrence follows from the data rather than being a guess: for `k`
-variant positions at frequencies `p₁ … p_k`, the fraction of sampled genomes carrying all of
-them is at least `Σ pᵢ − (k − 1)`, and the warning fires when that bound is above zero. Two
-variants at AF 1.0 (including a single-sample VCF, where AF is 1.0 by convention) always
-qualify; two variants at AF 0.3 and 0.2 never do.
+That is deliberately *not* "one synonymous event". The pN/pS site denominator counts
+**nucleotide** sites, so the numerator has to count nucleotide differences:
+`Nd + Sd = k`, where `k` is the number of bases the change spans. A two-nucleotide change
+contributes two, and those two units are split evenly over the two alleles that make it
+up, so one ALT allele is still one unit of the total and a gene's `Total_SNPs` is still
+its number of classified alleles. Collapsing an MNV into a single event would break that
+identity and move the toy genome's pN/pS by 7.6% of pure arithmetic artefact.
 
-The bound is deliberately conservative, so the count is a floor, not an estimate: SNPs at
-AF 0.55 and 0.45 may well sit on one haplotype without the frequencies proving it. Those
-codons are still counted in `Codons with >1 SNP` and still listed under `-vv`, they simply
-do not raise a warning. The alternative, warning on every multi-SNP codon, would fire on
-essentially every population VCF and train you to ignore it.
+The consequence worth internalising: the **row label** and the **count** answer different
+questions. `Effect` describes the amino-acid outcome (`CTT→TTA` is Leu→Leu, so
+`synonymous`), while the counts describe the mutational path, which pathway averaging
+splits half and half. Each is the standard convention for its own question.
 
-The [per-codon recurrence scan](#codon-scan) reuses this same bound the other way round:
-a codon whose SNPs are forced onto one haplotype is one multi-nucleotide event rather
+Where an allele is carried on more than one background (some samples hold it alone, others
+alongside a neighbour), its count is the average over those backgrounds weighted by how
+many samples hold each, and its row reports the codon most of its carriers hold.
+
+### The case that matters most: a joint stop
+
+A codon can reach a **stop** only jointly. `TTG` (Leu) with a T>G at its second base is
+`TGG` (Trp, missense) and with a G>A at its third is `TTA` (Leu, synonymous); carried
+together they are `TGA`, a premature stop. Scored one SNP at a time, that truncation is
+reported as an ordinary missense plus an ordinary synonymous change. eskaks now reports
+both rows as `nonsense` (`L50*`), excludes them from the pN/pS counts as it excludes any
+change to a stop, and **warns** about the codon, because nothing else in the run would
+tell you that a residue annotated as two harmless changes is a loss of function. The
+bundled 20-sample toy VCF contains exactly one such codon.
+
+### What the run tells you
+
+- **A summary line**, `Codons with >1 SNP`, counting every such codon, with the basis of
+  the check, the subset shared by a sample, how many alleles were scored jointly, how many
+  left the McDonald-Kreitman table and the SFS, and how many codons gained a stop.
+- **A warning** for those joint stops, and a warning for any codon whose SNPs are forced
+  together by their frequencies but which has **no genotypes** to score jointly, since
+  those are the calls that can still be wrong.
+- **`Codon_Shared` and `Codon_Change`** in the [per-variant table](#shared-codons) under
+  `--variants --shared-codons`, marking and spelling out the affected rows one by one.
+- **A line in the report's Methods panel**, so a shared HTML report carries the same note.
+- **`-vv`** lists every affected codon: gene, residue number, positions, allele
+  frequencies and carrier counts, so you can re-check those residues by hand.
+
+### What needs genotypes, and what happens without them { #mnv-needs-genotypes }
+
+All of the above needs **per-sample genotypes**: a single multi-sample VCF with `GT`
+columns, or `--vcf-list` / repeated `--vcf` with one haploid sample per file (the file
+index *is* the sample index). Without them there is no codon to score jointly, so an
+**AF-only VCF keeps the reference-codon classification for every ALT**, unchanged in every
+digit, and its multi-SNP codons are reported through the allele-frequency bound below,
+with a warning saying the joint change was not evaluated.
+
+The same split governs everything downstream:
+
+| | With genotypes | AF-only VCF |
+| --- | --- | --- |
+| pN/pS counts | the codon the samples carry, pathway-averaged | each ALT against the reference codon |
+| `Effect`, `Alt_AA`, `Change` | the joint amino-acid outcome | the single-substitution outcome |
+| McDonald-Kreitman, SFS | only alleles no sample carries jointly; the rest counted in `MNV_Excluded` | every classified allele |
+| πN / πS / θ_W / Tajima's D | bucketed by the joint outcome | unchanged |
+| `Cooccurring` (codon scan) | read from the genotypes | allele-frequency bound |
+
+One consequence is worth stating plainly: **the same VCF analysed with and without its
+genotype columns can give different pN/pS numbers**, and the genotyped answer is the one
+about real genomes.
+
+### How co-occurrence is decided
+
+**With per-sample genotypes, it is observed, not inferred.** eskaks assumes **haploid**
+genotypes (the *M. tuberculosis* setting), and that is decisive: if one sample carries two
+variants in a codon, they are on the same molecule *by definition*. No phasing, and no
+BAM, is involved. eskaks keeps the set of samples carrying each ALT (a bitset over sample
+indices, about 31 MB for a 5,000-sample by 50,000-site cohort) and intersects those sets,
+so both answers are exact: a codon is flagged when some sample really carries two of its
+SNPs, and cleared when none does. This works for a single multi-sample VCF (the genotype
+columns) and for `--vcf-list` (one haploid sample per file, so the file index *is* the
+sample index).
+
+**Without them, the allele-frequency bound is the fallback.** For an AF-only VCF with no
+genotype columns there is nothing to intersect, so eskaks falls back to a pigeonhole
+argument: for `k` variant positions at frequencies `p₁ … p_k`, the fraction of sampled
+genomes carrying all of them is at least `Σ pᵢ − (k − 1)`, and the codon is flagged when
+that bound is above zero. Two variants at AF 1.0 (including a single-sample VCF, where AF
+is 1.0 by convention) always qualify; two at AF 0.3 and 0.2 never do.
+
+That bound is a **floor, not a count**. Two SNPs at AF 0.55 and 0.45 may well sit in the
+same genome without the frequencies proving it, and on the bundled 20-sample toy VCF the
+bound reaches 8 of the 13 codons where a sample really does carry two alleles, missing
+38%. That gap is exactly what the genotype path closes, and it is why the summary block
+names which of the two checks ran. The bound itself is unchanged: for an AF-only input it
+remains the only sound inference available, so it has not been weakened or removed.
+
+The [per-codon recurrence scan](#codon-scan) uses the same decision the other way round:
+a codon whose SNPs occur together in one genome is one multi-nucleotide event rather
 than several independent origins, so the scan reports it with `Cooccurring = true` and
-`P_Recurrence = NA` instead of testing it.
+`P_Recurrence = NA` instead of testing it. That verdict now comes from the genotypes too,
+which cuts both ways: a codon the frequency floor could never reach is suppressed (on the
+toy VCF, 13 codons rather than 8), and a codon whose SNPs the floor *would* have flagged
+but which sit in disjoint samples is correctly tested rather than thrown away.
