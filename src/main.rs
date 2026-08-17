@@ -107,8 +107,13 @@ fn main() -> anyhow::Result<()> {
             if label.is_empty() {
                 writeln!(buf, "{}", record.args())
             } else {
+                // env_logger 0.11 returns an anstyle Style rather than the old
+                // wrapper whose `.value()` painted a single value. A Style now
+                // renders its own escape sequences through Display: `{style}`
+                // opens it and `{style:#}` closes it, so the label is wrapped
+                // rather than handed to the style.
                 let style = buf.default_level_style(lvl);
-                writeln!(buf, "{}: {}", style.value(label), record.args())
+                writeln!(buf, "{style}{label}{style:#}: {}", record.args())
             }
         })
         .parse_default_env()

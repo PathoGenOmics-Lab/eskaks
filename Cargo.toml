@@ -15,21 +15,23 @@ categories = ["command-line-utilities", "science"]
 
 [dependencies]
 
-needletail = "0.6"
+needletail = "0.7"
 # gzip/bgzip decompression for the VCF/GFF/reference readers (needletail already
 # decompresses FASTA transparently). flate2 is pulled in via needletail anyway.
 flate2 = "1"
 
-env_logger = "0.9"
+env_logger = "0.11"
 rayon = "1.5"
 crossbeam = "0.8"
-# 0.17 bounds `console` to 0.15. indicatif 0.16 declared `console = ">=0.9.1, <1.0.0"`
-# with default-features off, so cargo was free to pick console 0.16, which moved
-# Style/Term/measure_text_width behind its `std` feature and then failed to compile. That
-# broke the fuzz workspace and would have broken the main build on the next `cargo update`.
-indicatif = { version = "0.17", features = ["rayon"] }
+# Anything from 0.17 up bounds `console` properly. The version to stay away from is
+# 0.16, which declared `console = ">=0.9.1, <1.0.0"` with default-features off, so cargo
+# was free to pick console 0.16, which had moved Style/Term/measure_text_width behind its
+# `std` feature and then failed to compile. That broke the fuzz workspace first, and would
+# have broken the main build on the next `cargo update`. 0.18 needs Rust 1.85, which is
+# exactly this crate's MSRV, so bumping one means checking the other.
+indicatif = { version = "0.18", features = ["rayon"] }
 log = "0.4"
-rustc-hash = "1.1.0" 
+rustc-hash = "2.1.3" 
 clap = { version = "4.5.4", features = ["derive"] }
 clap_complete = "4.5"
 anyhow = "1.0.102"
