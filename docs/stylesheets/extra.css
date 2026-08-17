@@ -1,12 +1,15 @@
 /* eskaks docs — PathoGenOmics-Lab mycolorsTB brand, matched to the HTML report. */
 
-/* Custom primary (accent blue) + accent (gold) for both light and dark. */
-[data-md-color-primary="custom"] {
-  --md-primary-fg-color:        #305595;
-  --md-primary-fg-color--light: #4a6ba8;
-  --md-primary-fg-color--dark:  #244170;
-  --md-primary-bg-color:        #ffffff;
-  --md-primary-bg-color--light: #ffffffb3;
+/* The brand blue, held in its own variable rather than in Material's `primary`.
+   It used to BE `primary`, which meant the masthead, the table headings, the
+   buttons and the links were all one setting: the header could not go white
+   without dragging the other three to white with it, and a white table heading
+   carries white text. Split apart, `primary` decides only what colour the top of
+   the page is, and this decides what the brand paints. */
+:root {
+  --eskaks-brand:        #305595;
+  --eskaks-brand-dark:   #244170;
+  --eskaks-brand-on:     #ffffff; /* text that sits on the brand blue */
 }
 [data-md-color-accent="custom"] {
   --md-accent-fg-color:         #b8990a; /* gold, darkened for AA contrast on white */
@@ -130,10 +133,32 @@
   margin-left: 0.4rem;
 }
 
-/* Give tables from the report/benchmarks a little more breathing room. */
+/* Table headings keep the brand blue, which is now stated rather than inherited
+   from `primary`. Inherited, they turned white the moment the masthead did, and
+   a white heading with white text on it is invisible. */
 .md-typeset table:not([class]) th {
-  background-color: var(--md-primary-fg-color);
-  color: var(--md-primary-bg-color);
+  background-color: var(--eskaks-brand);
+  color: var(--eskaks-brand-on);
+}
+
+/* Material fills a primary button with `primary`, which is now white on the
+   light scheme, so the button would vanish into the page. Paint it with the
+   brand instead. The slate rules further down already override both. */
+[data-md-color-scheme="default"] .md-typeset .md-button--primary {
+  background-color: var(--eskaks-brand);
+  border-color: var(--eskaks-brand);
+  color: var(--eskaks-brand-on);
+}
+[data-md-color-scheme="default"] .md-typeset .md-button--primary:hover,
+[data-md-color-scheme="default"] .md-typeset .md-button--primary:focus {
+  background-color: var(--eskaks-brand-dark);
+  border-color: var(--eskaks-brand-dark);
+}
+/* A plain (non-primary) button on the light scheme borrows `primary` for its
+   text and border for the same reason, so it needs the same treatment. */
+[data-md-color-scheme="default"] .md-typeset .md-button:not(.md-button--primary) {
+  color: var(--eskaks-brand);
+  border-color: var(--eskaks-brand);
 }
 
 /* Dark mode: --md-primary-fg-color is dark (#1d2026, for a dark header), but

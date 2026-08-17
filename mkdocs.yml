@@ -55,9 +55,18 @@ theme:
     # JavaScript only resolves the system preference afterwards. Left to their
     # defaults those three attributes are Material indigo, so every cold load
     # would paint the masthead the wrong blue for one frame.
+    # `primary` is white on light and black on dark, matching get_MNV, so the
+    # masthead is part of the page rather than a coloured band across the top.
+    # The brand blue has not gone anywhere: it moved out of `primary` and into
+    # --eskaks-brand in extra.css, which still paints links, table headings and
+    # buttons. Keeping it in `primary` is what made those three inseparable from
+    # the header, so the header could not change colour without taking them with
+    # it. A white masthead also lifts the emblem from 1.9:1 against #305595 to
+    # 3.8:1, which was the one contrast figure on this site that no choice of
+    # mark colour could fix.
     - media: "(prefers-color-scheme)"
       scheme: default
-      primary: custom
+      primary: white
       accent: custom
       toggle:
         icon: material/brightness-auto
@@ -65,7 +74,7 @@ theme:
     # Light mode (mycolorsTB brand)
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: custom
+      primary: white
       accent: custom
       toggle:
         icon: material/weather-sunny
@@ -73,7 +82,7 @@ theme:
     # Dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: custom
+      primary: black
       accent: custom
       toggle:
         icon: material/weather-night
