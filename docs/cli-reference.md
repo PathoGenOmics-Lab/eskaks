@@ -135,12 +135,15 @@ eskaks vcf --ref <FASTA> --gff <GFF3> --vcf <VCF> [OPTIONS]
 | `--genomic-control` | Divide each χ² by the inflation factor λ and re-test | off |
 | `--exclude-repetitive` | Drop PE/PPE/PGRS/IS genes from the pooled estimate and test | off |
 | `--codon-scan` | Rank codons by their count of *distinct* nonsynonymous alleles (`<prefix>_codons.<ext>`). Tests allelic multiplicity, not carrier counts and not a per-codon pN/pS | off |
+| `--tree <FILE>` | Newick tree over the cohort's samples. Adds [independent-origin counting](vcf-analysis.md#tree-origins) to `--codon-scan` and `--variants`, which is what lets a *single* allele that arose many times independently be seen as convergent (*rpoB* S450L, *rpsL* K43R). Tip names must match the VCF's sample names exactly; any mismatch is a hard error. Read the [limitations](vcf-analysis.md#origin-limitations) before using the p-values | none |
+| `--min-origin-support <N>` | Minimum carriers in the clade an origin subtends for that origin to count (requires `--tree`). The default is load-bearing: at 1, three isolated false calls on top of one real clade allele are enough to fake genome-wide significance | `2` |
 
 **Output & reporting**
 
 | Flag | Description | Default |
 |---|---|---|
 | `--variants` | Write a per-coding-SNP table (`<prefix>_variants.<ext>`): position, base and amino-acid change (e.g. `S315T`), AF, and effect (synonymous/missense/nonsense/stop_loss) | off |
+| `--shared-codons` | Append [`Codon_Shared` and `Codon_Change`](vcf-analysis.md#shared-codons) to that table: `true` when a sample carrying this ALT also carries another SNP in the same codon, so the row's amino-acid change is the joint (multi-nucleotide) one, plus the codon change itself (`CTT>TTA`, coding strand). Requires `--variants` | off |
 | `--diversity` | Write per-gene πN/πS, Watterson θ and Tajima's D (`<prefix>_diversity.<ext>`); needs the sample size, so a multi-sample VCF or `--vcf-list` | off |
 | `--summary` | Print the pN/pS summary block to stderr | off |
 | `--plot` | Generate Manhattan / p-value SVG plots | off |
@@ -163,6 +166,11 @@ eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
 # Single multi-sample VCF with filters
 eskaks vcf --ref ref.fasta --gff ref.gff3 --vcf calls.vcf \
   --pass-only --min-af 0.05 --min-depth 10 -o filtered
+
+# Convergence scan: how many times did each allele arise, on a supplied phylogeny
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
+  --genetic-code 11 --codon-scan --variants --exclude-repetitive \
+  --tree samples.nwk -o mtb_origins
 ```
 
 ---

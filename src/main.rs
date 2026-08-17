@@ -10,6 +10,7 @@ mod plot;
 mod report;
 mod stats;
 mod textfmt;
+mod tree;
 mod vcf;
 mod vcf_analysis;
 mod run_fasta;

@@ -287,6 +287,16 @@ pub struct VcfArgs {
     #[arg(long, help_heading = "Output options")]
     pub variants: bool,
 
+    /// Add Codon_Shared and Codon_Change columns to the --variants table. Codon_Shared is
+    /// true when a sample carrying this ALT also carries another SNP in the same codon,
+    /// so the row's amino-acid change is the JOINT (multi-nucleotide) one; false when no
+    /// sample does; NA when the input has no per-sample genotypes to check, in which case
+    /// the row was scored against the reference codon alone and may be wrong.
+    /// Codon_Change is the codon change itself (CTT>TTA, coding strand). Opt-in so the
+    /// default table keeps its column layout.
+    #[arg(long, requires = "variants", help_heading = "Output options")]
+    pub shared_codons: bool,
+
     /// Write per-gene population-diversity statistics (<output>_diversity.<ext>):
     /// per-site πN and πS (nucleotide diversity) and their ratio, Watterson's θ,
     /// and Tajima's D (the SFS neutrality test). Needs the sample size, so it
@@ -304,6 +314,36 @@ pub struct VcfArgs {
     /// identical, so pair it with --exclude-repetitive.
     #[arg(long, help_heading = "Statistics options")]
     pub codon_scan: bool,
+
+    /// Newick tree over the cohort's samples. Adds independent-origin counting to
+    /// --codon-scan (columns Nonsyn_Origins, Max_Allele_Origins, Exp_Nonsyn_Origins,
+    /// P_Origins, Q_Origins) and to --variants (column Origins), which is what lets a
+    /// SINGLE allele that arose many times independently be seen as convergent. Tip
+    /// names must match the VCF's sample names exactly (for one VCF per sample: the
+    /// file's own sample column, else its basename); any mismatch is a hard error.
+    ///
+    /// Read the caveats. Origins are counted by Fitch parsimony, so: a genotyping
+    /// error inflates them (mitigated, not removed, by --min-origin-support); missing
+    /// data is invisible, since a carrier set cannot tell REF from a no-call, so heavy
+    /// missingness inflates them too; a mutational or mapping hotspot is
+    /// indistinguishable from selection, so pair this with --exclude-repetitive;
+    /// RECOMBINATION reads as convergence, which is near-zero in M. tuberculosis but
+    /// not in every organism; an unresolved tree inflates origins; and the counts are a
+    /// property of the sampling frame, not of nature, so they are not portable between
+    /// collections. The ranking is what is trustworthy, not the literal p-values.
+    #[arg(long, value_name = "FILE", help_heading = "Statistics options")]
+    pub tree: Option<String>,
+
+    /// Minimum carriers in the clade an origin subtends for that origin to count
+    /// (requires --tree). The default of 2 is deliberate and load-bearing: raw
+    /// parsimony counts every isolated false call as its own origin, and three of them
+    /// on top of one real clade allele are enough to fake genome-wide significance.
+    /// Requiring two carriers per origin removes that failure mode and demotes calling
+    /// artefacts below real signals. It biases conservative: a mutation that genuinely
+    /// arose once in one sampled genome goes uncounted. Use 1 only for a cohort you
+    /// trust completely.
+    #[arg(long, default_value_t = 2, requires = "tree", help_heading = "Statistics options")]
+    pub min_origin_support: u32,
 
     /// Allele frequency at/above which a variant is treated as "fixed"
     /// (divergence) rather than polymorphic in the McDonald-Kreitman test.

@@ -176,6 +176,7 @@ fn gene_result(n_sites: f64, s_sites: f64, nonsyn: f64, syn: f64) -> GenePnPs {
         mk_ds: 0,
         mk_pn: 0,
         mk_ps: 0,
+        mk_mnv_excluded: 0,
         neglog10p: f64::NAN,
         pn_ps_lo: f64::NAN,
         pn_ps_hi: f64::NAN,
@@ -547,13 +548,13 @@ fn cov_out_write_mk_results_tsv_header_row_and_filter() {
     let header = lines.next().unwrap();
     assert_eq!(
         header,
-        "Gene\tChrom\tStart\tEnd\tStrand\tDn\tDs\tPn\tPs\tNI\talpha\tFisher_p\tFisher_q_BH"
+        "Gene\tChrom\tStart\tEnd\tStrand\tDn\tDs\tPn\tPs\tNI\talpha\tFisher_p\tFisher_q_BH\tMNV_Excluded"
     );
 
     let row: Vec<&str> = lines.next().unwrap().split('\t').collect();
     // Only the informative gene is written.
     assert!(lines.next().is_none(), "filtered gene should not be written");
-    assert_eq!(row.len(), 13, "row = {row:?}");
+    assert_eq!(row.len(), 14, "row = {row:?}");
     assert_eq!(row[0], "g");
     assert_eq!(row[1], "chr1");
     assert_eq!(row[2], "0");
@@ -570,6 +571,27 @@ fn cov_out_write_mk_results_tsv_header_row_and_filter() {
     let p: f64 = row[11].parse().expect("fisher_p parses");
     assert!((0.0..=1.0).contains(&p), "fisher_p out of range: {p}");
     assert_eq!(row[11], row[12], "single-test BH: q must equal p");
+    assert_eq!(row[13], "0", "no allele was excluded from this 2x2");
+}
+
+#[test]
+fn cov_out_write_mk_results_keeps_a_gene_emptied_by_the_mnv_exclusion() {
+    // A gene whose every classified allele sits inside a multi-nucleotide change has an
+    // all-zero 2x2, but dropping its row would hide the exclusion entirely: the reader
+    // would see a gene with SNPs in the pN/pS table and no MK row, with nothing saying
+    // why. It is written, with an untestable (NA) Fisher p and the count that explains it.
+    let mut g = gene_result(100.0, 100.0, 1.0, 1.0);
+    g.mk_mnv_excluded = 2;
+    let dir = tempfile::tempdir().unwrap();
+    let prefix = dir.path().join("out");
+    let prefix = prefix.to_str().unwrap();
+
+    let path = write_mk_results(&[g], prefix, &crate::models::OutputFormat::Tsv).unwrap();
+    let content = std::fs::read_to_string(&path).unwrap();
+    let row: Vec<&str> = content.lines().nth(1).expect("one data row").split('\t').collect();
+    assert_eq!(&row[5..9], ["0", "0", "0", "0"], "the 2x2 really is empty");
+    assert_eq!(row[11], "NA", "an empty table has no Fisher p");
+    assert_eq!(row[13], "2", "and the exclusion is stated");
 }
 
 #[test]
@@ -712,6 +734,7 @@ fn cov_core_snp(chrom: &str, pos: usize, ref_allele: u8, alt: u8, af: f64) -> Vc
         alt_alleles: vec![alt],
         alt_freqs: vec![af],
         gt_counts: None,
+        carriers: None,
         filter: "PASS".to_string(),
         depth: None,
     }

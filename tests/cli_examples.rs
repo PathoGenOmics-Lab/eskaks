@@ -450,30 +450,65 @@ fn vcf_examples_deterministic() {
 }
 
 #[test]
-fn vcf_examples_multisample_merge_matches_single() {
-    // Passing the same VCF twice exercises the multi-sample MERGE path (dedup
-    // positions, recompute AF as fraction of samples) — the path that recently had
-    // a determinism bug. Merging a sample with itself must equal the single-sample
-    // run and be reproducible across runs.
+fn vcf_examples_multisample_merge_matches_single_outside_shared_codons() {
+    // Passing the same VCF twice exercises the multi-sample MERGE path (dedup positions,
+    // recompute AF as fraction of samples), the path that recently had a determinism bug.
+    //
+    // The two runs no longer have to agree everywhere, and that is the point of the merge:
+    // the file index IS the sample index, so the merged run knows that its samples carry
+    // both SNPs of a shared codon and scores the codon they hold, while the bundled single
+    // VCF is AF-only and has nothing to intersect. They must still agree on every gene
+    // where no codon is shared, and the merged run names those genes itself.
     let single = new_run();
     vcf_core(&single.prefix, &[]);
     let merged = new_run();
     run_ok(&[
         "vcf", "--ref", REF, "--gff", GFF, "--vcf", VCF, "--vcf", VCF,
-        "--genetic-code", "11", "-o", &merged.prefix,
+        "--genetic-code", "11", "--variants", "--shared-codons", "-o", &merged.prefix,
     ]);
     let merged2 = new_run();
     run_ok(&[
         "vcf", "--ref", REF, "--gff", GFF, "--vcf", VCF, "--vcf", VCF,
-        "--genetic-code", "11", "-o", &merged2.prefix,
+        "--genetic-code", "11", "--variants", "--shared-codons", "-o", &merged2.prefix,
     ]);
-    let single_tsv = read(&format!("{}_pnps.tsv", single.prefix));
-    let merged_tsv = read(&format!("{}_pnps.tsv", merged.prefix));
-    assert_eq!(single_tsv, merged_tsv, "merge-with-self must equal the single-sample run");
     assert_eq!(
-        merged_tsv,
+        read(&format!("{}_pnps.tsv", merged.prefix)),
         read(&format!("{}_pnps.tsv", merged2.prefix)),
         "the merge path must be deterministic across runs"
+    );
+
+    // Genes carrying at least one jointly-carried codon, straight from Codon_Shared.
+    let vars = tsv(&format!("{}_variants.tsv", merged.prefix));
+    let shared: std::collections::BTreeSet<&str> = vars[1..]
+        .iter()
+        .filter(|v| v[12] == "true")
+        .map(|v| v[0].as_str())
+        .collect();
+    assert!(!shared.is_empty(), "merging this VCF with itself does share codons");
+
+    let single_rows = tsv(&format!("{}_pnps.tsv", single.prefix));
+    let merged_rows = tsv(&format!("{}_pnps.tsv", merged.prefix));
+    assert_eq!(single_rows.len(), merged_rows.len(), "same genes either way");
+    // The BH q-values (Q_value_BH, Q_GC_BH) are computed over the whole gene family, so an
+    // untouched gene's q still moves when another gene's p does. Everything that is a
+    // property of the gene alone -- counts, sites, ratio, its own p, the Wilson CI -- must
+    // not.
+    let own = |r: &Vec<String>| -> Vec<String> {
+        r.iter().enumerate().filter(|(i, _)| *i != 16 && *i != 21).map(|(_, v)| v.clone()).collect()
+    };
+    let mut differed = 0usize;
+    for (s, m) in single_rows.iter().zip(&merged_rows).skip(1) {
+        if shared.contains(s[0].as_str()) {
+            if own(s) != own(m) {
+                differed += 1;
+            }
+        } else {
+            assert_eq!(own(s), own(m), "gene {} has no shared codon and must not move", s[0]);
+        }
+    }
+    assert!(
+        differed > 0,
+        "if no shared-codon gene moved, the merge is not using its per-sample identity"
     );
 }
 
@@ -572,30 +607,45 @@ fn vcf_codon_scan_toy_golden_row() {
     assert_eq!(rows[0], CODON_HEADER);
     assert_eq!(rows.len() - 1, 250, "250 toy codons carry a coding SNP");
 
-    // The top row, hand-checkable. gene06 residue 44 is TCG (Ser) in code 11:
-    //   pos1 -> ACG/CCG/GCG  = 3 nonsyn
-    //   pos2 -> TAG is a stop (excluded), TGG/TTG = 2 nonsyn
-    //   pos3 -> TCA/TCC/TCT  = 3 syn
-    // so A_c = 5 and S_c = 3, and it carries two distinct missense alleles.
+    // The top row, hand-checkable. gene01 residue 5 is TCA (Ser) in code 11:
+    //   pos1 -> ACA/CCA/GCA               = 3 nonsyn
+    //   pos2 -> TAA and TGA are stops (excluded), TTA = 1 nonsyn
+    //   pos3 -> TCC/TCG/TCT               = 3 syn
+    // so A_c = 4 and S_c = 3, and it carries one missense allele at AF 0.995.
     let top = &rows[1];
-    assert_eq!(top[0], "gene06");
-    assert_eq!(top[3], "44", "AA_Pos");
+    assert_eq!(top[0], "gene01");
+    assert_eq!(top[3], "5", "AA_Pos");
     assert_eq!(top[4], "S");
-    assert_eq!(top[5], "TCG");
-    assert_eq!((top[6].as_str(), top[7].as_str()), ("5", "3"), "A_c / S_c");
-    assert_eq!(top[8], "2", "two distinct nonsynonymous alleles");
-    assert_eq!(top[12], "S44A;S44W");
+    assert_eq!(top[5], "TCA");
+    assert_eq!((top[6].as_str(), top[7].as_str()), ("4", "3"), "A_c / S_c");
+    assert_eq!(top[8], "1", "one distinct nonsynonymous allele");
+    assert_eq!(top[12], "S5L");
     assert_eq!(top[19], "false", "Cooccurring");
 
-    // theta = 140 distinct nonsynonymous alleles / 9131 possible changes, so
-    //   Exp = 5 * theta = 0.0766619...
-    //   P(X >= 2) for Binomial(5, theta) = 0.00227955...
-    let theta = 140.0 / 9131.0;
-    assert!((f(&top[16]) - 5.0 * theta).abs() < 1e-5, "Exp_Nonsyn_Alleles {}", top[16]);
-    assert!((f(&top[17]) - 0.002_279_558).abs() < 1e-6, "P_Recurrence {}", top[17]);
-    // m = 1426 codons, so even the best toy codon lands at q = 1: 250 rows of a
-    // 1426-codon family cannot buy significance, and the run says so.
+    // theta = 134 distinct nonsynonymous alleles / 9106 possible changes, so
+    //   Exp = 4 * theta = 0.0588622...
+    //   P(X >= 1) for Binomial(4, theta) = 1 - (1 - theta)^4 = 0.0575760...
+    let theta = 134.0 / 9106.0;
+    assert!((f(&top[16]) - 4.0 * theta).abs() < 1e-5, "Exp_Nonsyn_Alleles {}", top[16]);
+    let want = 1.0 - (1.0 - theta).powi(4);
+    assert!((f(&top[17]) - want).abs() < 1e-6, "P_Recurrence {}", top[17]);
+    assert!((f(&top[17]) - 0.057_576_0).abs() < 1e-6, "P_Recurrence {}", top[17]);
+    // m = 1421 codons, so even the best toy codon lands at q = 1: 250 rows of a
+    // 1421-codon family cannot buy significance, and the run says so.
     assert!((f(&top[18]) - 1.0).abs() < 1e-9, "Q_Recurrence_BH {}", top[18]);
+
+    // The codon the previous release ranked first, gene06 residue 44 (TCG, Ser), is now
+    // suppressed: the per-sample genotypes show a sample carrying BOTH of its SNPs, so its
+    // two "independent" alleles are one multi-nucleotide event (TCG -> GGG, Gly). The
+    // allele-frequency floor could not see that at AF 0.249, which is why it used to be
+    // tested, and why it used to top the table on a single mutation counted twice.
+    let g06 = rows[1..]
+        .iter()
+        .find(|r| r[0] == "gene06" && r[3] == "44")
+        .expect("gene06 residue 44 still has a row");
+    assert_eq!(g06[19], "true", "Cooccurring, read from the genotypes");
+    assert_eq!(g06[12], "S44G", "the joint change, not S44A;S44W");
+    assert_eq!((g06[17].as_str(), g06[18].as_str()), ("NA", "NA"), "not tested");
 
     // p ascending with NA last: every NA row must come after every tested row.
     let first_na = rows[1..].iter().position(|r| r[17] == "NA");
@@ -615,7 +665,7 @@ fn vcf_codon_scan_toy_golden_row() {
     let out = codon_run(&r.prefix, "tsv");
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("Per-codon recurrence scan"), "summary block missing:\n{err}");
-    assert!(err.contains("1426 codons"), "family size missing:\n{err}");
+    assert!(err.contains("1421 codons"), "family size missing:\n{err}");
     assert!(err.contains("Significant codons:  0"), "significance line missing:\n{err}");
 }
 
@@ -707,7 +757,7 @@ fn vcf_examples_mk_table_with_invariant() {
     let rows = tsv(&format!("{}_mk.tsv", r.prefix));
     assert_eq!(
         rows[0],
-        ["Gene", "Chrom", "Start", "End", "Strand", "Dn", "Ds", "Pn", "Ps", "NI", "alpha", "Fisher_p", "Fisher_q_BH"]
+        ["Gene", "Chrom", "Start", "End", "Strand", "Dn", "Ds", "Pn", "Ps", "NI", "alpha", "Fisher_p", "Fisher_q_BH", "MNV_Excluded"]
     );
     assert_eq!(rows.len() - 1, 12, "one MK row per gene");
 
@@ -721,6 +771,54 @@ fn vcf_examples_mk_table_with_invariant() {
     // SNP counts for the same gene (Pn+Dn == Nonsyn, Ps+Ds == Syn).
     assert_eq!(pn + dn, 10.0, "Pn+Dn must equal Nonsyn_SNPs (10)");
     assert_eq!(ps + ds, 15.0, "Ps+Ds must equal Syn_SNPs (15)");
+    // This VCF has no genotype columns, so no codon can be scored jointly and nothing is
+    // excluded: the invariant above holds exactly, which is what makes it checkable here.
+    assert!(rows[1..].iter().all(|r| r[13] == "0"), "an AF-only VCF excludes no allele");
+}
+
+#[test]
+fn vcf_examples_mk_excludes_multi_nucleotide_alleles_and_says_how_many() {
+    // With genotypes, an allele carried together with a neighbour in the same codon
+    // splits between the synonymous and nonsynonymous classes, which Fisher's exact
+    // cannot take. Those alleles leave the 2x2 and are counted in MNV_Excluded, so
+    // Pn+Dn+Ps+Ds no longer equals the gene's SNP count -- and the gap is stated.
+    let r = new_run();
+    run_ok(&[
+        "vcf", "--ref", REF, "--gff", GFF, "--vcf", VCF_MULTISAMPLE,
+        "--genetic-code", "11", "--workers", "1", "--mk",
+        "--variants", "--shared-codons", "-o", &r.prefix,
+    ]);
+    let rows = tsv(&format!("{}_mk.tsv", r.prefix));
+    let excluded: u32 = rows[1..].iter().map(|r| r[13].parse::<u32>().expect("integer")).sum();
+    assert!(excluded > 0, "the genotyped toy VCF does carry multi-nucleotide changes");
+
+    // Cross-table invariant: the alleles the 2x2 dropped are exactly the marked rows the
+    // pN/pS counts kept. A nonsense row is marked too, but it was never in either, so it
+    // is not part of this equality -- which is what makes the check bite rather than
+    // restate itself.
+    let vars = tsv(&format!("{}_variants.tsv", r.prefix));
+    let marked_and_counted = vars[1..]
+        .iter()
+        .filter(|v| v[12] == "true" && matches!(v[11].as_str(), "synonymous" | "missense"))
+        .count();
+    assert_eq!(
+        excluded as usize, marked_and_counted,
+        "every marked row that pN/pS counted must be the ones MK dropped"
+    );
+
+    // Every gene's 2x2 plus its exclusions must account for exactly the alleles the
+    // pN/pS table counted, or an allele has gone missing without being reported.
+    let pnps = tsv(&format!("{}_pnps.tsv", r.prefix));
+    for mk in &rows[1..] {
+        let g = row(&pnps, &mk[0]);
+        let cells: f64 = (5..9).map(|i| f(&mk[i])).sum();
+        assert_eq!(
+            cells + f(&mk[13]),
+            f(&g[9]),
+            "gene {}: MK cells {} + excluded {} must equal Total_SNPs {}",
+            mk[0], cells, mk[13], g[9]
+        );
+    }
 }
 
 #[test]

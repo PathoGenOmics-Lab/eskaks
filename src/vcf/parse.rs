@@ -2,6 +2,30 @@
 
 use super::*;
 
+/// The sample (genotype) column NAMES of a VCF: the fields after the fixed 9
+/// (CHROM..FORMAT) on the `#CHROM` header line, in column order, so index `i` is the
+/// sample index every carrier set uses. Empty for an AF-only VCF with no per-sample
+/// columns.
+///
+/// eskaks identifies samples by column position everywhere else; this is the one place
+/// the names are read, and it exists so a phylogeny's tips can be matched to the cohort
+/// (`--tree`). Reading them is deliberately separate from parsing the records: the
+/// join has to fail loudly before a genome's worth of work is done.
+pub fn sample_names(path: &Path) -> anyhow::Result<Vec<String>> {
+    let reader = crate::input::open_text(path, "VCF file")?;
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with("#CHROM") {
+            let fields: Vec<&str> = line.trim_end().split('\t').collect();
+            return Ok(fields.iter().skip(9).map(|s| s.to_string()).collect());
+        }
+        if !line.starts_with('#') {
+            break; // reached data with no #CHROM header
+        }
+    }
+    Ok(Vec::new())
+}
+
 /// Number of sample (genotype) columns in a VCF: the fields after the fixed
 /// 9 (CHROM..FORMAT) on the `#CHROM` header line. Returns 0 for an AF-only VCF
 /// with no per-sample columns (so a caller can tell "sample size unknown").
@@ -115,11 +139,12 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
         let depth = parse_info_field(info, "DP")
             .and_then(|v| v.parse::<u32>().ok());
 
-        // Exact GT-derived allele counts, computed whenever the record carries
-        // genotype columns, regardless of whether INFO/AF is also present. The
-        // diversity path prefers these over round(AF * n); the AF path below (used
-        // for pN/pS and --af-weighted) is deliberately left unchanged.
-        let gt_counts = if fields.len() > 9 {
+        // Exact GT-derived allele counts and per-ALT carrier sets, computed whenever the
+        // record carries genotype columns, regardless of whether INFO/AF is also present.
+        // The diversity path prefers the counts over round(AF * n) and the same-codon
+        // check uses the carriers; the AF path below (used for pN/pS and --af-weighted)
+        // is deliberately left unchanged.
+        let genotypes = if fields.len() > 9 {
             fields
                 .get(8)
                 .and_then(|f| f.split(':').position(|k| k == "GT"))
@@ -128,6 +153,10 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
                 })
         } else {
             None
+        };
+        let (gt_counts, carriers) = match genotypes {
+            Some((counts, carriers)) => (Some(counts), Some(carriers)),
+            None => (None, None),
         };
 
         // Parse allele frequencies
@@ -167,6 +196,7 @@ pub fn parse_vcf(path: &Path) -> anyhow::Result<Vec<VcfSnp>> {
             alt_alleles,
             alt_freqs,
             gt_counts,
+            carriers,
             filter,
             depth,
         });
@@ -221,18 +251,26 @@ fn parse_info_field<'a>(info: &'a str, key: &str) -> Option<&'a str> {
 }
 
 /// Exact derived-allele counts per valid ALT (plus the total called alleles) from the
-/// GT columns. `None` when no allele is called at the site. Kept separate from
-/// [`calculate_af_from_gt`] so the frequency path stays byte-identical while the
-/// diversity path can use true counts instead of round(AF * n).
+/// GT columns, and the set of samples carrying each of those ALTs. `None` when no
+/// allele is called at the site. Kept separate from [`calculate_af_from_gt`] so the
+/// frequency path stays byte-identical while the diversity path can use true counts
+/// instead of round(AF * n) and the same-codon check can intersect real samples.
+///
+/// The counts are computed exactly as before; the carrier sets are recorded from the
+/// same pass, so `carriers[i].len()` and `alt[i]` can disagree only when one sample
+/// lists the same ALT twice (a diploid-style `1/1` call in a file eskaks reads as
+/// haploid), which is the one case where a *count* of alleles and a *set* of carriers
+/// legitimately differ.
 fn gt_allele_counts(
     samples: &[&str],
     gt_idx: usize,
     total_alt_count: usize,
     valid_indices: &[usize],
-) -> Option<GtCounts> {
+) -> Option<(GtCounts, Vec<CarrierSet>)> {
     let mut allele_counts = vec![0usize; total_alt_count + 1]; // index 0 = REF
+    let mut allele_carriers = vec![CarrierSet::new(samples.len()); total_alt_count + 1];
     let mut total = 0usize;
-    for sample in samples {
+    for (sample_idx, sample) in samples.iter().enumerate() {
         let fields: Vec<&str> = sample.split(':').collect();
         if let Some(gt) = fields.get(gt_idx) {
             for allele_str in gt.split(['/', '|']) {
@@ -242,6 +280,7 @@ fn gt_allele_counts(
                 if let Ok(idx) = allele_str.parse::<usize>() {
                     if idx < allele_counts.len() {
                         allele_counts[idx] += 1;
+                        allele_carriers[idx].insert(sample_idx);
                         total += 1;
                     }
                 }
@@ -255,7 +294,16 @@ fn gt_allele_counts(
         .iter()
         .map(|&i| allele_counts.get(i + 1).copied().unwrap_or(0))
         .collect();
-    Some(GtCounts { alt, called: total })
+    let carriers = valid_indices
+        .iter()
+        .map(|&i| {
+            allele_carriers
+                .get(i + 1)
+                .cloned()
+                .unwrap_or_else(|| CarrierSet::new(samples.len()))
+        })
+        .collect();
+    Some((GtCounts { alt, called: total }, carriers))
 }
 
 /// Calculate allele frequencies from GT (genotype) fields.

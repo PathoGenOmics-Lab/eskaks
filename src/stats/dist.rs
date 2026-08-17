@@ -165,6 +165,57 @@ pub fn binomial_upper_tail_p(x: u64, n: u64, p0: f64) -> f64 {
     acc.clamp(0.0, 1.0)
 }
 
+/// One-sided **upper-tail** Poisson p-value: `P(X >= x)` for `X ~ Poisson(lambda)`.
+///
+/// The sibling of [`binomial_upper_tail_p`], for the per-codon **origin** test. There
+/// the statistic is a sum of per-allele origin counts, `E_c = Σ_a h_a`, which has no
+/// upper bound of 9 the way a codon's allele count does: one allele can arise fifty
+/// times. Binomial(`A_c`, θ) cannot represent that, and Poisson(`A_c`·λ) is its natural
+/// limit: the same null one step up, and it reduces to it when every allele arose once.
+///
+/// Like the binomial tail (and unlike the two-sided mid-p test) this counts the point
+/// mass at the observed `x` **in full**, which keeps it conservative. Please keep the
+/// two one-sided tails consistent with each other.
+///
+/// Summed from `x` upward rather than as `1 - CDF`, so a tail far below the f64 rounding
+/// floor of the lower sum keeps its value: at λ = 0.03 and x = 20 the answer is about
+/// 1e-49, which `1 - CDF` would return as exactly 0. Terms are accumulated until the
+/// remainder is negligible, which is guaranteed to happen because each term is the last
+/// one times `lambda / i`.
+///
+/// Returns NaN when undefined (`lambda` negative or non-finite). `P(X >= 0)` is 1 for
+/// every λ, and a λ of exactly 0 makes any `x >= 1` impossible.
+pub fn poisson_upper_tail_p(x: u64, lambda: f64) -> f64 {
+    if !lambda.is_finite() || lambda < 0.0 {
+        return f64::NAN;
+    }
+    if x == 0 {
+        return 1.0;
+    }
+    if lambda == 0.0 {
+        return 0.0;
+    }
+    let ln_l = lambda.ln();
+    let mut acc = 0.0f64;
+    let mut i = x;
+    loop {
+        let term = (-lambda + i as f64 * ln_l - ln_gamma(i as f64 + 1.0)).exp();
+        acc += term;
+        // Past the mode the terms shrink geometrically, so the remaining tail is
+        // bounded by term/(1 - lambda/(i+1)) and stopping here is safe.
+        if i as f64 > lambda && (term == 0.0 || term <= acc * 1e-17) {
+            break;
+        }
+        // A pathological lambda (one far larger than any count could be) must not spin
+        // forever; the tail is 1.0 to every representable digit long before here.
+        if i - x > 10_000_000 {
+            return 1.0;
+        }
+        i += 1;
+    }
+    acc.clamp(0.0, 1.0)
+}
+
 /// Two-sided binomial −log10(p), computed in log space (log-sum-exp per tail) so it
 /// stays finite even when the p-value is far below the ~1e-300 underflow floor of
 /// [`binomial_two_sided_p`]. Same **mid-p** convention as that function, and it must

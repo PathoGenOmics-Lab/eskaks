@@ -82,6 +82,64 @@ fn every_codon_scan_column_is_documented() {
     );
 }
 
+/// The same contract for the per-variant table. The golden read here is the one written
+/// with `--shared-codons`, so its header is a superset of the default table's: both the
+/// always-present columns and the opt-in `Codon_Shared` have to be documented.
+#[test]
+fn every_variants_column_is_documented() {
+    let header: Vec<String> = read("tests/golden/toy_variants_shared.tsv")
+        .lines()
+        .next()
+        .expect("golden variants has a header")
+        .split('\t')
+        .map(str::to_string)
+        .collect();
+    assert!(
+        header.contains(&"Codon_Shared".to_string()),
+        "the shared-codon golden must carry the opt-in column, or this test proves nothing"
+    );
+
+    let section = section_of(&read("docs/vcf-analysis.md"), "## Per-variant table");
+    let missing: Vec<&String> = header.iter().filter(|c| !section.contains(c.as_str())).collect();
+    assert!(
+        missing.is_empty(),
+        "these variant columns are written but not documented in vcf-analysis.md \
+         '## Per-variant table': {missing:?}"
+    );
+}
+
+/// The columns that exist only under `--tree`. Neither test above can see them: they
+/// read the goldens written without a tree, so an origin column could otherwise ship
+/// undocumented in exactly the way this contract exists to prevent.
+#[test]
+fn every_tree_origin_column_is_documented() {
+    let doc = read("docs/vcf-analysis.md");
+    for (golden, heading, marker) in [
+        ("tests/golden/toy_codons_tree.tsv", "## Per-codon recurrence scan", "Nonsyn_Origins"),
+        ("tests/golden/toy_variants_tree.tsv", "## Per-variant table", "Origins"),
+    ] {
+        let header: Vec<String> = read(golden)
+            .lines()
+            .next()
+            .unwrap_or_else(|| panic!("golden {golden} has a header"))
+            .split('\t')
+            .map(str::to_string)
+            .collect();
+        assert!(
+            header.contains(&marker.to_string()),
+            "{golden} must carry the opt-in column {marker}, or this test proves nothing"
+        );
+        let section = section_of(&doc, heading);
+        let missing: Vec<&String> =
+            header.iter().filter(|c| !section.contains(c.as_str())).collect();
+        assert!(
+            missing.is_empty(),
+            "these --tree columns are written but not documented in vcf-analysis.md \
+             '{heading}': {missing:?}"
+        );
+    }
+}
+
 #[test]
 fn every_vcf_help_flag_is_documented() {
     check_flags_documented("vcf", "docs/cli-reference.md");

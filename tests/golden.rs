@@ -88,6 +88,71 @@ fn run_codon_scan(prefix: &str, format: &str) {
     assert!(status.success(), "eskaks vcf --codon-scan ({format}) exited non-zero");
 }
 
+/// `--shared-codons` adds a column to the variants table, which would rewrite
+/// `toy_variants.{tsv,json}` for every reader of the default output. It is therefore
+/// opt-in, exactly like `--codon-scan`, and gets its own invocation and its own golden
+/// pair so the new column is frozen without the existing table moving.
+fn run_shared_codons(prefix: &str, format: &str) {
+    let status = Command::new(bin())
+        .current_dir(manifest())
+        .args([
+            "vcf",
+            "--ref",
+            "examples/toy_genome/reference.fasta",
+            "--gff",
+            "examples/toy_genome/genes.gff3",
+            "--vcf",
+            "examples/toy_genome/variants_multisample.vcf",
+            "--genetic-code",
+            "11",
+            "--workers",
+            "1",
+            "--variants",
+            "--shared-codons",
+            "--format",
+            format,
+            "-o",
+            prefix,
+            "--quiet",
+        ])
+        .status()
+        .expect("failed to spawn eskaks");
+    assert!(status.success(), "eskaks vcf --shared-codons ({format}) exited non-zero");
+}
+
+/// `--tree` appends the independent-origin columns to BOTH the per-codon scan and the
+/// per-variant table, so it gets its own invocation and its own golden pair for the same
+/// reason `--shared-codons` does: the tables written without it must not move.
+fn run_tree(prefix: &str, format: &str) {
+    let status = Command::new(bin())
+        .current_dir(manifest())
+        .args([
+            "vcf",
+            "--ref",
+            "examples/toy_genome/reference.fasta",
+            "--gff",
+            "examples/toy_genome/genes.gff3",
+            "--vcf",
+            "examples/toy_genome/variants_multisample.vcf",
+            "--genetic-code",
+            "11",
+            "--workers",
+            "1",
+            "--codon-scan",
+            "--variants",
+            "--tree",
+            "examples/toy_genome/samples.nwk",
+            "--format",
+            format,
+            "-o",
+            prefix,
+            "--quiet",
+        ])
+        .status()
+        .expect("failed to spawn eskaks");
+    assert!(status.success(), "eskaks vcf --tree ({format}) exited non-zero");
+}
+
 /// Two numbers are "equal" within cross-platform libm noise. Real value changes are
 /// orders of magnitude larger than this; last-bit differences from `exp`/`ln` are orders
 /// of magnitude smaller.
@@ -267,6 +332,150 @@ fn golden_codon_scan_matches() {
          If the change is intended, regenerate with `BLESS=1 cargo test --test golden` \
          and review the diff before committing.",
         mismatches.join("\n")
+    );
+}
+
+#[test]
+fn golden_shared_codons_matches() {
+    let bless = std::env::var_os("BLESS").is_some();
+    let prefix = std::env::temp_dir().join("eskaks_golden_shared");
+    let prefix = prefix.to_str().expect("temp path is valid UTF-8");
+    let golden_dir = PathBuf::from(manifest()).join("tests/golden");
+
+    let mut mismatches = Vec::new();
+    for (format, ext) in [("tsv", "tsv"), ("json", "json")] {
+        run_shared_codons(prefix, format);
+        let produced = std::fs::read_to_string(format!("{prefix}_variants.{ext}"))
+            .unwrap_or_else(|e| panic!("cannot read produced variants.{ext}: {e}"));
+        let golden_path = golden_dir.join(format!("toy_variants_shared.{ext}"));
+        if bless {
+            std::fs::write(&golden_path, &produced).expect("write golden");
+            continue;
+        }
+        let golden = std::fs::read_to_string(&golden_path).unwrap_or_else(|_| {
+            panic!(
+                "missing golden {}; run `BLESS=1 cargo test --test golden` to create it",
+                golden_path.display()
+            )
+        });
+        if let Err(reason) = compare_tolerant(&produced, &golden) {
+            mismatches.push(format!("toy_variants_shared.{ext}: {reason}"));
+        }
+    }
+
+    assert!(
+        mismatches.is_empty(),
+        "the shared-codon marks drifted from the golden snapshot:\n{}\n\
+         If the change is intended, regenerate with `BLESS=1 cargo test --test golden` \
+         and review the diff before committing.",
+        mismatches.join("\n")
+    );
+}
+
+#[test]
+fn golden_tree_origins_match() {
+    let bless = std::env::var_os("BLESS").is_some();
+    let prefix = std::env::temp_dir().join("eskaks_golden_tree");
+    let prefix = prefix.to_str().expect("temp path is valid UTF-8");
+    let golden_dir = PathBuf::from(manifest()).join("tests/golden");
+
+    let mut mismatches = Vec::new();
+    for (format, ext) in [("tsv", "tsv"), ("json", "json")] {
+        run_tree(prefix, format);
+        for (table, golden_name) in
+            [("codons", "toy_codons_tree"), ("variants", "toy_variants_tree")]
+        {
+            let produced = std::fs::read_to_string(format!("{prefix}_{table}.{ext}"))
+                .unwrap_or_else(|e| panic!("cannot read produced {table}.{ext}: {e}"));
+            let golden_path = golden_dir.join(format!("{golden_name}.{ext}"));
+            if bless {
+                std::fs::write(&golden_path, &produced).expect("write golden");
+                continue;
+            }
+            let golden = std::fs::read_to_string(&golden_path).unwrap_or_else(|_| {
+                panic!(
+                    "missing golden {}; run `BLESS=1 cargo test --test golden` to create it",
+                    golden_path.display()
+                )
+            });
+            if let Err(reason) = compare_tolerant(&produced, &golden) {
+                mismatches.push(format!("{golden_name}.{ext}: {reason}"));
+            }
+        }
+    }
+
+    assert!(
+        mismatches.is_empty(),
+        "the independent-origin columns drifted from the golden snapshot:\n{}\n\
+         If the change is intended, regenerate with `BLESS=1 cargo test --test golden` \
+         and review the diff before committing.",
+        mismatches.join("\n")
+    );
+}
+
+/// The two appended columns must be the ONLY difference the flag makes: same rows, same
+/// order, same values everywhere else. Without this, the opt-in promise is untested.
+#[test]
+fn shared_codons_only_appends_columns() {
+    let plain_prefix = std::env::temp_dir().join("eskaks_golden_shared_plain");
+    let plain_prefix = plain_prefix.to_str().expect("temp path is valid UTF-8");
+    let flagged_prefix = std::env::temp_dir().join("eskaks_golden_shared_flagged");
+    let flagged_prefix = flagged_prefix.to_str().expect("temp path is valid UTF-8");
+
+    run(plain_prefix, "tsv");
+    run_shared_codons(flagged_prefix, "tsv");
+    let plain = std::fs::read_to_string(format!("{plain_prefix}_variants.tsv")).expect("plain");
+    let flagged =
+        std::fs::read_to_string(format!("{flagged_prefix}_variants.tsv")).expect("flagged");
+
+    let plain_lines: Vec<&str> = plain.lines().collect();
+    let flagged_lines: Vec<&str> = flagged.lines().collect();
+    assert_eq!(plain_lines.len(), flagged_lines.len(), "same number of rows");
+    let mut marked = 0usize;
+    for (i, (p, f)) in plain_lines.iter().zip(&flagged_lines).enumerate() {
+        let (rest, codon_change) = f.rsplit_once('\t').unwrap_or_else(|| panic!("row {i}: {f}"));
+        let (prefix, mark) = rest.rsplit_once('\t').unwrap_or_else(|| panic!("row {i}: {f}"));
+        assert_eq!(prefix, *p, "row {i} changed outside the two new columns");
+        if i == 0 {
+            assert_eq!((mark, codon_change), ("Codon_Shared", "Codon_Change"));
+            continue;
+        }
+        assert!(
+            matches!(mark, "true" | "false" | "NA"),
+            "row {i} has an unexpected Codon_Shared value {mark:?}"
+        );
+        marked += usize::from(mark == "true");
+        // `CTT>TTA`: two 3-base codons on the coding strand, and the change is real.
+        let (from, to) = codon_change.split_once('>').expect("codon change is FROM>TO");
+        assert!(
+            from.len() == 3 && to.len() == 3 && from != to,
+            "row {i} has a malformed Codon_Change {codon_change:?}"
+        );
+        // A codon change spanning more than one base can only come from a shared codon,
+        // so the two columns cannot contradict each other. (The converse does not hold: an
+        // allele most of whose carriers hold it ALONE is still marked, and still reports
+        // its own single-base codon change.)
+        let diffs = from.bytes().zip(to.bytes()).filter(|(a, b)| a != b).count();
+        assert!(
+            diffs == 1 || mark == "true",
+            "row {i}: {codon_change} changes {diffs} bases but Codon_Shared={mark}"
+        );
+    }
+    // The bundled toy VCF is genotyped, so nothing is unknowable and 13 codons are shared.
+    assert!(
+        !flagged_lines.iter().skip(1).any(|l| l.split('\t').nth(12) == Some("NA")),
+        "a genotyped VCF must leave no row unknowable"
+    );
+    assert_eq!(marked, 27, "27 of the 264 rows sit on the 13 shared codons");
+    // ...and at least one of them really is a multi-nucleotide codon change, or the joint
+    // scoring never engaged and the assertions above are vacuous.
+    assert!(
+        flagged_lines.iter().skip(1).any(|l| {
+            let cc = l.rsplit('\t').next().expect("last column");
+            let (from, to) = cc.split_once('>').expect("codon change");
+            from.bytes().zip(to.bytes()).filter(|(a, b)| a != b).count() > 1
+        }),
+        "no row reports a multi-nucleotide codon change"
     );
 }
 

@@ -8,6 +8,34 @@ fn write_temp_vcf(content: &str) -> tempfile::NamedTempFile {
 }
 
 #[test]
+fn sample_names_are_the_header_columns_in_column_order() {
+    // The one place eskaks reads sample NAMES rather than column positions, so a tree's
+    // tips can be matched to the cohort. Order matters absolutely: position i in this
+    // list is the sample index every carrier set was built with.
+    let vcf = "\
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tERR_9\tERR_1\tERR_5
+chr1\t100\t.\tA\tG\t30\tPASS\tDP=50\tGT\t1\t0\t1\n";
+    let f = write_temp_vcf(vcf);
+    assert_eq!(sample_names(f.path()).unwrap(), vec!["ERR_9", "ERR_1", "ERR_5"]);
+    assert_eq!(sample_count(f.path()).unwrap(), 3, "count and names must agree");
+    // And the carrier set is indexed by that same order: ERR_9 and ERR_5 carry the ALT.
+    let snps = parse_vcf(f.path()).unwrap();
+    let carriers = &snps[0].carriers.as_ref().expect("genotyped")[0];
+    assert_eq!(carriers.samples().collect::<Vec<_>>(), vec![0, 2]);
+
+    // An AF-only VCF has no sample columns, so there are no names to match at all.
+    let af_only = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chr1\t100\t.\tA\tG\t30\tPASS\tDP=50;AF=0.5\n";
+    let g = write_temp_vcf(af_only);
+    assert!(sample_names(g.path()).unwrap().is_empty());
+    assert_eq!(sample_count(g.path()).unwrap(), 0);
+}
+
+#[test]
 fn parse_simple_snps() {
     let vcf = "\
 ##fileformat=VCFv4.2
@@ -45,6 +73,51 @@ chr1\t100\t.\tA\tG\t30\tPASS\tAF=0.50\tGT\t1\t0\t0\t0\n";
     let gc = snps[0].gt_counts.as_ref().expect("gt_counts present when GT columns exist");
     assert_eq!(gc.alt, vec![1], "GT-derived count must be 1, not the AF-implied 2");
     assert_eq!(gc.called, 4, "all four haploid samples were called");
+    // And WHICH sample: the same-codon check intersects these sets, so a carrier credited
+    // to the wrong column would pair this allele with the wrong neighbours.
+    let carriers = snps[0].carriers.as_ref().expect("carriers present when GT columns exist");
+    assert_eq!(carriers.len(), 1, "one carrier set per valid ALT");
+    assert_eq!(carriers[0].len(), 1);
+    assert!(carriers[0].contains(0), "S1 is the only carrier");
+    assert!((1..4).all(|i| !carriers[0].contains(i)), "S2..S4 carry the reference");
+}
+
+#[test]
+fn carriers_map_each_alt_to_the_samples_that_actually_carry_it() {
+    // Two things a same-codon intersection depends on, and both are index arithmetic that
+    // a plausible off-by-one would silently get wrong: the ALT index (`carriers[i]` must
+    // be the samples carrying `alt_alleles[i]`, with REF at index 0 skipped) and the
+    // sample index (bit `j` must be column `j`). A multiallelic record with a no-call and
+    // a declared-but-invalid ALT pins both, since the invalid ALT shifts the ALT indices
+    // apart from the GT allele numbers.
+    //
+    //   ALT list:  1 = G (valid), 2 = GG (not a SNP, dropped), 3 = C (valid)
+    //   S1 = 3 (C), S2 = 0 (REF), S3 = 1 (G), S4 = . (no call), S5 = 3 (C)
+    let vcf = "\
+##fileformat=VCFv4.2
+##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\tS4\tS5
+chr1\t100\t.\tA\tG,GG,C\t30\tPASS\tAF=0.2,0.1,0.4\tGT\t3\t0\t1\t.\t3\n";
+    let f = write_temp_vcf(vcf);
+    let snps = parse_vcf(f.path()).unwrap();
+    assert_eq!(snps[0].alt_alleles, vec![b'G', b'C'], "the multi-base ALT is not a SNP");
+
+    let carriers = snps[0].carriers.as_ref().expect("carriers");
+    assert_eq!(carriers.len(), 2, "one set per VALID ALT, aligned with alt_alleles");
+    // G is GT allele 1, carried by S3 alone.
+    assert_eq!(carriers[0].len(), 1);
+    assert!(carriers[0].contains(2), "G's carrier is column 2 (S3)");
+    // C is GT allele 3, carried by S1 and S5. Its set must NOT have slid to allele 2's.
+    assert_eq!(carriers[1].len(), 2);
+    assert!(carriers[1].contains(0) && carriers[1].contains(4), "C's carriers are S1 and S5");
+    assert!(!carriers[1].contains(1), "S2 carries the reference");
+    assert!(!carriers[1].contains(3), "a no-call carries nothing");
+    // The two ALTs exclude one another at one position, as haploid genotypes must.
+    assert!(!carriers[0].intersects(&carriers[1]));
+    // The counts they sit beside are unchanged and stay aligned with them.
+    let gc = snps[0].gt_counts.as_ref().expect("gt_counts");
+    assert_eq!(gc.alt, vec![1, 2]);
+    assert_eq!(gc.called, 4, "the no-call is not a called allele");
 }
 
 #[test]
@@ -410,6 +483,7 @@ fn af_filter_is_per_allele_at_multiallelic_sites() {
         alt_alleles: vec![b'G', b'C', b'T'],
         alt_freqs: vec![0.05, 0.5, 0.995],
         gt_counts: None,
+        carriers: None,
         filter: "PASS".into(), depth: None,
     };
     let out = filter_snps(vec![snp], false, Some(0.1), Some(0.99), None);
@@ -421,15 +495,28 @@ fn af_filter_is_per_allele_at_multiallelic_sites() {
 
 #[test]
 fn af_filter_keeps_gt_counts_aligned_at_multiallelic_sites() {
-    // gt_counts.alt is parallel to alt_alleles. Pruning a NON-last ALT by frequency must
-    // prune gt_counts.alt in lockstep; otherwise the diversity path (which reads
+    // gt_counts.alt and carriers are both parallel to alt_alleles. Pruning a NON-last ALT
+    // by frequency must prune them in lockstep; otherwise the diversity path (which reads
     // gt_counts by ALT index) reads the wrong survivor's derived-allele count and
-    // silently corrupts piN/piS/theta_W/Tajima's D at multi-allelic sites.
+    // silently corrupts piN/piS/theta_W/Tajima's D at multi-allelic sites, and the
+    // same-codon check intersects the wrong allele's samples.
+    let carriers = |samples: &[usize]| {
+        let mut s = CarrierSet::new(9);
+        for &i in samples {
+            s.insert(i);
+        }
+        s
+    };
     let snp = VcfSnp {
         chrom: "chr1".into(), pos: 100, ref_allele: b'A',
         alt_alleles: vec![b'G', b'C', b'T'],
         alt_freqs: vec![0.0, 0.5, 0.995], // G phantom (0.0), C kept (0.5), T fixed (0.995)
         gt_counts: Some(GtCounts { alt: vec![0, 2, 7], called: 9 }),
+        carriers: Some(vec![
+            carriers(&[]),
+            carriers(&[3, 4]),
+            carriers(&[0, 1, 2, 5, 6, 7, 8]),
+        ]),
         filter: "PASS".into(), depth: None,
     };
     let out = filter_snps(vec![snp], false, Some(0.1), Some(0.99), None);
@@ -437,6 +524,10 @@ fn af_filter_keeps_gt_counts_aligned_at_multiallelic_sites() {
     assert_eq!(out[0].alt_alleles, vec![b'C']);
     // The survivor C must carry ITS genotype count (2), not G's (0) or T's (7).
     assert_eq!(out[0].gt_counts.as_ref().unwrap().alt, vec![2]);
+    // ...and ITS carriers (samples 3 and 4), not T's seven.
+    let kept = out[0].carriers.as_ref().expect("carriers survive filtering");
+    assert_eq!(kept.len(), 1, "one surviving ALT, one carrier set");
+    assert_eq!(kept[0], carriers(&[3, 4]));
 }
 
 

@@ -106,11 +106,21 @@ concept in the report or docs is unfamiliar, look here first.
 - **PE/PPE, PGRS, IS elements**: repetitive, hard-to-map gene families (especially in
   *M. tuberculosis*) whose SNP calls are often artefacts. `--exclude-repetitive`
   drops them from the pooled estimate and the test.
-- **Same-codon SNPs (MNV)**: two or more SNPs inside one codon. eskaks classifies each
-  one against the *reference* codon, never against its neighbour, so the joint
-  amino-acid change a genome actually carries is not the one reported. Such codons are
-  counted in every run, and warned about when the allele frequencies put their SNPs on
-  one haplotype. See [Same-codon SNPs](vcf-analysis.md#same-codon-snps).
+- **Same-codon SNPs (MNV)**: two or more SNPs inside one codon, carried by the same
+  genome: one multi-nucleotide change, not two independent substitutions. With
+  **per-sample genotypes** eskaks enumerates the codons the cohort actually holds
+  (haploid, so two alleles in one sample are one molecule) and scores each against the
+  reference by Nei-Gojobori pathway averaging, so the reported amino-acid change is the
+  one that genome encodes and `Nd + Sd` still equals the number of nucleotide differences.
+  Without genotypes there is nothing to intersect, so each SNP is classified against the
+  *reference* codon and the affected codons are only flagged, through the
+  allele-frequency bound. See [Same-codon SNPs](vcf-analysis.md#same-codon-snps), and
+  [`--shared-codons`](vcf-analysis.md#shared-codons) to mark the affected variant rows.
+- **Nei-Gojobori pathway averaging**: how a codon pair differing at more than one base is
+  split into synonymous and nonsynonymous differences: average over the orders in which
+  the changes could have happened, excluding any order that passes through a **stop**
+  codon. Used by both eskaks paths, the FASTA dN/dS and the VCF multi-nucleotide changes,
+  so the two cannot disagree.
 
 ## Special output values
 

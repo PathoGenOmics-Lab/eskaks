@@ -13,7 +13,8 @@ pub use diversity::{tajimas_d, theta_pi_varn, theta_watterson};
 pub use dist::{
     benjamini_hochberg, benjamini_hochberg_with_m, binomial_two_sided_neglog10p,
     binomial_two_sided_p, binomial_upper_tail_p, bonferroni, chi2_from_two_sided_neglog10p,
-    fisher_exact_two_sided, normal_two_sided_p, percentile_sorted, wilson_interval,
+    fisher_exact_two_sided, normal_two_sided_p, percentile_sorted, poisson_upper_tail_p,
+    wilson_interval,
 };
 pub use rng::SplitMix64;
 // Used only by the test suite.
