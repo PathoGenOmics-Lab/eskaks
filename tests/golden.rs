@@ -58,6 +58,36 @@ fn run(prefix: &str, format: &str) {
     assert!(status.success(), "eskaks vcf ({format}) exited non-zero");
 }
 
+/// The per-codon recurrence scan is opt-in, so it gets its own invocation rather than a
+/// new flag on `run` above: adding `--codon-scan` there would rewrite every existing
+/// golden table and destroy the guarantee that a run without the flag is unchanged.
+fn run_codon_scan(prefix: &str, format: &str) {
+    let status = Command::new(bin())
+        .current_dir(manifest())
+        .args([
+            "vcf",
+            "--ref",
+            "examples/toy_genome/reference.fasta",
+            "--gff",
+            "examples/toy_genome/genes.gff3",
+            "--vcf",
+            "examples/toy_genome/variants_multisample.vcf",
+            "--genetic-code",
+            "11",
+            "--workers",
+            "1",
+            "--codon-scan",
+            "--format",
+            format,
+            "-o",
+            prefix,
+            "--quiet",
+        ])
+        .status()
+        .expect("failed to spawn eskaks");
+    assert!(status.success(), "eskaks vcf --codon-scan ({format}) exited non-zero");
+}
+
 /// Two numbers are "equal" within cross-platform libm noise. Real value changes are
 /// orders of magnitude larger than this; last-bit differences from `exp`/`ln` are orders
 /// of magnitude smaller.
@@ -201,6 +231,62 @@ fn golden_vcf_outputs_match() {
          and review the diff before committing.",
         mismatches.join("\n")
     );
+}
+
+#[test]
+fn golden_codon_scan_matches() {
+    let bless = std::env::var_os("BLESS").is_some();
+    let prefix = std::env::temp_dir().join("eskaks_golden_codons");
+    let prefix = prefix.to_str().expect("temp path is valid UTF-8");
+    let golden_dir = PathBuf::from(manifest()).join("tests/golden");
+
+    let mut mismatches = Vec::new();
+    for (format, ext) in [("tsv", "tsv"), ("json", "json")] {
+        run_codon_scan(prefix, format);
+        let produced = std::fs::read_to_string(format!("{prefix}_codons.{ext}"))
+            .unwrap_or_else(|e| panic!("cannot read produced codons.{ext}: {e}"));
+        let golden_path = golden_dir.join(format!("toy_codons.{ext}"));
+        if bless {
+            std::fs::write(&golden_path, &produced).expect("write golden");
+            continue;
+        }
+        let golden = std::fs::read_to_string(&golden_path).unwrap_or_else(|_| {
+            panic!(
+                "missing golden {}; run `BLESS=1 cargo test --test golden` to create it",
+                golden_path.display()
+            )
+        });
+        if let Err(reason) = compare_tolerant(&produced, &golden) {
+            mismatches.push(format!("toy_codons.{ext}: {reason}"));
+        }
+    }
+
+    assert!(
+        mismatches.is_empty(),
+        "the per-codon scan drifted from the golden snapshot:\n{}\n\
+         If the change is intended, regenerate with `BLESS=1 cargo test --test golden` \
+         and review the diff before committing.",
+        mismatches.join("\n")
+    );
+}
+
+/// The opt-in scan must leave the default output byte-for-byte alone. `golden_vcf_outputs_match`
+/// covers the tables it writes; this covers the one file that exists only under the flag.
+#[test]
+fn codon_scan_is_the_only_new_file() {
+    let prefix = std::env::temp_dir().join("eskaks_golden_codons_optin");
+    let prefix = prefix.to_str().expect("temp path is valid UTF-8");
+    let codons = format!("{prefix}_codons.tsv");
+    let _ = std::fs::remove_file(&codons);
+
+    run(prefix, "tsv");
+    assert!(
+        !PathBuf::from(&codons).exists(),
+        "a run WITHOUT --codon-scan must not write {codons}"
+    );
+
+    run_codon_scan(prefix, "tsv");
+    assert!(PathBuf::from(&codons).exists(), "--codon-scan must write {codons}");
 }
 
 #[cfg(test)]

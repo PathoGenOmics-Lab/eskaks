@@ -12,6 +12,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+mod codons;
 mod neutrality;
 mod output;
 mod plots;
@@ -21,22 +22,25 @@ mod sites;
 mod tests;
 
 // Public API (re-exported so callers keep using `vcf_analysis::…`).
+pub use codons::{compute_codon_scan, CodonRow, CodonScan};
 pub use neutrality::{apply_genomic_control, apply_multiple_testing, genomic_inflation_lambda};
 pub use output::{
-    genome_wide_diversity, write_diversity, write_mk_results, write_results, write_variants,
-    GenomeDiversity,
+    genome_wide_diversity, write_codon_scan, write_diversity, write_mk_results, write_results,
+    write_variants, GenomeDiversity,
 };
 pub use plots::{write_pnps_plot, write_pvalue_manhattan};
 pub use pnps::{
     bootstrap_genome_wide_ci, compute_pn_ps, genome_wide_core_repetitive, genome_wide_pn_ps,
     ComputeDiagnostics,
 };
+// The per-codon scan reuses the phase test rather than re-deriving the bound.
+pub(crate) use pnps::forced_cooccurrence;
 pub use sites::parse_reference_fasta;
 
 // Internal helpers shared across submodules.
 pub(crate) use sites::{
-    codon_to_aa, complement, count_sites, count_sites_weighted, extract_cds_sequence,
-    genomic_to_cds_offset,
+    codon_change_split, codon_space, codon_to_aa, complement, count_sites, count_sites_weighted,
+    extract_cds_sequence, genomic_to_cds_offset,
 };
 // Helpers exercised only by the test suite.
 #[cfg(test)]
@@ -116,6 +120,13 @@ pub struct GenePnPs {
     /// to `<output>_variants.tsv` under `--variants`. Includes nonsense/stop-loss
     /// changes (excluded from the pN/pS counts but important for resistance triage).
     pub variants: Vec<Variant>,
+    /// Codons of this gene's reference CDS with at least one possible nonsynonymous
+    /// single-nucleotide change (`A_c > 0`), and the sum of `A_c` over them. These are
+    /// the gene's contribution to the per-codon recurrence scan's multiple-testing
+    /// family and to the denominator of its plug-in rate; see `sites::codon_space`.
+    /// Both are independent of `--kappa` and of how many SNPs landed in the gene.
+    pub scan_codons: usize,
+    pub scan_poss_nonsyn: u64,
 }
 
 /// The coding effect of a single ALT allele on its codon.
@@ -153,6 +164,12 @@ pub struct Variant {
     pub alt_allele: u8,
     /// 1-based residue (codon) number within the protein.
     pub aa_pos: usize,
+    /// The reference codon this ALT sits in, on the CODING strand (so it reads in the
+    /// same orientation as `ref_aa`, not as the VCF's `ref_allele`). Carried here
+    /// because the per-codon scan needs the codon's own mutational opportunity, which
+    /// is a property of these three bases; recomputing it would mean reconstructing
+    /// the CDS a second time.
+    pub ref_codon: [u8; 3],
     /// Reference and alternate amino acid (one-letter; `*` = stop).
     pub ref_aa: u8,
     pub alt_aa: u8,

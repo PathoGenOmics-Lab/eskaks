@@ -134,6 +134,7 @@ eskaks vcf --ref <FASTA> --gff <GFF3> --vcf <VCF> [OPTIONS]
 | `--seed <N>` | Seed for reproducible bootstrap resampling | `42` |
 | `--genomic-control` | Divide each χ² by the inflation factor λ and re-test | off |
 | `--exclude-repetitive` | Drop PE/PPE/PGRS/IS genes from the pooled estimate and test | off |
+| `--codon-scan` | Rank codons by their count of *distinct* nonsynonymous alleles (`<prefix>_codons.<ext>`). Tests allelic multiplicity, not carrier counts and not a per-codon pN/pS | off |
 
 **Output & reporting**
 

@@ -76,6 +76,18 @@ routinely produce false hits. Read a per-gene pN/pS through these three filters
    per-gene test's independence assumption and inflates significance (watch the
    **λ** card). See the clonality note under [Limitations](#limitations).
 
+!!! tip "Is the gene even the right unit?"
+    Drug resistance is usually a **single residue**, not a whole protein: *katG* 315,
+    *rpoB* 450, *gyrA* 94. A gene-level pN/pS averages over hundreds of codons, so one
+    strongly selected residue is diluted to nothing, and a gene can be flatly
+    non-significant while one of its codons is the most-mutated site in the dataset.
+    [`--codon-scan`](vcf-analysis.md#codon-scan) is that residue-level view: it ranks
+    codons by how many **distinct** nonsynonymous alleles they carry, a phylogeny-free
+    lower bound on the number of independent mutational events. Read it alongside the
+    gene columns it carries (`Gene_pN_pS`, `Gene_Q_BH`), and note that it tests allelic
+    multiplicity and never carrier counts: one old mutation carried by half the cohort
+    is a single origin, not recurrence, and the scan will not flag it.
+
 !!! warning "pN/pS is not dN/dS"
     pN/pS measures *raw polymorphism proportions* with **no** multiple-hit
     correction (no Jukes-Cantor/Kimura), so it is not on the same scale as a

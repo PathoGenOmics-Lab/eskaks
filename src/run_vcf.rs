@@ -289,6 +289,27 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         None
     };
 
+    // Per-codon recurrence scan (optional). Like the pooled estimates above, its
+    // multiple-testing family is the whole coding genome, so it is built here from the
+    // UNFILTERED results: --min-snps decides which genes are tabulated, not how many
+    // codons a genome has. The parent-gene q-values are joined in after the gene-level
+    // correction runs below.
+    let mut codon_scan = if args.codon_scan {
+        if n_effective > 0 && n_effective < 10 {
+            warn!(
+                "--codon-scan with only {} sample(s): recurrence is barely observable at this \
+                 cohort size, since a residue has to collect several INDEPENDENT alleles before \
+                 it can stand out. Expect an empty result rather than a negative one.",
+                n_effective
+            );
+        }
+        Some(vcf_analysis::compute_codon_scan(
+            &results, gc, n_effective, args.exclude_repetitive,
+        ))
+    } else {
+        None
+    };
+
     // --min-snps drops unreliable low-count genes from the per-gene table,
     // plot, and neutrality test (but not from the pooled estimate above).
     let mut dropped = 0usize;
@@ -309,6 +330,12 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
     // Per-gene neutrality test correction (BH-FDR q-values + Bonferroni),
     // over the retained genes only (excluding repetitive genes if requested).
     vcf_analysis::apply_multiple_testing(&mut results, args.exclude_repetitive);
+
+    // The codon scan reports its parent gene's neutrality-test q-value as context, so
+    // it can only be joined once that correction has been applied.
+    if let Some(scan) = codon_scan.as_mut() {
+        scan.attach_gene_qvalues(&results);
+    }
 
     // Genomic-control diagnostic (always) and correction (opt-in). λ summarises
     // how far the tested p-values depart from the uniform null — inflated in
@@ -338,6 +365,13 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         let var_path = vcf_analysis::write_variants(&results, &args.output, &args.format)?;
         info!("Per-variant table saved to {}", var_path);
         written.push(var_path);
+    }
+
+    // Per-codon recurrence table (optional).
+    if let Some(scan) = codon_scan.as_ref() {
+        let codon_path = vcf_analysis::write_codon_scan(scan, &args.output, &args.format)?;
+        info!("Per-codon recurrence table saved to {}", codon_path);
+        written.push(codon_path);
     }
 
     // Population-diversity statistics (optional): π, Watterson θ, Tajima's D.
@@ -513,6 +547,38 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             eprintln!("  Significant genes:   {}  ({} < {})", n_sig, corr, args.fdr);
         } else if args.af_weighted {
             eprintln!("  (per-gene neutrality test skipped under --af-weighted)");
+        }
+        if let Some(scan) = codon_scan.as_ref() {
+            // m and theta are the whole null: without them the p-values cannot be
+            // reproduced or sanity-checked, so they belong in the summary, not only
+            // in the docs.
+            eprintln!("  ── Per-codon recurrence scan ─────────────");
+            eprintln!("  Codons with SNPs:    {}", scan.rows.len());
+            eprintln!(
+                "  Family (m):          {} codons, {} possible nonsyn changes{}",
+                scan.family_m, scan.family_poss_nonsyn,
+                if args.exclude_repetitive { "  (core genes only)" } else { "" }
+            );
+            eprintln!(
+                "  Distinct nonsyn alleles: {}  (theta = {:.3e} per possible change)",
+                scan.observed_nonsyn_alleles, scan.theta
+            );
+            if scan.n_samples == 0 {
+                // The test only needs allele identity, so it still ran; only the
+                // descriptive carrier columns are unavailable.
+                eprintln!("  Carrier columns:     NA (input has no genotypes or sample count)");
+            }
+            if scan.suppressed_cooccurring > 0 {
+                eprintln!(
+                    "  Not tested (one haplotype): {}",
+                    scan.suppressed_cooccurring
+                );
+            }
+            let sig = scan.significant(args.fdr);
+            eprintln!("  Significant codons:  {}  (BH-FDR < {})", sig, args.fdr);
+            if sig == 0 {
+                eprintln!("    (no residue collected more independent alleles than chance allows)");
+            }
         }
         if args.mk {
             let with_data = results

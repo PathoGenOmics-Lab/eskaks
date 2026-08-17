@@ -123,6 +123,48 @@ pub fn binomial_two_sided_p(k: u64, n: u64, p0: f64) -> f64 {
     (2.0 * lower.min(upper)).min(1.0)
 }
 
+/// One-sided **upper-tail** binomial p-value: `P(X >= x)` for `X ~ Binomial(n, p0)`.
+///
+/// Unlike [`binomial_two_sided_p`] this counts the point mass at the observed `x`
+/// **in full**, i.e. it is NOT the mid-p convention, and the difference is
+/// deliberate. Please do not "fix" one to match the other:
+///
+/// * This tail is used by the per-codon recurrence scan, where `n <= 9` (a codon has
+///   3 positions x 3 alternate bases) and `p0` is tiny, so the atom at `x` dominates
+///   the tail. Halving it is a near-constant factor of about 2 on every codon, which
+///   changes the ranking not at all and the q-values barely, whereas the error in the
+///   plug-in null (a uniform per-codon mutation rate) is orders of magnitude larger.
+/// * Mid-p buys calibration for a two-sided test that would otherwise spend almost
+///   none of its nominal level (see [`binomial_two_sided_p`]); a one-sided tail on a
+///   tiny `p0` has no such problem, and the whole atom keeps the test conservative,
+///   which is the right side to err on for a genome-wide scan of about 1e6 codons.
+///
+/// Returns NaN when undefined (`x > n`, or `p0` outside [0, 1]). `P(X >= 0)` is 1 for
+/// every `n` and `p0`, including `n == 0`.
+pub fn binomial_upper_tail_p(x: u64, n: u64, p0: f64) -> f64 {
+    if x > n || !p0.is_finite() || !(0.0..=1.0).contains(&p0) {
+        return f64::NAN;
+    }
+    if x == 0 {
+        return 1.0;
+    }
+    if p0 == 0.0 {
+        return 0.0; // x >= 1 is impossible when no change can occur
+    }
+    if p0 == 1.0 {
+        return 1.0; // X == n almost surely, and x <= n
+    }
+    let ln_p = p0.ln();
+    let ln_q = (1.0 - p0).ln();
+    // Accumulate from i == n downwards: with a small p0 the terms grow as i falls, so
+    // the smallest magnitudes are added first and none is lost to rounding.
+    let mut acc = 0.0f64;
+    for i in (x..=n).rev() {
+        acc += (ln_binom_coeff(n, i) + i as f64 * ln_p + (n - i) as f64 * ln_q).exp();
+    }
+    acc.clamp(0.0, 1.0)
+}
+
 /// Two-sided binomial −log10(p), computed in log space (log-sum-exp per tail) so it
 /// stays finite even when the p-value is far below the ~1e-300 underflow floor of
 /// [`binomial_two_sided_p`]. Same **mid-p** convention as that function, and it must
@@ -264,16 +306,40 @@ pub fn inv_normal_cdf(p: f64) -> f64 {
 /// Benjamini-Hochberg FDR q-values, aligned with the input. NaN inputs
 /// (untested items) map to NaN and are excluded from the m used to correct.
 pub fn benjamini_hochberg(pvals: &[f64]) -> Vec<f64> {
+    let m = pvals.iter().filter(|p| p.is_finite()).count();
+    benjamini_hochberg_with_m(pvals, m)
+}
+
+/// Benjamini-Hochberg with an **explicit family size** `m`, for a scan whose family
+/// is larger than the p-values it hands over.
+///
+/// [`benjamini_hochberg`] derives `m` from the finite entries, which is correct only
+/// when every member of the family is supplied. The per-codon recurrence scan is the
+/// case where it is not: it tests every codon of the coding genome but only lists the
+/// codons that carry a SNP, and correcting over the listed rows alone would understate
+/// the family by orders of magnitude.
+///
+/// **Validity condition:** the omitted `m - k` members must all have p-values no
+/// smaller than every supplied one. That holds by construction for the codon scan
+/// (an omitted codon has zero observed alleles, so its upper-tail p is exactly 1.0),
+/// and the step-up minima for the supplied ranks are then identical to the ones a
+/// full-family run would produce. `m` is floored at the number of finite p-values, so
+/// an under-stated family can never inflate significance.
+///
+/// NaN inputs stay NaN and are outside the family, exactly as in [`benjamini_hochberg`].
+pub fn benjamini_hochberg_with_m(pvals: &[f64], m: usize) -> Vec<f64> {
     let mut idx: Vec<usize> = (0..pvals.len()).filter(|&i| pvals[i].is_finite()).collect();
-    let m = idx.len();
+    let k = idx.len();
     let mut q = vec![f64::NAN; pvals.len()];
-    if m == 0 {
+    if k == 0 {
         return q;
     }
+    // The family can never be smaller than the tests actually supplied.
+    let m = m.max(k);
     idx.sort_by(|&a, &b| pvals[a].partial_cmp(&pvals[b]).unwrap());
     // Step-up: q_(i) = min over ranks j >= i of ( p_(j) · m / j ), capped at 1.
     let mut running_min = f64::INFINITY;
-    for rank in (1..=m).rev() {
+    for rank in (1..=k).rev() {
         let i = idx[rank - 1];
         running_min = running_min.min(pvals[i] * m as f64 / rank as f64);
         q[i] = running_min.min(1.0);

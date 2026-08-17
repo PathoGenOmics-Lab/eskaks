@@ -129,6 +129,12 @@ pub fn compute_pn_ps(
                 return None;
             }
 
+            // The gene's per-codon mutational opportunity, for the optional recurrence
+            // scan's family size and plug-in rate. Counted here, where the CDS is
+            // already reconstructed, and never rate-weighted: kappa moves the pN/pS
+            // site denominators, not the number of changes a codon can undergo.
+            let (scan_codons, scan_poss_nonsyn) = codon_space(&cds_seq, gc);
+
             // Find SNPs that fall within this gene's CDS regions
             // Counts are f64 to support AF-weighted mode (πN/πS)
             let mut nonsyn_count = 0.0f64;
@@ -243,6 +249,7 @@ pub fn compute_pn_ps(
                                 ref_allele: snp.ref_allele,
                                 alt_allele: *alt_base,
                                 aa_pos: codon_idx + 1,
+                                ref_codon,
                                 ref_aa: r,
                                 alt_aa: a,
                                 af,
@@ -423,6 +430,8 @@ pub fn compute_pn_ps(
                 sfs_nonsyn,
                 sfs_syn,
                 variants,
+                scan_codons,
+                scan_poss_nonsyn,
             })
         })
         .collect();
@@ -503,7 +512,12 @@ pub fn compute_pn_ps(
 ///
 /// Below the bound the variants may sit on different genomic backgrounds, where the
 /// independent classification is correct, so this returns false and nothing is warned.
-fn forced_cooccurrence(afs: &[f64]) -> bool {
+///
+/// The per-codon recurrence scan reuses this over the same codon's distinct SNP
+/// positions: when the frequencies force the changes onto one haplotype they are one
+/// multi-nucleotide event, not several independent origins, so its independence
+/// assumption is provably false and the codon is suppressed rather than tested.
+pub(crate) fn forced_cooccurrence(afs: &[f64]) -> bool {
     if afs.len() < 2 {
         return false;
     }

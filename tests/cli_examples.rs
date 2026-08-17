@@ -520,6 +520,186 @@ fn vcf_examples_csv_and_json_formats() {
     assert_eq!(json.matches("\"gene\":").count(), 12, "expected 12 gene records");
 }
 
+// ---- per-codon recurrence scan (--codon-scan) ----------------------------------
+
+/// The 20-sample toy VCF, so the carrier columns have genotypes to read.
+const VCF_MULTISAMPLE: &str = "examples/toy_genome/variants_multisample.vcf";
+
+const CODON_HEADER: [&str; 23] = [
+    "Gene", "Chrom", "Strand", "AA_Pos", "Ref_AA", "Ref_Codon",
+    "Poss_Nonsyn", "Poss_Syn",
+    "Nonsyn_Alleles", "Syn_Alleles", "Nonsense_Alleles",
+    "Distinct_AA", "AA_Changes",
+    "Carriers_Max", "Carriers_Sum", "Max_AF",
+    "Exp_Nonsyn_Alleles", "P_Recurrence", "Q_Recurrence_BH",
+    "Cooccurring", "Repetitive", "Gene_pN_pS", "Gene_Q_BH",
+];
+
+fn codon_run(prefix: &str, format: &str) -> Output {
+    run_ok(&[
+        "vcf", "--ref", REF, "--gff", GFF, "--vcf", VCF_MULTISAMPLE,
+        "--genetic-code", "11", "--workers", "1", "--codon-scan",
+        "--format", format, "-o", prefix,
+    ])
+}
+
+/// Pull one scalar out of a single-line JSON object, without a JSON dependency.
+/// Strings come back unquoted; numbers, booleans and `null` come back as written.
+fn json_field(line: &str, key: &str) -> String {
+    let pat = format!("\"{key}\":");
+    let at = line
+        .find(&pat)
+        .unwrap_or_else(|| panic!("key {key} not found in {line}"))
+        + pat.len();
+    let rest = &line[at..];
+    match rest.strip_prefix('"') {
+        Some(s) => {
+            let end = s.find('"').expect("unterminated JSON string");
+            s[..end].to_string()
+        }
+        None => {
+            let end = rest.find([',', '}']).expect("unterminated JSON value");
+            rest[..end].to_string()
+        }
+    }
+}
+
+#[test]
+fn vcf_codon_scan_toy_golden_row() {
+    let r = new_run();
+    codon_run(&r.prefix, "tsv");
+    let rows = tsv(&format!("{}_codons.tsv", r.prefix));
+    assert_eq!(rows[0], CODON_HEADER);
+    assert_eq!(rows.len() - 1, 250, "250 toy codons carry a coding SNP");
+
+    // The top row, hand-checkable. gene06 residue 44 is TCG (Ser) in code 11:
+    //   pos1 -> ACG/CCG/GCG  = 3 nonsyn
+    //   pos2 -> TAG is a stop (excluded), TGG/TTG = 2 nonsyn
+    //   pos3 -> TCA/TCC/TCT  = 3 syn
+    // so A_c = 5 and S_c = 3, and it carries two distinct missense alleles.
+    let top = &rows[1];
+    assert_eq!(top[0], "gene06");
+    assert_eq!(top[3], "44", "AA_Pos");
+    assert_eq!(top[4], "S");
+    assert_eq!(top[5], "TCG");
+    assert_eq!((top[6].as_str(), top[7].as_str()), ("5", "3"), "A_c / S_c");
+    assert_eq!(top[8], "2", "two distinct nonsynonymous alleles");
+    assert_eq!(top[12], "S44A;S44W");
+    assert_eq!(top[19], "false", "Cooccurring");
+
+    // theta = 140 distinct nonsynonymous alleles / 9131 possible changes, so
+    //   Exp = 5 * theta = 0.0766619...
+    //   P(X >= 2) for Binomial(5, theta) = 0.00227955...
+    let theta = 140.0 / 9131.0;
+    assert!((f(&top[16]) - 5.0 * theta).abs() < 1e-5, "Exp_Nonsyn_Alleles {}", top[16]);
+    assert!((f(&top[17]) - 0.002_279_558).abs() < 1e-6, "P_Recurrence {}", top[17]);
+    // m = 1426 codons, so even the best toy codon lands at q = 1: 250 rows of a
+    // 1426-codon family cannot buy significance, and the run says so.
+    assert!((f(&top[18]) - 1.0).abs() < 1e-9, "Q_Recurrence_BH {}", top[18]);
+
+    // p ascending with NA last: every NA row must come after every tested row.
+    let first_na = rows[1..].iter().position(|r| r[17] == "NA");
+    if let Some(i) = first_na {
+        assert!(
+            rows[1 + i..].iter().all(|r| r[17] == "NA"),
+            "NA p-values must sort last"
+        );
+        // ...and every NA row is one the design refuses to test, not a silent gap.
+        for r in &rows[1 + i..] {
+            assert!(r[19] == "true" || r[6] == "0", "untested row without a reason: {r:?}");
+            assert_eq!(r[18], "NA", "an untested codon must have no q-value either");
+        }
+    }
+
+    // The summary reports the null so a reader can redo the arithmetic.
+    let out = codon_run(&r.prefix, "tsv");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("Per-codon recurrence scan"), "summary block missing:\n{err}");
+    assert!(err.contains("1426 codons"), "family size missing:\n{err}");
+    assert!(err.contains("Significant codons:  0"), "significance line missing:\n{err}");
+}
+
+#[test]
+fn vcf_codon_scan_is_stable_across_tsv_csv_and_json() {
+    let t = new_run();
+    codon_run(&t.prefix, "tsv");
+    let tsv_rows = tsv(&format!("{}_codons.tsv", t.prefix));
+
+    let c = new_run();
+    codon_run(&c.prefix, "csv");
+    let csv_rows = split_rows(&format!("{}_codons.csv", c.prefix), ',');
+    assert_eq!(csv_rows, tsv_rows, "csv and tsv must carry identical cells");
+
+    let j = new_run();
+    codon_run(&j.prefix, "json");
+    let json = read(&format!("{}_codons.json", j.prefix));
+    assert!(json.trim().starts_with('['), "json should be an array");
+    assert!(json.trim().ends_with(']'), "json not closed");
+    let obj: Vec<&str> = json.lines().filter(|l| l.trim_start().starts_with('{')).collect();
+    assert_eq!(obj.len(), tsv_rows.len() - 1, "same number of rows in every format");
+
+    // Every column, every row: the JSON key is the lowercased delimited header, `NA`
+    // maps to `null`, and numbers are the same numbers.
+    for (row, line) in tsv_rows[1..].iter().zip(&obj) {
+        for (col, cell) in tsv_rows[0].iter().zip(row) {
+            let key = col.to_lowercase();
+            let got = json_field(line, &key);
+            if cell == "NA" {
+                assert_eq!(got, "null", "{key}: NA must serialize as null in {line}");
+                continue;
+            }
+            match (cell.parse::<f64>(), got.parse::<f64>()) {
+                // 4 to 6 decimals in the delimited writers vs a round-tripping JSON
+                // literal, so compare as numbers, not as text.
+                (Ok(a), Ok(b)) => assert!(
+                    (a - b).abs() <= 1e-6 + 1e-6 * b.abs(),
+                    "{key}: {a} (tsv) vs {b} (json)"
+                ),
+                _ => assert_eq!(cell, &got, "{key} differs between tsv and json"),
+            }
+        }
+    }
+}
+
+#[test]
+fn vcf_codon_scan_is_opt_in_and_leaves_the_pnps_table_alone() {
+    let off = new_run();
+    run_ok(&[
+        "vcf", "--ref", REF, "--gff", GFF, "--vcf", VCF_MULTISAMPLE,
+        "--genetic-code", "11", "--workers", "1", "-o", &off.prefix,
+    ]);
+    assert!(
+        !PathBuf::from(format!("{}_codons.tsv", off.prefix)).exists(),
+        "no --codon-scan, no codon table"
+    );
+
+    let on = new_run();
+    codon_run(&on.prefix, "tsv");
+    assert_eq!(
+        read(&format!("{}_pnps.tsv", on.prefix)),
+        read(&format!("{}_pnps.tsv", off.prefix)),
+        "--codon-scan must not disturb the per-gene table"
+    );
+}
+
+#[test]
+fn vcf_codon_scan_carriers_are_na_without_genotypes() {
+    // The AF-only toy VCF has no GT columns and no sample count, so the descriptive
+    // carrier columns are NA while the test itself still runs on allele identity.
+    let r = new_run();
+    vcf_core(&r.prefix, &["--codon-scan"]);
+    let rows = tsv(&format!("{}_codons.tsv", r.prefix));
+    assert!(rows.len() > 1, "the scan still produces rows");
+    assert!(
+        rows[1..].iter().all(|r| r[13] == "NA" && r[14] == "NA"),
+        "carrier columns must be NA without genotypes"
+    );
+    assert!(
+        rows[1..].iter().any(|r| r[17] != "NA"),
+        "the recurrence test must still run"
+    );
+}
+
 #[test]
 fn vcf_examples_mk_table_with_invariant() {
     let r = new_run();
