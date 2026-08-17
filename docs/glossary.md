@@ -55,9 +55,17 @@ concept in the report or docs is unfamiliar, look here first.
 
 ## The statistics
 
-- **Neutrality test**: for each gene, a two-sided **exact binomial test** asking
+- **Neutrality test**: for each gene, a two-sided **mid-p binomial test** asking
   "is the nonsynonymous fraction of SNPs different from what neutral evolution
   predicts (`N/(N+S)`)?" Gives a **p-value** per gene.
+- **mid-p**: the correction that makes that discrete test usable. A binomial count
+  is a whole number, so the textbook version (which counts the observed count fully
+  on both sides) is left with far more than the nominal 5% in hand and rarely calls
+  anything on a small gene. Mid-p counts the observed count only **half** on each
+  side, which centres the p-values on 0.5 under a genuine null instead of ~0.8.
+  The trade: the test is **no longer exact**, and on very small genes its real error
+  rate can run slightly above the nominal one (see
+  [per-gene neutrality test](vcf-analysis.md#per-gene-neutrality-test)).
 - **p-value**: the probability of seeing a result this extreme if the gene were
   neutral. Small = surprising = evidence of selection.
 - **Multiple testing**: testing thousands of genes produces false positives by
@@ -82,8 +90,12 @@ concept in the report or docs is unfamiliar, look here first.
   detect adaptation; reports the Neutrality Index and **α** (fraction of adaptive
   substitutions).
 - **Genomic inflation factor (λ)**: how far the whole set of p-values departs from
-  chance. `λ ≈ 1` is well-calibrated; `λ ≫ 1` means many strong signals, real
-  widespread selection, *or* systematic bias / clonal linkage.
+  chance. `λ ≫ 1` means many strong signals, real widespread selection, *or*
+  systematic bias / clonal linkage. `λ ≈ 1` is the normal reading, but it is **not**
+  proof of calibration: the test is discrete, so a genuine null already lands a
+  little below 1 (about **0.90** for genes with a handful of SNPs, about **0.97**
+  once they carry tens). Read λ upwards, as an inflation flag, never downwards as a
+  clean bill of health.
 - **Genomic control**: an optional correction (`--genomic-control`) that divides
   each test statistic by λ, for when the inflation is artefactual.
 - **z(N)**: a standardized measure of how far a gene's observed nonsynonymous count
@@ -94,6 +106,11 @@ concept in the report or docs is unfamiliar, look here first.
 - **PE/PPE, PGRS, IS elements**: repetitive, hard-to-map gene families (especially in
   *M. tuberculosis*) whose SNP calls are often artefacts. `--exclude-repetitive`
   drops them from the pooled estimate and the test.
+- **Same-codon SNPs (MNV)**: two or more SNPs inside one codon. eskaks classifies each
+  one against the *reference* codon, never against its neighbour, so the joint
+  amino-acid change a genome actually carries is not the one reported. Such codons are
+  counted in every run, and warned about when the allele frequencies put their SNPs on
+  one haplotype. See [Same-codon SNPs](vcf-analysis.md#same-codon-snps).
 
 ## Special output values
 

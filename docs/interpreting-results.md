@@ -100,10 +100,14 @@ an **"i"** button repeating this guidance in-app. Here is what each one answers:
 - **Volcano** — effect (pN/pS) on x against significance on y. The top corners are
   what matter: strong departure *and* significant. A gene high on the y-axis but
   near pN/pS = 1 is significant but small-effect.
-- **p-value QQ plot (λ)** — observed vs expected p-values. On the diagonal = well
-  calibrated; a curve lifting off the diagonal (λ ≫ 1) means far more low p-values
-  than chance — either pervasive selection or, in clonal data, inflation. This is
-  the panel that tells you whether to trust the raw p-values at all.
+- **p-value QQ plot (λ)**: observed vs expected p-values. A curve lifting off the
+  diagonal (λ ≫ 1) means far more low p-values than chance, either pervasive
+  selection or, in clonal data, inflation. This is the panel that tells you whether
+  to trust the raw p-values at all. Do **not** read a point cloud on or just under
+  the diagonal as "well calibrated": the neutrality test is discrete, so a genuine
+  null already sits slightly below the line. In simulation, null genes give λ ≈ 0.90
+  with 2 to 12 SNPs and λ ≈ 0.97 with 10 to 60, reaching 1 only for well-powered
+  genes. λ is an inflation flag, and only its upward departures carry information.
 - **Power funnel** — pN/pS against SNP count, with per-gene Wilson CI whiskers.
   Low-count genes fan out into wide CIs at the left; only genes whose CI **excludes
   1** are departing from neutrality. Guards you against over-reading small genes.

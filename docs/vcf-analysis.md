@@ -104,7 +104,7 @@ File: `<prefix>_pnps.tsv` (or `.csv` / `.json`)
 | Total_SNPs | Total SNPs falling in this gene |
 | Chrom / Start / End / Strand | Gene location (1-based), so the table is self-contained and joinable |
 | Exp_N_frac | Expected nonsynonymous fraction under neutrality, `N/(N+S)` (the test's null) |
-| P_value | Two-sided exact-binomial p-value for H0: pN/pS = 1 (`NA` if untested) |
+| P_value | Two-sided mid-p binomial p-value for H0: pN/pS = 1 (`NA` if untested) |
 | Q_value_BH | Benjamini-Hochberg FDR q-value across all tested genes |
 | P_Bonferroni | Bonferroni-corrected p-value across all tested genes |
 | pN/pS_lo · pN/pS_hi | 95% [Wilson confidence-interval](#per-gene-confidence-intervals) bounds on pN/pS (`NA` if untested); if the interval excludes 1 the gene departs from neutrality |
@@ -114,12 +114,32 @@ File: `<prefix>_pnps.tsv` (or `.csv` / `.json`)
 
 Under strict neutrality the nonsynonymous fraction of a gene's SNPs equals its
 **mutational opportunity** `N/(N+S)` (the `Exp_N_frac` column). eskaks tests each
-gene against this null with a **two-sided exact binomial test** (observed
+gene against this null with a **two-sided mid-p binomial test** (observed
 nonsynonymous SNPs vs `N/(N+S)`), giving a `P_value` per gene. Because a bacterial
 genome has thousands of genes, the p-values are corrected for multiple testing two
 ways: **Benjamini-Hochberg** FDR q-values (`Q_value_BH`) and the more conservative
 **Bonferroni** (`P_Bonferroni`). The summary reports how many genes are significant
 at `--fdr` (default 0.05), and `--plot` outlines those genes on the Manhattan plot.
+
+!!! info "Why mid-p, and what it costs"
+    The binomial is **discrete**, so the textbook "double the smaller tail" version
+    (which counts the probability of the observed count in full on both sides) cannot
+    spend the nominal level and, with few SNPs, barely spends any of it. Simulated
+    under a genuine null it gave a **median p of 0.83** and only **1.2%** of genes at
+    p ≤ 0.05 for genes with 2 to 12 SNPs, where a calibrated test gives 0.50 and 5%.
+    That is exactly the range most bacterial genes fall in.
+
+    **Mid-p** counts only *half* the probability of the observed count in each tail.
+    The same simulation then gives a median p of **0.52** (2 to 12 SNPs) and **0.51**
+    (10 to 60 SNPs), with 2.6% and 4.6% of genes at p ≤ 0.05: centred, and roughly
+    twice the power at the low end.
+
+    The price is that this is **no longer an exact test**. Mid-p is not guaranteed
+    conservative and can slightly exceed the nominal level on small genes: enumerated
+    over n = 2..200 SNPs and null fractions 0.05..0.95, its true rejection rate at a
+    nominal 0.05 averages 0.047 but peaks at 0.088. Treat a bare p ≈ 0.05 on a
+    handful of SNPs as a ranking signal, not a decision, and use `--min-snps` and the
+    FDR column for anything you intend to act on.
 
 ```bash
 eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
@@ -193,11 +213,19 @@ The per-gene binomial test assumes SNPs are independent. In **clonal** organisms
 like *M. tuberculosis*, genome-wide linkage breaks that assumption and the
 p-values become **anti-conservative**. eskaks always reports the **genomic-inflation
 factor λ**: the median test χ² divided by its neutral expectation, as a diagnostic
-(λ ≈ 1 is well-calibrated; λ ≫ 1 means far more low p-values than chance).
+(λ ≫ 1 means far more low p-values than chance).
 
-With `--genomic-control`, each gene's χ² is divided by λ (floored at 1) and
-re-tested, adding genomic-control-corrected columns to the report. The χ² is derived
-from a log-space `−log10(p)`, so genes whose exact p underflows stay finite.
+**λ ≈ 1 is the normal reading, but it is not a calibration certificate.** The test
+is discrete, so even a genuine null falls a little short of the continuous χ²₁: in
+simulation, null genes give **λ ≈ 0.90** when they carry 2 to 12 SNPs and **λ ≈ 0.97**
+at 10 to 60, approaching 1 only for well-powered genes. A λ at or just below 1 is
+therefore what discreteness alone produces, not evidence that the p-values are well
+calibrated. λ is an **inflation flag**: read it upwards, not downwards.
+
+With `--genomic-control`, each gene's χ² is divided by λ (floored at 1, so the
+correction can only ever deflate) and re-tested, adding genomic-control-corrected
+columns to the report. The χ² is derived from a log-space `−log10(p)`, so genes whose
+p-value underflows in linear space stay finite.
 
 > **Caveat:** a high λ can reflect **genuine, pervasive** purifying selection, not
 > only artefactual inflation. Apply `--genomic-control` only when you suspect
@@ -445,7 +473,7 @@ flowchart LR
 5. **For each gene**:
    - Extract the CDS sequence from the reference (handling exon order, reverse complement for minus strand, phase offset)
    - **Count sites**: For each reference codon, enumerate all 9 possible single-nucleotide changes, *excluding* changes to stop codons, and classify each as synonymous or nonsynonymous. Each codon contributes exactly 3 sites, split proportionally: S_sites = 3 × syn/(syn+nonsyn). With [`--kappa`](#kappa) each change is weighted by its transition/transversion rate before this split.
-   - **Classify SNPs**: For each SNP within the gene's CDS, reconstruct the reference and alternate codons. Look up amino acids → synonymous or nonsynonymous.
+   - **Classify SNPs**: For each SNP within the gene's CDS, reconstruct the reference and alternate codons. Look up amino acids → synonymous or nonsynonymous. The alternate codon carries one SNP at a time, so a codon holding two SNPs is scored twice against the reference instead of once as the haplotype it belongs to; those codons are counted and reported, see [Same-codon SNPs](#same-codon-snps).
    - **Compute**: pN = nonsyn_SNPs / N_sites, pS = syn_SNPs / S_sites, pN/pS = pN / pS
 
 ## Input format details
@@ -460,9 +488,19 @@ flowchart LR
 - REF allele is verified against the reference genome (mismatches are warned and skipped)
 
 ### GFF3
-- Standard GFF3 format
+- Standard GFF3 format. **GTF is refused**, not parsed: it spells its attributes
+  `gene_id "x"; transcript_id "y";` instead of `key=value`, so eskaks stops with an error
+  telling you how to convert (`gffread annotation.gtf -o annotation.gff3`). See
+  [the FAQ](faq.md#gtf) for why
 - Only `CDS` feature types are used
-- Multi-exon genes: grouped by `Parent=` attribute (or `gene_id=` for GTF-style)
+- Multi-exon genes: grouped by the `Parent=` attribute, resolved through the
+  `mRNA` / `transcript` row when the file has that level, so exons group into the **gene**
+  and not into one entry per transcript. Without that level, `gene_id=` then `ID=` are used
+- **Several isoforms per gene**: only the **longest CDS** is kept, and a warning names the
+  genes collapsed and how many transcripts were dropped. One row per gene is what keeps
+  each gene at one test in the [FDR family](#per-gene-neutrality-test)
+- A `CDS` row carrying none of `Parent=`, `gene_id=` or `ID=` is skipped with a warning:
+  nothing in it says which gene it belongs to
 - Gene name: extracted from `gene=`, `Name=`, or `locus_tag=` attributes
 - Phase (column 8): used to adjust reading frame for first exon
 
@@ -477,3 +515,48 @@ flowchart LR
 3. **Overlapping genes**: Each SNP is assigned to all genes whose CDS regions overlap its position. Overlapping genes on opposite strands will classify the same SNP differently.
 4. **Fixed variants**: By default, fixed variants (AF=1.0) are included. Use `--max-af 0.99` to exclude them and analyze only segregating polymorphisms.
 5. **pN/pS vs πN/πS**: Without `--af-weighted`, all SNPs count equally (pN/pS). With `--af-weighted`, rare variants contribute less than common ones (πN/πS). Choose based on your question.
+6. **Two SNPs in one codon**: each SNP is classified against the *reference* codon, never against its neighbour, so a codon carrying two SNPs is scored twice instead of once. See [Same-codon SNPs](#same-codon-snps) below.
+
+## Same-codon SNPs (multi-nucleotide changes) { #same-codon-snps }
+
+eskaks builds every alternate codon by copying the reference codon and mutating a single
+position. Two SNPs inside one codon are therefore each compared with the reference and
+never with each other, so the amino-acid change that a genome actually carries is not the
+one reported.
+
+Take a reference codon `CTT` (Leu) with a C>T at its first base and a T>A at its third,
+both at AF 1.0, so every sample carries both:
+
+| Scored | Codon change | Amino acids | Called as |
+| --- | --- | --- | --- |
+| C>T alone | `CTT` → `TTT` | Leu → Phe | missense |
+| T>A alone | `CTT` → `CTA` | Leu → Leu | synonymous |
+| **Both, as carried** | `CTT` → `TTA` | **Leu → Leu** | **one synonymous change** |
+
+The run reports a missense plus a synonymous change where the real haplotype carries one
+synonymous multi-nucleotide change, which inflates pN. Resolving it needs read-backed or
+statistical phasing, which eskaks does not do; what it does instead is tell you:
+
+- **A warning**, whenever the allele frequencies leave no doubt that the SNPs share a
+  haplotype (see below). It names how many codons and how many genes are affected.
+- **A summary line**, `Codons with >1 SNP`, counting every such codon in the run, with the
+  same-haplotype subset underneath it.
+- **A line in the report's Methods panel**, so a shared HTML report carries the caveat.
+- **`-vv`** lists every affected codon: gene, residue number, positions and allele
+  frequencies, so you can re-check those residues by hand.
+
+### When the warning fires
+
+In a multi-sample population VCF two SNPs in one codon are often on *different* genomic
+backgrounds, and scoring them separately is then the correct thing to do. So the warning is
+raised only when co-occurrence follows from the data rather than being a guess: for `k`
+variant positions at frequencies `p₁ … p_k`, the fraction of sampled genomes carrying all of
+them is at least `Σ pᵢ − (k − 1)`, and the warning fires when that bound is above zero. Two
+variants at AF 1.0 (including a single-sample VCF, where AF is 1.0 by convention) always
+qualify; two variants at AF 0.3 and 0.2 never do.
+
+The bound is deliberately conservative, so the count is a floor, not an estimate: SNPs at
+AF 0.55 and 0.45 may well sit on one haplotype without the frequencies proving it. Those
+codons are still counted in `Codons with >1 SNP` and still listed under `-vv`, they simply
+do not raise a warning. The alternative, warning on every multi-SNP codon, would fire on
+essentially every population VCF and train you to ignore it.

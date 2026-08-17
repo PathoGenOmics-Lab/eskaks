@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- **The per-gene neutrality test now uses the mid-p convention, so every p-value moves.**
+  The previous test doubled the smaller tail counting the whole point mass at the observed
+  count on both sides, which is exact and conservative but badly so at the SNP counts real
+  genes carry. Simulated under a genuine null it returned a median p of 0.84 rather than
+  0.50, and flagged 0.9% of genes at p <= 0.05 rather than 5%: most of the test's power was
+  being given away. Mid-p counts half that point mass on each side, which restores the
+  median to 0.51, with 2.6% at p <= 0.05 for genes carrying a handful of SNPs and 4.6% for
+  denser ones. The cost is that the test is no longer guaranteed conservative: enumerated
+  exactly, its size averages 0.047 and peaks at 0.088 against a nominal 0.05. `P_value`,
+  `Q_value_BH`, `P_Bonferroni`, `P_GC` and `Q_GC_BH` all change; counts, site totals,
+  ratios and the confidence intervals do not.
+- **The genomic-control lambda documentation said the opposite of what the code knew.**
+  Every user-facing description called a lambda near 1 well calibrated, while the source
+  already noted that a genuine null yields lambda below 1 here. Under mid-p a true null
+  gives about 0.90 for genes with few SNPs and about 0.97 for well-powered ones, and the
+  glossary, the VCF analysis page, the interpretation guide and the report's own QQ and
+  lambda help now say so, with those numbers.
+
+### Fixed
+
+- **A GTF passed as the annotation is refused rather than silently shattering the gene
+  table.** GTF writes `gene_id "gA";` instead of `gene_id=gA`, which missed every attribute
+  lookup and fell back to keying each row on its own raw attribute text, so one gene became
+  one row per exon, each named after an attribute string, with exit status zero. The error
+  now names the offending line and gives the `gffread` and `agat` commands that convert it.
+- **A multi-isoform GFF3 no longer counts one gene several times.** Each transcript keyed
+  separately, which duplicated rows and, more seriously, inflated the multiple-testing
+  family so that every q-value in the genome shifted. The longest CDS is now kept per gene
+  and the dropped alternatives are reported.
+- **Codons carrying more than one SNP are now reported.** Each SNP is classified against
+  the reference codon on its own, so the joint change is never evaluated: two variants in
+  one codon can yield a missense call where the real haplotype change is synonymous.
+  Haplotype-aware calling needs phase and stays out of scope, but a run now says how many
+  codons are affected and how many carry allele frequencies placing them on one haplotype.
+
 ## [0.1.0] - 2026-07-16
 
 ### Added

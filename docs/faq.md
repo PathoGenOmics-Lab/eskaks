@@ -35,6 +35,33 @@ column of the GFF3. eskaks warns when it can't reconcile them, run with `-v` to 
 the details. Also check that your GFF3 has `CDS` features and that `--genetic-code`
 matches your organism (`11` for bacteria).
 
+## eskaks says my annotation is a GTF, not a GFF3 { #gtf }
+
+`eskaks vcf` reads **GFF3 only**. The two formats differ in the attributes column: GFF3
+writes `Parent=gene1;gene=dnaA`, GTF writes `gene_id "gene1"; transcript_id "t1";` with
+a space and quotes. Because a GTF row carries no `Parent=`, `gene_id=` or `ID=`, reading
+one as GFF3 finds no gene to group exons into, so eskaks stops with an error instead of
+guessing. Convert first:
+
+```bash
+gffread annotation.gtf -o annotation.gff3
+# or
+agat_convert_sp_gxf2gxf.pl -g annotation.gtf -o annotation.gff3
+```
+
+Converting is not just cosmetic. A GTF `CDS` excludes the stop codon, which is written
+as a separate `stop_codon` row, so a converter is what puts the full coding sequence
+back together.
+
+## My gene has several transcripts, which one is used?
+
+The **longest CDS**. When a GFF3 gives one gene several `mRNA` / `transcript` children,
+eskaks keeps the longest coding sequence as the representative and warns, naming the
+genes it collapsed and how many alternatives it dropped. One row per gene is what keeps
+each gene at exactly one test in the multiple-testing family: emitting one row per
+isoform would both duplicate the gene in the table and change every q-value in the
+genome. If you need a specific transcript, filter the GFF3 down to it before running.
+
 ## Why is eskaks so much faster?
 
 Three main reasons:

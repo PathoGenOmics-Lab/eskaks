@@ -412,11 +412,14 @@ fn vcf_examples_pnps_golden() {
     assert_eq!(g[13], "+", "strand");
     // N_sites + S_sites reconstruct the CDS minus the excluded final codon (399-3=396).
     assert!((f(&g[2]) + f(&g[3]) - 396.0).abs() < 1e-2, "N+S should be 396");
-    // Statistical columns (the recently added neutrality pipeline).
+    // Statistical columns (the neutrality pipeline). The p-value is the mid-p binomial
+    // test on k=10 nonsynonymous of n=25 SNPs against p0 = Exp_N_frac: the whole-atom
+    // convention gave 4.967e-4, mid-p drops exactly one P(X=10) to 2.990e-4, and the
+    // BH/Bonferroni columns follow it down across the 12-gene family.
     assert!((f(&g[14]) - 0.746919).abs() < EPS, "Exp_N_frac {}", g[14]);
-    assert!((f(&g[15]) - 4.967e-4).abs() < 1e-6, "P_value {}", g[15]);
-    assert!((f(&g[16]) - 0.001987).abs() < 1e-5, "Q_value_BH {}", g[16]);
-    assert!((f(&g[17]) - 0.005961).abs() < 1e-5, "P_Bonferroni {}", g[17]);
+    assert!((f(&g[15]) - 2.990e-4).abs() < 1e-6, "P_value {}", g[15]);
+    assert!((f(&g[16]) - 0.001196).abs() < 1e-5, "Q_value_BH {}", g[16]);
+    assert!((f(&g[17]) - 0.003588).abs() < 1e-5, "P_Bonferroni {}", g[17]);
 
     // The two deliberately repetitive-named genes are present in the per-gene table.
     let names: Vec<&str> = rows[1..].iter().map(|r| r[0].as_str()).collect();

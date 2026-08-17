@@ -8,19 +8,136 @@ fn ln_gamma_known_values() {
     assert!((ln_gamma(0.5) - std::f64::consts::PI.sqrt().ln()).abs() < 1e-9); // Γ(1/2)=√π
 }
 
+/// Binomial pmf, written independently of `dist.rs` (plain factorial ratio,
+/// no ln_gamma) so the mid-p tests below are checked against a second implementation.
+fn ref_pmf(n: u64, p0: f64) -> Vec<f64> {
+    let mut row = Vec::with_capacity(n as usize + 1);
+    let mut coeff = 1.0_f64; // C(n, i), updated multiplicatively
+    for i in 0..=n {
+        if i > 0 {
+            coeff = coeff * (n - i + 1) as f64 / i as f64;
+        }
+        row.push(coeff * p0.powi(i as i32) * (1.0 - p0).powi((n - i) as i32));
+    }
+    row
+}
+
+/// The convention this code deliberately replaced: both tails count the whole atom
+/// at k. Kept here only so the calibration tests can show the gap it left.
+fn whole_atom_p(k: u64, n: u64, p0: f64) -> f64 {
+    let row = ref_pmf(n, p0);
+    let lower: f64 = row[..=k as usize].iter().sum();
+    let upper: f64 = row[k as usize..].iter().sum();
+    (2.0 * lower.min(upper)).min(1.0)
+}
+
 #[test]
 fn binomial_two_sided_known() {
-    // n=10, k=8, p0=0.5: P(X>=8)=56/1024, doubled = 0.109375
-    assert!((binomial_two_sided_p(8, 10, 0.5) - 0.109_375).abs() < 1e-9);
-    // Symmetric centre → capped at 1
+    // Mid-p: each tail counts only HALF the atom at the observed k.
+    // n=10, k=8, p0=0.5: P(X>8)=11/1024, plus half of P(X=8)=45/1024 → 33.5/1024,
+    // doubled = 67/1024 = 0.0654296875. The whole-atom version gave 0.109375.
+    assert!((binomial_two_sided_p(8, 10, 0.5) - 0.065_429_687_5).abs() < 1e-12);
+    // Symmetric centre → the two mid-p tails are both exactly 0.5, so p = 1.
     assert!((binomial_two_sided_p(5, 10, 0.5) - 1.0).abs() < 1e-12);
-    // n=20, k=1, p0=0.5: 2*(21/2^20)
-    let expected = 2.0 * 21.0 / (1u64 << 20) as f64;
+    // n=20, k=1, p0=0.5: 2*(P(X=0) + P(X=1)/2) = 2*(1 + 10)/2^20.
+    let expected = 2.0 * 11.0 / (1u64 << 20) as f64;
     assert!((binomial_two_sided_p(1, 20, 0.5) - expected).abs() < 1e-12);
+    // At an edge (k=0 or k=n) the outer tail IS the single atom, halved and doubled,
+    // so mid-p collapses to the point probability itself.
+    assert!((binomial_two_sided_p(0, 5, 0.3) - 0.7_f64.powi(5)).abs() < 1e-12);
+    assert!((binomial_two_sided_p(4, 4, 0.75) - 0.75_f64.powi(4)).abs() < 1e-12);
     // Degenerate inputs → NaN
     assert!(binomial_two_sided_p(3, 0, 0.5).is_nan());
     assert!(binomial_two_sided_p(2, 5, 0.0).is_nan());
     assert!(binomial_two_sided_p(6, 5, 0.5).is_nan());
+}
+
+#[test]
+fn binomial_mid_p_halves_exactly_one_atom() {
+    // Algebraic identity that defines the convention: doubling a tail that dropped
+    // half of P(X=k) is the whole-atom p-value minus one full P(X=k), whenever the
+    // whole-atom value was not capped at 1.
+    for &(k, n, p0) in &[(8u64, 10u64, 0.5), (1, 20, 0.5), (30, 100, 0.2), (3, 7, 0.75), (0, 4, 0.9)]
+    {
+        let whole = whole_atom_p(k, n, p0);
+        let atom = ref_pmf(n, p0)[k as usize];
+        let mid = binomial_two_sided_p(k, n, p0);
+        assert!(whole < 1.0, "k={k} n={n}: this case must not be capped");
+        assert!((mid - (whole - atom)).abs() < 1e-12, "k={k} n={n}: {mid} vs {}", whole - atom);
+        // Strictly more powerful, and still a probability.
+        assert!(mid < whole && mid > 0.0, "k={k} n={n}: mid {mid} not below whole {whole}");
+    }
+    // A p-value is still a probability everywhere, including at the extremes.
+    for n in 1u64..=40 {
+        for k in 0..=n {
+            for &p0 in &[0.05_f64, 0.5, 0.73, 0.95] {
+                let p = binomial_two_sided_p(k, n, p0);
+                assert!((0.0..=1.0).contains(&p), "k={k} n={n} p0={p0}: p = {p}");
+            }
+        }
+    }
+    // Symmetry under p0 = 0.5 is unchanged by the halving.
+    for k in 0u64..=12 {
+        let a = binomial_two_sided_p(k, 12, 0.5);
+        let b = binomial_two_sided_p(12 - k, 12, 0.5);
+        assert!((a - b).abs() < 1e-12, "k={k}: {a} vs {b}");
+    }
+}
+
+#[test]
+fn binomial_mid_p_is_calibrated_where_the_whole_atom_version_was_not() {
+    // Pins the calibration this convention exists for. Over every (n, p0) cell below
+    // the null distribution of k is enumerated exactly (no sampling), giving the true
+    // size of the test at a nominal 0.05 and the true median p-value.
+    let grid_p0 = [0.5_f64, 0.6, 0.7, 0.75, 0.8];
+    let (mut size_mid, mut size_whole) = (0.0_f64, 0.0_f64);
+    let (mut med_mid, mut med_whole) = (0.0_f64, 0.0_f64);
+    let mut cells = 0.0_f64;
+    for n in 2u64..=60 {
+        for &p0 in &grid_p0 {
+            let row = ref_pmf(n, p0);
+            let mid: Vec<f64> = (0..=n).map(|k| binomial_two_sided_p(k, n, p0)).collect();
+            let whole: Vec<f64> = (0..=n).map(|k| whole_atom_p(k, n, p0)).collect();
+            for (p, acc) in [(&mid, &mut size_mid), (&whole, &mut size_whole)] {
+                *acc += (0..=n as usize).filter(|&k| p[k] <= 0.05).map(|k| row[k]).sum::<f64>();
+            }
+            // Median p under H0: walk k in increasing p until half the mass is spent.
+            for (p, acc) in [(&mid, &mut med_mid), (&whole, &mut med_whole)] {
+                let mut order: Vec<usize> = (0..=n as usize).collect();
+                order.sort_by(|&a, &b| p[a].partial_cmp(&p[b]).unwrap());
+                let mut mass = 0.0;
+                for k in order {
+                    mass += row[k];
+                    if mass >= 0.5 {
+                        *acc += p[k];
+                        break;
+                    }
+                }
+            }
+            cells += 1.0;
+        }
+    }
+    let (size_mid, size_whole) = (size_mid / cells, size_whole / cells);
+    let (med_mid, med_whole) = (med_mid / cells, med_whole / cells);
+    // Measured on this grid: mid-p 0.0433 / 0.5124, whole atom 0.0277 / 0.6648.
+    assert!((size_mid - 0.0433).abs() < 0.002, "mid-p size drifted: {size_mid}");
+    assert!((med_mid - 0.5124).abs() < 0.01, "mid-p median drifted: {med_mid}");
+    // The point of the change: centred near 0.5 and spending most of the nominal
+    // level, where the whole-atom convention sat at ~0.66 and ~0.028.
+    assert!((med_mid - 0.5).abs() < 0.05, "mid-p median not centred: {med_mid}");
+    assert!(size_mid > 0.04, "mid-p should spend most of the 0.05 level: {size_mid}");
+    assert!(med_whole > 0.6, "whole-atom median should be badly off centre: {med_whole}");
+    assert!(size_whole < 0.03, "whole-atom size should be far under 0.05: {size_whole}");
+    // Mid-p buys that by giving up exactness: it is NOT guaranteed conservative and
+    // does overshoot the nominal level on small n. Documented, not accidental.
+    let overshoot = {
+        let n = 6_u64;
+        let p0 = 0.4;
+        let row = ref_pmf(n, p0);
+        (0..=n as usize).filter(|&k| binomial_two_sided_p(k as u64, n, p0) <= 0.05).map(|k| row[k]).sum::<f64>()
+    };
+    assert!(overshoot > 0.05, "n=6, p0=0.4 is the documented overshoot case: {overshoot}");
+    assert!((overshoot - 0.0876).abs() < 0.001, "overshoot drifted: {overshoot}");
 }
 
 #[test]
@@ -103,15 +220,25 @@ fn fisher_known_values() {
 
 #[test]
 fn neglog10p_matches_probability_in_representable_range() {
-    // Where the raw p-value does not underflow, −log10(p) must agree.
-    for &(k, n, p0) in &[(8u64, 10u64, 0.5), (2, 10, 0.5), (30, 100, 0.2), (0, 5, 0.3)] {
-        let p = binomial_two_sided_p(k, n, p0);
-        let nl = binomial_two_sided_neglog10p(k, n, p0);
-        if p > 0.0 {
-            assert!((nl - (-p.log10())).abs() < 1e-9, "k={k} n={n}: {nl} vs {}", -p.log10());
+    // Where the raw p-value does not underflow, −log10(p) must agree. The two are the
+    // same mid-p test on two scales, so this sweep is what stops one of them being
+    // "fixed" without the other: every k, several n, several p0.
+    for n in [1u64, 2, 5, 10, 37, 100] {
+        for k in 0..=n {
+            for &p0 in &[0.1_f64, 0.5, 0.62, 0.9] {
+                let p = binomial_two_sided_p(k, n, p0);
+                let nl = binomial_two_sided_neglog10p(k, n, p0);
+                if p > 0.0 {
+                    let want = -p.log10();
+                    assert!(
+                        (nl - want).abs() < 1e-9,
+                        "k={k} n={n} p0={p0}: neglog10p {nl} vs {want} from p {p}"
+                    );
+                }
+            }
         }
     }
-    // p == 1 (k exactly at the null mean) → −log10(p) == 0.
+    // p == 1 (the two mid-p tails balance) → −log10(p) == 0, never a tiny negative.
     assert_eq!(binomial_two_sided_neglog10p(5, 10, 0.5), 0.0);
     // Undefined cases → NaN.
     assert!(binomial_two_sided_neglog10p(0, 0, 0.5).is_nan());

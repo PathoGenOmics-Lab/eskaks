@@ -405,6 +405,8 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
             gff_file: &args.gff,
             total_genes,
             genes_with_snps,
+            multi_snp_codons: diag.multi_snp_codons,
+            cooccurring_codons: diag.cooccurring_codons,
         };
         let divergence = match &args.divergence {
             Some(p) => Some(parse_divergence(p)?),
@@ -436,6 +438,19 @@ pub(crate) fn run_vcf(args: cli::VcfArgs) -> anyhow::Result<()> {
         eprintln!("  SNPs used (in CDS):  {} of {} parsed", diag.snps_in_cds, snps.len());
         if diag.ref_mismatch > 0 {
             eprintln!("  SNPs skipped (REF≠ref): {}", diag.ref_mismatch);
+        }
+        // Codons carrying more than one SNP are scored one SNP at a time against the
+        // reference codon, so their joint (multi-nucleotide) change is never evaluated.
+        // The parenthesised subset is the one where the allele frequencies leave no
+        // doubt that the SNPs share a haplotype, which is what compute_pn_ps warns about.
+        if diag.multi_snp_codons > 0 {
+            eprintln!("  Codons with >1 SNP:  {}", diag.multi_snp_codons);
+            if diag.cooccurring_codons > 0 {
+                eprintln!(
+                    "    same haplotype:    {}  (in {} gene(s), joint change not evaluated)",
+                    diag.cooccurring_codons, diag.genes_with_cooccurring
+                );
+            }
         }
         if args.min_snps > 0 {
             eprintln!("  Genes kept (>= {} SNPs): {}  ({} dropped)", args.min_snps, results.len(), dropped);

@@ -55,7 +55,7 @@ on the Li model).
 | Feature | Description |
 |---|---|
 | 🧬 Two dN/dS models | Nei-Gojobori (1986) and Li (1993)/LPB93, via precomputed lookup tables |
-| 🔬 Per-gene selection scan | pN/pS per gene with an exact-binomial neutrality test, FDR, and Bonferroni |
+| 🔬 Per-gene selection scan | pN/pS per gene with a mid-p binomial neutrality test, FDR, and Bonferroni |
 | 📐 Spectrum-aware sites | `--kappa` ts/tv weighting for transition-biased genomes (e.g. *M. tuberculosis*) |
 | 🧮 Population genetics | McDonald-Kreitman test, bootstrap CIs, and a `--genomic-control` λ correction |
 | 🖥️ Interactive report | One self-contained HTML dashboard: colour-blind mode, scales to whole genomes |

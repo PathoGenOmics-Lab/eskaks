@@ -54,10 +54,193 @@ const RLAB = {positive:"positive", purifying:"purifying", ns:"not significant"};
 let regimeFilter = null;   // regime name to filter the table by, or null
 
 // ── "i" interpretation help ───────────────────────────────────────────
-const HELP = {"census":{"title":"Selection regimes census","lead":"Tallies genes into positive, purifying, or not-significant selection based on their pN/pS ratio and neutrality-test outcome.","x":"","y":"","read":["Positive chip: significant with pN/pS&gt;1 — excess amino-acid changes; scan for drug-resistance or immune-epitope loci.","Purifying chip: significant with pN/pS&lt;1 — the genome-wide baseline for essential, conserved M. tuberculosis genes.","Not-significant chip: neutrality not rejected, usually too few SNPs; do NOT read as evidence of neutrality.","Click any chip to filter the per-gene table and inspect the genes driving that count."],"watch":["Most genes carry few SNPs in clonal, low-diversity M. tuberculosis, so 'not significant' reflects low power, not neutrality.","PE/PPE and repetitive regions give mapping artefacts and spurious SNPs; treat their positive calls sceptically. Use FDR q, not raw p."]},"manhattan":{"title":"Manhattan: per-gene selection scan","lead":"Each gene plotted by genome position against the strength of its departure from neutral pN/pS, revealing which loci are under selection and where they sit.","x":"Genome position in bp along the H37Rv reference; genes ordered left-to-right, so vertical stripes cluster co-located loci.","y":"-log10(p) of the neutrality test (higher = stronger evidence against pN/pS=1); toolbar toggle switches y to raw pN/pS (1 = neutral).","read":["Coloured points above the dashed line pass FDR/Bonferroni — red = diversifying, blue = purifying; candidates worth follow-up.","Colour shows direction of significant genes: red = pN/pS&gt;1 (diversifying), blue = &lt;1 (purifying); grey = not significant.","Large points = many SNPs, so the test has power; trust these over tiny points at the same height.","Isolated tall spikes flag single-gene signals; clustered peaks may reflect a locus or region."],"watch":["Low-count genes give unstable ratios and weak power; a small point just over the line is fragile.","M. tuberculosis clonality means genome-wide linkage — nearby peaks are often correlated, not independent hits; PE/PPE peaks are frequently mapping artefacts."]},"volcano":{"title":"Volcano: effect vs significance","lead":"Each gene plotted by selection direction and strength (x) against statistical confidence (y), so the corners flag the strongest, most reliable departures from neutrality.","x":"log2(pN/pS): negative = purifying selection, 0 = neutral (mutational expectation), positive = diversifying/positive selection; each unit is a twofold change.","y":"-log10(p) from the exact binomial neutrality test; higher = stronger evidence against pN/pS=1. Above the dashed line clears the significance threshold.","read":["Upper-left (x&lt;0, high y): genes under significant purifying selection, the expected signal for conserved, essential loci.","Upper-right (x&gt;0, high y): significant excess of nonsynonymous SNPs, candidate positive/diversifying selection, e.g. drug targets or antigens.","Bottom band (low y): non-significant regardless of x; ratio scatter here is noise, not selection.","Read direction (x) and confidence (y) jointly; large log2 alone means nothing if the point sits low."],"watch":["Low-count genes give extreme log2(pN/pS) at low y; confirm against the significance line, and prefer q/Bonferroni over raw p given genome-wide testing.","M. tuberculosis clonality links sites, so a driver SNP drags hitchhikers; PE/PPE points may be mapping artefacts, not real diversifying selection."]},"mk":{"title":"McDonald-Kreitman: α vs significance","lead":"Per-gene test contrasting nonsynonymous vs synonymous divergence and polymorphism to detect adaptive protein evolution.","x":"α = 1 − (Ds·Pn)/(Dn·Ps): estimated fraction of nonsynonymous divergence fixed by positive selection (dimensionless, capped near 1; can be negative).","y":"−log10(Fisher exact p) on the 2×2 Dn/Ds vs Pn/Ps table; higher = stronger evidence against neutrality.","read":["Top-right (α&gt;0, high y, red): adaptive evolution — excess fixed nonsynonymous changes; NI&lt;1. Prime positive-selection candidates.","Top-left (α&lt;0, high y, blue): excess nonsynonymous polymorphism, NI&gt;1 — segregating slightly-deleterious variants or purifying constraint.","Bottom band (low y): non-significant regardless of α; too few counts to reject neutrality — treat α as noisy.","Rank the red, high-y genes; cross-check whether they are known drug-resistance or antigen loci."],"watch":["Genes with any zero cell (Dn,Ds,Pn,Ps) give unstable α and inflated |α|; require all four counts non-trivial before believing the sign.","M. tuberculosis clonality creates genome-wide linkage, so per-gene Fisher tests are non-independent — apply FDR and distrust PE/PPE hits from repetitive-region mismapping."]},"recon":{"title":"Polymorphism vs divergence","lead":"Contrasts within-sample selection (pN/pS) against long-term divergence (dN/dS) per gene to spot genes whose selective regime has changed over time.","x":"pN/pS: nonsynonymous/synonymous polymorphism in this VCF, site-normalized; &gt;1 excess replacement, &lt;1 purifying, =1 neutral.","y":"dN/dS: nonsynonymous/synonymous substitution rate between lineages/species (supplied); &gt;1 past positive selection, &lt;1 constraint.","read":["Top-left (dN/dS&gt;1, pN/pS&lt;1): PAST-POSITIVE — historically adaptive, now purifying; enlarged clickable candidates for antigen/resistance loci.","Top-right (both&gt;1): DIVERSIFYING — sustained diversifying selection across timescales.","Bottom-right (pN/pS&gt;1, dN/dS&lt;1): RELAXED/RECENT — recent relaxation or emerging adaptation not yet fixed.","Bottom-left (both&lt;1) / on-diagonal: PURIFYING or concordant regimes; off-diagonal points flag a shifted selective pressure."],"watch":["Low SNP counts make pN/pS unstable; M. tuberculosis clonality and near-zero within-host diversity leave many genes with few/no polymorphisms.","PE/PPE and repetitive genes give unreliable dN/dS and mapping artefacts; dN/dS must share pN/pS's kappa/site model or the diagonal is misaligned."]},"funnel":{"title":"Power funnel: pN/pS vs SNP count","lead":"Each gene's pN/pS plotted against how many SNPs support it, showing which pN/pS values are statistically resolvable versus small-sample noise.","x":"log10 of total SNPs in the gene (mutational evidence; each step right is 10x more variants and a tighter estimate)","y":"Gene pN/pS ratio; 1 = neutral expectation, &lt;1 = purifying selection, &gt;1 = diversifying/positive selection","read":["Wide left mouth: few-SNP genes scatter far from 1 by chance alone; extreme pN/pS here is usually not significant.","Narrow right neck: many-SNP genes converge on the pooled dashed line, the genome's purifying baseline (typically &lt;1 in Mtb).","High-count genes sitting well above 1: strong positive-selection candidates worth the neutrality test and q-value.","Points left of the --min-snps line are underpowered and excluded from ranking; treat their pN/pS as indicative only."],"watch":["Mtb clonality and tight linkage mean SNP counts are not independent draws, so per-gene power is lower than the count implies.","PE/PPE genes inflate to the right via repetitive-region mapping/alignment artefacts, mimicking real diversifying selection."]},"obsexp":{"title":"Observed vs expected N-fraction","lead":"Plots each gene's observed nonsynonymous SNP fraction against the neutral expectation, so deviation from the diagonal reveals selection.","x":"Expected nonsynonymous fraction N/(N+S) under neutrality (0-1), set by codon composition and the transition/transversion bias kappa.","y":"Observed nonsynonymous / total SNPs in the gene (0-1); the empirical fraction of variant sites that change amino acids.","read":["On the dashed diagonal: observed matches neutral expectation, pN/pS approximately 1.","Above the line (red): excess nonsynonymous SNPs, diversifying or relaxed selection; candidate antigen/drug-target genes.","Below the line (blue): nonsynonymous deficit, purifying selection preserving protein sequence; typical for core essentials.","Grey points are non-significant; treat their apparent offset as noise, not selection."],"watch":["Low-count genes scatter widely off the diagonal by chance; a colour survives only after BH/Bonferroni, so judge significance, not raw distance.","M. tuberculosis clonality links sites, so hitchhiking can mimic per-gene selection; PE/PPE mapping artefacts and a kappa-dependent x-axis further bias placement."]},"dist":{"title":"pN/pS distribution","lead":"Genome-wide histogram of per-gene pN/pS, revealing the dominant purifying-selection peak below 1 and a right tail of candidate diversifying genes.","x":"Per-gene pN/pS: nonsynonymous-to-synonymous polymorphism, normalized by N/S mutational opportunity (1.0 = neutral)","y":"Number of genes falling in each pN/pS bin (count)","read":["Mass below 1: purifying selection removing nonsynonymous variants — the expected bacterial baseline.","Neutral bin at 1.0: relaxed constraint or too few SNPs to distinguish from neutrality.","Right tail beyond 1: candidate diversifying/positive selection — inspect these genes, but confirm with the per-gene test.","A heavy or shifted distribution overall can signal a demographic or filtering artefact, not selection."],"watch":["Low-SNP genes give unstable, extreme ratios; a bin far from 1 needs the exact test's q-value, not visual position.","M. tuberculosis clonality plus PE/PPE mapping artefacts inflate spurious nonsynonymous counts, padding the right tail."]},"qq":{"title":"P-value QQ — observed vs null","lead":"Diagnostic comparing the whole set of neutrality p-values against what pure chance (a uniform null) would produce.","x":"expected &minus;log10(p) if every gene were neutral (order statistics of a uniform distribution)","y":"observed &minus;log10(p) for the same rank; the &lambda; label is the genomic-inflation factor (median obs / median exp)","read":["Points on the diagonal (y=x): the genes behave as the neutral null predicts.","An upward-bending tail at the right: more strong signals than chance — genuine selection candidates.","&lambda; near 1 is well-calibrated; &lambda; &gt;&gt; 1 means far more low p-values than chance — widespread selection or systematic bias (mapping, reference, filtering)."],"watch":["M. tuberculosis clonality correlates genes, so an inflated tail can be linkage rather than many independent targets."]},"card_gw":{"title":"Genome-wide pN/pS (pooled)","lead":"One overall ratio pooled across all genes: &Sigma; nonsynonymous SNPs / &Sigma; N sites over &Sigma; synonymous / &Sigma; S sites.","x":"","y":"","read":["Below 1: pervasive purifying selection — the expected bacterial baseline.","The bracket is a bootstrap 95% CI from resampling genes; if it excludes 1, the departure is well supported."],"watch":["Pooling is dominated by high-SNP genes; it summarises the genome, not any single locus."]},"card_tested":{"title":"Genes tested","lead":"Genes with enough SNPs to run the neutrality test (after --min-snps), i.e. the multiple-testing family size.","x":"","y":"","read":["This is the denominator for BH-FDR and Bonferroni correction across genes."],"watch":["Many M. tuberculosis genes are untested for lack of SNPs — absence of a hit is not evidence of neutrality."]},"card_sig":{"title":"Significant genes","lead":"Genes rejecting neutrality (pN/pS&ne;1) at the current stringency — toggle FDR(BH) &harr; Bonferroni in the top bar.","x":"","y":"","read":["BH-FDR controls the expected false-discovery proportion — more permissive, good for screening.","Bonferroni controls the family-wise error — stricter, good for a confident shortlist."],"watch":["The count changes with the toggle; report which one you used."]}};
-HELP.card_lambda={title:"Genomic inflation λ",lead:"How far the whole set of neutrality p-values departs from a uniform null — a diagnostic, not automatically a correction target.",x:"",y:"",
-  read:["λ ≈ 1: the tested genes behave as chance predicts.","λ ≫ 1: many more low p-values than chance — this can be genuine, pervasive purifying selection OR systematic inflation (mapping, reference, filtering, structure).","--genomic-control divides each χ² by λ and re-tests (q reads 'corrected') — only appropriate when the high λ is artefactual, not real genome-wide selection."],
-  watch:["In clonal M. tuberculosis, real pervasive selection routinely drives λ well above 1, so do NOT apply genomic control reflexively — reserve it for suspected systematic bias."]};
+const HELP = {
+  "census": {
+    "title": "Selection regimes census",
+    "lead": "Tallies genes into positive, purifying, or not-significant selection based on their pN/pS ratio and neutrality-test outcome.",
+    "x": "",
+    "y": "",
+    "read": [
+      "Positive chip: significant with pN/pS&gt;1, excess amino-acid changes; scan for drug-resistance or immune-epitope loci.",
+      "Purifying chip: significant with pN/pS&lt;1, the genome-wide baseline for essential, conserved M. tuberculosis genes.",
+      "Not-significant chip: neutrality not rejected, usually too few SNPs; do NOT read as evidence of neutrality.",
+      "Click any chip to filter the per-gene table and inspect the genes driving that count."
+    ],
+    "watch": [
+      "Most genes carry few SNPs in clonal, low-diversity M. tuberculosis, so 'not significant' reflects low power, not neutrality.",
+      "PE/PPE and repetitive regions give mapping artefacts and spurious SNPs; treat their positive calls sceptically. Use FDR q, not raw p."
+    ]
+  },
+  "manhattan": {
+    "title": "Manhattan: per-gene selection scan",
+    "lead": "Each gene plotted by genome position against the strength of its departure from neutral pN/pS, revealing which loci are under selection and where they sit.",
+    "x": "Genome position in bp along the H37Rv reference; genes ordered left-to-right, so vertical stripes cluster co-located loci.",
+    "y": "-log10(p) of the neutrality test (higher = stronger evidence against pN/pS=1); toolbar toggle switches y to raw pN/pS (1 = neutral).",
+    "read": [
+      "Coloured points above the dashed line pass FDR/Bonferroni: red = diversifying, blue = purifying; candidates worth follow-up.",
+      "Colour shows direction of significant genes: red = pN/pS&gt;1 (diversifying), blue = &lt;1 (purifying); grey = not significant.",
+      "Large points = many SNPs, so the test has power; trust these over tiny points at the same height.",
+      "Isolated tall spikes flag single-gene signals; clustered peaks may reflect a locus or region."
+    ],
+    "watch": [
+      "Low-count genes give unstable ratios and weak power; a small point just over the line is fragile.",
+      "M. tuberculosis clonality means genome-wide linkage: nearby peaks are often correlated, not independent hits; PE/PPE peaks are frequently mapping artefacts."
+    ]
+  },
+  "volcano": {
+    "title": "Volcano: effect vs significance",
+    "lead": "Each gene plotted by selection direction and strength (x) against statistical confidence (y), so the corners flag the strongest, most reliable departures from neutrality.",
+    "x": "log2(pN/pS): negative = purifying selection, 0 = neutral (mutational expectation), positive = diversifying/positive selection; each unit is a twofold change.",
+    "y": "-log10(p) from the mid-p binomial neutrality test; higher = stronger evidence against pN/pS=1. Above the dashed line clears the significance threshold.",
+    "read": [
+      "Upper-left (x&lt;0, high y): genes under significant purifying selection, the expected signal for conserved, essential loci.",
+      "Upper-right (x&gt;0, high y): significant excess of nonsynonymous SNPs, candidate positive/diversifying selection, e.g. drug targets or antigens.",
+      "Bottom band (low y): non-significant regardless of x; ratio scatter here is noise, not selection.",
+      "Read direction (x) and confidence (y) jointly; large log2 alone means nothing if the point sits low."
+    ],
+    "watch": [
+      "Low-count genes give extreme log2(pN/pS) at low y; confirm against the significance line, and prefer q/Bonferroni over raw p given genome-wide testing.",
+      "M. tuberculosis clonality links sites, so a driver SNP drags hitchhikers; PE/PPE points may be mapping artefacts, not real diversifying selection."
+    ]
+  },
+  "mk": {
+    "title": "McDonald-Kreitman: α vs significance",
+    "lead": "Per-gene test contrasting nonsynonymous vs synonymous divergence and polymorphism to detect adaptive protein evolution.",
+    "x": "α = 1 − (Ds·Pn)/(Dn·Ps): estimated fraction of nonsynonymous divergence fixed by positive selection (dimensionless, capped near 1; can be negative).",
+    "y": "−log10(Fisher exact p) on the 2×2 Dn/Ds vs Pn/Ps table; higher = stronger evidence against neutrality.",
+    "read": [
+      "Top-right (α&gt;0, high y, red): adaptive evolution, excess fixed nonsynonymous changes; NI&lt;1. Prime positive-selection candidates.",
+      "Top-left (α&lt;0, high y, blue): excess nonsynonymous polymorphism, NI&gt;1: segregating slightly-deleterious variants or purifying constraint.",
+      "Bottom band (low y): non-significant regardless of α; too few counts to reject neutrality, so treat α as noisy.",
+      "Rank the red, high-y genes; cross-check whether they are known drug-resistance or antigen loci."
+    ],
+    "watch": [
+      "Genes with any zero cell (Dn,Ds,Pn,Ps) give unstable α and inflated |α|; require all four counts non-trivial before believing the sign.",
+      "M. tuberculosis clonality creates genome-wide linkage, so per-gene Fisher tests are non-independent; apply FDR and distrust PE/PPE hits from repetitive-region mismapping."
+    ]
+  },
+  "recon": {
+    "title": "Polymorphism vs divergence",
+    "lead": "Contrasts within-sample selection (pN/pS) against long-term divergence (dN/dS) per gene to spot genes whose selective regime has changed over time.",
+    "x": "pN/pS: nonsynonymous/synonymous polymorphism in this VCF, site-normalized; &gt;1 excess replacement, &lt;1 purifying, =1 neutral.",
+    "y": "dN/dS: nonsynonymous/synonymous substitution rate between lineages/species (supplied); &gt;1 past positive selection, &lt;1 constraint.",
+    "read": [
+      "Top-left (dN/dS&gt;1, pN/pS&lt;1): PAST-POSITIVE: historically adaptive, now purifying; enlarged clickable candidates for antigen/resistance loci.",
+      "Top-right (both&gt;1): DIVERSIFYING: sustained diversifying selection across timescales.",
+      "Bottom-right (pN/pS&gt;1, dN/dS&lt;1): RELAXED/RECENT: recent relaxation or emerging adaptation not yet fixed.",
+      "Bottom-left (both&lt;1) / on-diagonal: PURIFYING or concordant regimes; off-diagonal points flag a shifted selective pressure."
+    ],
+    "watch": [
+      "Low SNP counts make pN/pS unstable; M. tuberculosis clonality and near-zero within-host diversity leave many genes with few/no polymorphisms.",
+      "PE/PPE and repetitive genes give unreliable dN/dS and mapping artefacts; dN/dS must share pN/pS's kappa/site model or the diagonal is misaligned."
+    ]
+  },
+  "funnel": {
+    "title": "Power funnel: pN/pS vs SNP count",
+    "lead": "Each gene's pN/pS plotted against how many SNPs support it, showing which pN/pS values are statistically resolvable versus small-sample noise.",
+    "x": "log10 of total SNPs in the gene (mutational evidence; each step right is 10x more variants and a tighter estimate)",
+    "y": "Gene pN/pS ratio; 1 = neutral expectation, &lt;1 = purifying selection, &gt;1 = diversifying/positive selection",
+    "read": [
+      "Wide left mouth: few-SNP genes scatter far from 1 by chance alone; extreme pN/pS here is usually not significant.",
+      "Narrow right neck: many-SNP genes converge on the pooled dashed line, the genome's purifying baseline (typically &lt;1 in Mtb).",
+      "High-count genes sitting well above 1: strong positive-selection candidates worth the neutrality test and q-value.",
+      "Points left of the --min-snps line are underpowered and excluded from ranking; treat their pN/pS as indicative only."
+    ],
+    "watch": [
+      "Mtb clonality and tight linkage mean SNP counts are not independent draws, so per-gene power is lower than the count implies.",
+      "PE/PPE genes inflate to the right via repetitive-region mapping/alignment artefacts, mimicking real diversifying selection."
+    ]
+  },
+  "obsexp": {
+    "title": "Observed vs expected N-fraction",
+    "lead": "Plots each gene's observed nonsynonymous SNP fraction against the neutral expectation, so deviation from the diagonal reveals selection.",
+    "x": "Expected nonsynonymous fraction N/(N+S) under neutrality (0-1), set by codon composition and the transition/transversion bias kappa.",
+    "y": "Observed nonsynonymous / total SNPs in the gene (0-1); the empirical fraction of variant sites that change amino acids.",
+    "read": [
+      "On the dashed diagonal: observed matches neutral expectation, pN/pS approximately 1.",
+      "Above the line (red): excess nonsynonymous SNPs, diversifying or relaxed selection; candidate antigen/drug-target genes.",
+      "Below the line (blue): nonsynonymous deficit, purifying selection preserving protein sequence; typical for core essentials.",
+      "Grey points are non-significant; treat their apparent offset as noise, not selection."
+    ],
+    "watch": [
+      "Low-count genes scatter widely off the diagonal by chance; a colour survives only after BH/Bonferroni, so judge significance, not raw distance.",
+      "M. tuberculosis clonality links sites, so hitchhiking can mimic per-gene selection; PE/PPE mapping artefacts and a kappa-dependent x-axis further bias placement."
+    ]
+  },
+  "dist": {
+    "title": "pN/pS distribution",
+    "lead": "Genome-wide histogram of per-gene pN/pS, revealing the dominant purifying-selection peak below 1 and a right tail of candidate diversifying genes.",
+    "x": "Per-gene pN/pS: nonsynonymous-to-synonymous polymorphism, normalized by N/S mutational opportunity (1.0 = neutral)",
+    "y": "Number of genes falling in each pN/pS bin (count)",
+    "read": [
+      "Mass below 1: purifying selection removing nonsynonymous variants, the expected bacterial baseline.",
+      "Neutral bin at 1.0: relaxed constraint or too few SNPs to distinguish from neutrality.",
+      "Right tail beyond 1: candidate diversifying/positive selection; inspect these genes, but confirm with the per-gene test.",
+      "A heavy or shifted distribution overall can signal a demographic or filtering artefact, not selection."
+    ],
+    "watch": [
+      "Low-SNP genes give unstable, extreme ratios; a bin far from 1 needs the test's q-value, not visual position.",
+      "M. tuberculosis clonality plus PE/PPE mapping artefacts inflate spurious nonsynonymous counts, padding the right tail."
+    ]
+  },
+  "qq": {
+    "title": "P-value QQ: observed vs null",
+    "lead": "Diagnostic comparing the whole set of neutrality p-values against what pure chance (a uniform null) would produce.",
+    "x": "expected &minus;log10(p) if every gene were neutral (order statistics of a uniform distribution)",
+    "y": "observed &minus;log10(p) for the same rank; the &lambda; label is the genomic-inflation factor (median obs / median exp)",
+    "read": [
+      "Points on the diagonal (y=x): the genes behave as the neutral null predicts.",
+      "An upward-bending tail at the right: more strong signals than chance, genuine selection candidates.",
+      "The neutrality test is discrete, so a genuine null sits a little BELOW the diagonal: simulated null genes give &lambda; about 0.90 at 2 to 12 SNPs and about 0.97 at 10 to 60. Read a &lambda; slightly under 1 as normal.",
+      "&lambda; &gt;&gt; 1 means far more low p-values than chance: widespread selection or systematic bias (mapping, reference, filtering)."
+    ],
+    "watch": [
+      "M. tuberculosis clonality correlates genes, so an inflated tail can be linkage rather than many independent targets.",
+      "&lambda; at or below 1 is NOT evidence that the p-values are well calibrated: that is what discreteness alone produces. &lambda; is an inflation flag only, and genomic control floors it at 1 so it can only ever deflate."
+    ]
+  },
+  "card_gw": {
+    "title": "Genome-wide pN/pS (pooled)",
+    "lead": "One overall ratio pooled across all genes: &Sigma; nonsynonymous SNPs / &Sigma; N sites over &Sigma; synonymous / &Sigma; S sites.",
+    "x": "",
+    "y": "",
+    "read": [
+      "Below 1: pervasive purifying selection, the expected bacterial baseline.",
+      "The bracket is a bootstrap 95% CI from resampling genes; if it excludes 1, the departure is well supported."
+    ],
+    "watch": [
+      "Pooling is dominated by high-SNP genes; it summarises the genome, not any single locus."
+    ]
+  },
+  "card_tested": {
+    "title": "Genes tested",
+    "lead": "Genes with enough SNPs to run the neutrality test (after --min-snps), i.e. the multiple-testing family size.",
+    "x": "",
+    "y": "",
+    "read": [
+      "This is the denominator for BH-FDR and Bonferroni correction across genes."
+    ],
+    "watch": [
+      "Many M. tuberculosis genes are untested for lack of SNPs; absence of a hit is not evidence of neutrality."
+    ]
+  },
+  "card_sig": {
+    "title": "Significant genes",
+    "lead": "Genes rejecting neutrality (pN/pS&ne;1) at the current stringency; toggle FDR(BH) &harr; Bonferroni in the top bar.",
+    "x": "",
+    "y": "",
+    "read": [
+      "BH-FDR controls the expected false-discovery proportion, more permissive, good for screening.",
+      "Bonferroni controls the family-wise error, stricter, good for a confident shortlist."
+    ],
+    "watch": [
+      "The count changes with the toggle; report which one you used."
+    ]
+  }
+};
+HELP.card_lambda={title:"Genomic inflation λ",lead:"How far the whole set of neutrality p-values departs from a uniform null: a diagnostic, not automatically a correction target.",x:"",y:"",
+  read:["λ a little under 1 is the normal reading. The per-gene test is discrete, so even a genuine null falls short of the continuous χ²₁: simulated null genes give λ about 0.90 at 2 to 12 SNPs and about 0.97 at 10 to 60.","λ ≫ 1: many more low p-values than chance. This can be genuine, pervasive purifying selection OR systematic inflation (mapping, reference, filtering, structure).","--genomic-control divides each χ² by λ and re-tests (q reads 'corrected'), and is only appropriate when the high λ is artefactual, not real genome-wide selection."],
+  watch:["λ at or below 1 is not a certificate of calibration, only the discreteness floor; genomic control floors λ at 1 so it can only ever deflate.","In clonal M. tuberculosis, real pervasive selection routinely drives λ well above 1, so do NOT apply genomic control reflexively; reserve it for suspected systematic bias."]};
 function helpHtml(h){
   return '<h4>'+h.title+'</h4><p class="lead">'+h.lead+'</p>'
     +(h.x?'<div class="ax"><b>x</b> — '+h.x+'</div>':'')
@@ -105,13 +288,13 @@ function renderGuide(){
     ['pN/pS','nonsynonymous vs synonymous polymorphism, each divided by its number of sites. &lt;1 purifying · ≈1 neutral · &gt;1 diversifying.'],
     ['N / S sites','the mutational opportunity for nonsynonymous / synonymous change in a gene, κ-weighted for the ts/tv bias.'],
     ['expN = N/(N+S)','fraction of random mutations expected to be nonsynonymous under neutrality — the null for the test.'],
-    ['neutrality test','two-sided exact binomial of observed nonsynonymous SNPs vs expN (H0: pN/pS=1); reported as p, q(BH), p(Bonferroni).'],
+    ['neutrality test','two-sided mid-p binomial of observed nonsynonymous SNPs vs expN (H0: pN/pS=1); reported as p, q(BH), p(Bonferroni).'],
     ['genome-wide pN/pS','one ratio pooled over all genes (Σ SNPs / Σ sites), with a bootstrap 95% CI.'],
     ['selection regime','significant &amp; pN/pS&gt;1 = positive · significant &amp; &lt;1 = purifying · else not significant (often underpowered).'],
     ['κ (kappa)','transition/transversion rate ratio used when counting sites; κ&gt;1 raises S (and lowers N), which raises pN/pS under a ts-skewed spectrum.'],
     ['z(N)','standardized nonsynonymous excess (obs−exp)/SD — a power-aware effect size that stays finite at low counts.'],
     ['pN/pS 95% CI','Wilson interval on the nonsynonymous SNP fraction, mapped to pN/pS; if it excludes 1 the gene departs neutrality.'],
-    ['genomic inflation λ','median χ² of the tested genes ÷ its null — λ≈1 is calibrated; λ≫1 can be real pervasive selection or systematic bias.'],
+    ['genomic inflation λ','median χ² of the tested genes ÷ its null. The discrete test puts a genuine null slightly under 1 (about 0.90 to 0.97 in simulation), so read λ≈1 as normal and λ≫1 as real pervasive selection or systematic bias.'],
     ['SFS pN/pS','pN/pS split by allele frequency; purifying selection makes it fall as frequency rises (deleterious nonsyn stay rare).'],
     ['core vs repetitive','pooled pN/pS for core genes vs PE/PPE/PGRS/IS; a big gap warns of repeat mapping artefacts.'],
   ];
@@ -157,7 +340,28 @@ $("#methods").innerHTML = [
   ["eskaks",M.version]
 ].filter(Boolean).map(([k,v])=>`<span class="chip">${k}: <b>${hesc(v)}</b></span>`).join("")
   + `<div class="prov">Command: <code>${hesc(M.command||"")}</code><br>`
-  + `Inputs: VCF <code>${hesc(M.vcfFile||"?")}</code> · ref <code>${hesc(M.refFile||"?")}</code> · GFF <code>${hesc(M.gffFile||"?")}</code></div>`;
+  + `Inputs: VCF <code>${hesc(M.vcfFile||"?")}</code> · ref <code>${hesc(M.refFile||"?")}</code> · GFF <code>${hesc(M.gffFile||"?")}</code></div>`
+  + sameCodonNote();
+// Same-codon SNPs: each SNP is classified against the REFERENCE codon, so a codon
+// carrying two of them is scored one SNP at a time and its joint (multi-nucleotide)
+// change is never evaluated. Stated next to the provenance so a reader can see how much
+// of the table rests on that approximation, and flagged only where the allele
+// frequencies leave no doubt that the SNPs share a haplotype: in a population VCF two
+// SNPs in one codon usually sit on different backgrounds, where scoring them apart is
+// the correct thing to do.
+function sameCodonNote(){
+  const multi=M.multiSnpCodons||0, cooc=M.cooccurringCodons||0;
+  if(!multi) return "";
+  if(!cooc) return `<div class="prov"><b>Same-codon SNPs:</b> ${multi} codon(s) carry more than one SNP. `
+    + `None is at frequencies that force its SNPs onto a single haplotype, so each was classified `
+    + `against the reference codon on its own.</div>`;
+  const rest = multi>cooc ? ` (of ${multi} codon(s) carrying more than one SNP)` : "";
+  return `<div class="prov"><b>Same-codon SNPs:</b> ${cooc} codon(s)${rest} carry two or more SNPs that `
+    + `the allele frequencies place on the same haplotype. Each SNP is classified against the reference `
+    + `codon on its own, so the joint codon change is not the one reported, and those residues' `
+    + `synonymous / nonsynonymous calls, plus the ${hesc(M.ratioName)} they feed, can be wrong. `
+    + `Re-run with <code>-vv</code> to list the codons.</div>`;
+}
 
 // ── BH threshold p* (for the given stringency) ────────────────────────
 function pThreshold(){
@@ -424,7 +628,7 @@ function panelHits(){
 }
 // ── P-value QQ + genomic inflation λ (λ comes from the backend) ───────
 function panelQQ(){
-  // Use the log-space −log10(p) so genes whose exact p underflowed to 0 still plot.
+  // Use the log-space −log10(p) so genes whose linear-space p underflowed to 0 still plot.
   const rows=genes.filter(g=>g.p!=null&&isFinite(g.p))
     .map(g=>({p:g.p, nlp:(g.nlp!=null&&isFinite(g.nlp))?g.nlp:-Math.log10(Math.max(g.p,1e-300))}))
     .sort((a,b)=>a.p-b.p);

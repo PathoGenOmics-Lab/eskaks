@@ -78,8 +78,9 @@ pub struct GenePnPs {
     pub strand: char,
     /// Chromosome
     pub chrom: String,
-    /// Two-sided exact-binomial p-value for H0: pN/pS = 1 (NaN if untested:
-    /// no SNPs, --af-weighted, or a degenerate expected fraction)
+    /// Two-sided mid-p binomial p-value for H0: pN/pS = 1 (NaN if untested:
+    /// no SNPs, --af-weighted, or a degenerate expected fraction). Mid-p, not the
+    /// exact test: see `stats::binomial_two_sided_p` for the calibration reason.
     pub p_value: f64,
     /// Benjamini-Hochberg FDR q-value across all tested genes (NaN if untested)
     pub q_value: f64,

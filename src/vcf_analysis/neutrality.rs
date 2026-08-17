@@ -23,13 +23,16 @@ pub fn apply_multiple_testing(results: &mut [GenePnPs], exclude_repetitive: bool
 /// Genomic-control inflation factor λ = median(χ²) / median(χ²₁) over the tested
 /// genes (finite q-value = in the correction family). Per gene, χ² = (Φ⁻¹(1 − p/2))².
 ///
-/// Caveat: the per-gene neutrality test is an EXACT, discrete two-sided binomial,
-/// which is conservative under H0, so its χ² is stochastically smaller than the
-/// continuous χ²₁ — a genuine null yields λ < 1 here, NOT ≈ 1. λ is therefore only
-/// meaningful as an inflation flag (λ ≫ 1 signals the significance inflation
-/// expected in clonal organisms where genes are not independent); a λ ≤ 1 is not
-/// evidence of good calibration and `apply_genomic_control` floors λ at 1 so it can
-/// only ever deflate. NaN with < 2 tested genes.
+/// Caveat: the per-gene neutrality test is a DISCRETE two-sided binomial, so its χ²
+/// is still stochastically smaller than the continuous χ²₁ and a genuine null yields
+/// λ slightly BELOW 1 here, not ≈ 1. Mid-p (see `stats::binomial_two_sided_p`) closed
+/// most of that gap but cannot close all of it: simulating genes under the exact null
+/// gives λ ≈ 0.90 at 2 to 12 SNPs and λ ≈ 0.97 at 10 to 60, against λ ≈ 0.10 and 0.49
+/// under the whole-point-mass convention this replaced. λ is therefore only meaningful
+/// as an inflation flag (λ ≫ 1 signals the significance inflation expected in clonal
+/// organisms where genes are not independent); a λ ≤ 1 is not evidence of good
+/// calibration and `apply_genomic_control` floors λ at 1 so it can only ever deflate.
+/// NaN with < 2 tested genes.
 pub fn genomic_inflation_lambda(results: &[GenePnPs]) -> f64 {
     let mut chi2: Vec<f64> = results
         .iter()

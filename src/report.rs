@@ -46,6 +46,12 @@ pub struct ReportMeta<'a> {
     /// match the CLI summary and the all-genes pooled estimate, not the filtered slice).
     pub total_genes: usize,
     pub genes_with_snps: usize,
+    /// Codons carrying two or more SNPs, and the subset whose allele frequencies put
+    /// those SNPs on one haplotype. Each SNP is classified against the reference codon
+    /// on its own, so the joint change behind the second count is never evaluated: the
+    /// report says so rather than presenting those calls as settled.
+    pub multi_snp_codons: usize,
+    pub cooccurring_codons: usize,
 }
 
 /// JSON-escape a string for embedding in the report. `<` and `>` are escaped as
@@ -186,12 +192,12 @@ pub fn write_html_report(
         .join(",");
     let _ = writeln!(
         data,
-        "\"meta\":{{\"samples\":{},\"code\":\"{}\",\"kappa\":{},\"afWeighted\":{},\"fdr\":{},\"minSnps\":{},\"mk\":{},\"mkFixedAf\":{},\"ratioName\":\"{}\",\"lambda\":{},\"genomicControl\":{},\"excludeRepetitive\":{},\"version\":\"{}\",\"command\":\"{}\",\"vcfFile\":\"{}\",\"refFile\":\"{}\",\"gffFile\":\"{}\",\"sfsEdges\":[{}]}},",
+        "\"meta\":{{\"samples\":{},\"code\":\"{}\",\"kappa\":{},\"afWeighted\":{},\"fdr\":{},\"minSnps\":{},\"mk\":{},\"mkFixedAf\":{},\"ratioName\":\"{}\",\"lambda\":{},\"genomicControl\":{},\"excludeRepetitive\":{},\"version\":\"{}\",\"command\":\"{}\",\"vcfFile\":\"{}\",\"refFile\":\"{}\",\"gffFile\":\"{}\",\"multiSnpCodons\":{},\"cooccurringCodons\":{},\"sfsEdges\":[{}]}},",
         meta.n_samples, esc(meta.genetic_code), num(meta.kappa), meta.af_weighted,
         num(meta.fdr), meta.min_snps, meta.mk, num(meta.mk_fixed_af), ratio_name,
         num(meta.lambda), meta.genomic_control, meta.exclude_repetitive,
         esc(meta.version), esc(meta.command), esc(meta.vcf_file), esc(meta.ref_file),
-        esc(meta.gff_file), sfs_edges
+        esc(meta.gff_file), meta.multi_snp_codons, meta.cooccurring_codons, sfs_edges
     );
 
     // summary
