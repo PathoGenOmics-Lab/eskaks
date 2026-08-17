@@ -76,6 +76,8 @@ When a single VCF is provided, allele frequencies are taken from INFO/AF or calc
 | `--variants` | Write a [per-coding-SNP table](#per-variant-table-variants) (`<prefix>_variants.<ext>`) with position, `S315T`-style change, AF, and effect | off |
 | `--diversity` | Write per-gene [πN/πS, Watterson θ, Tajima's D](#population-diversity-diversity) (`<prefix>_diversity.<ext>`); needs a sample size | off |
 | `--codon-scan` | Write the [per-codon recurrence scan](#codon-scan) (`<prefix>_codons.<ext>`): codons ranked by how many *distinct* nonsynonymous alleles they carry | off |
+| `--tree <FILE>` | Newick tree over the cohort's samples: adds [independent-origin counting](#tree-origins) to `--codon-scan` and `--variants`, so a *single* allele that arose many times is visible as convergent | none |
+| `--min-origin-support <N>` | Minimum carriers in the clade an origin subtends for it to count (requires `--tree`) | `2` |
 | `--mk` | Also run a per-gene [McDonald-Kreitman test](#mcdonald-kreitman-test) (writes `<prefix>_mk.<ext>`) | off |
 | `--mk-fixed-af <FLOAT>` | AF at/above which a variant is "fixed" (divergence) vs polymorphic in the MK test | `0.99` |
 | `--bootstrap <INT>` | Bootstrap replicates for a 95% CI on the genome-wide pooled pN/pS (0 = off) | `0` |
@@ -452,6 +454,20 @@ eskaks vcf --ref ref.fa --gff genes.gff3 --vcf calls.vcf \
 awk -F'\t' 'NR==1 || $13=="true"' results_variants.tsv
 ```
 
+### How many times did this allele arise: `Origins` (`--tree`) { #variants-origins }
+
+With [`--tree`](#tree-origins) one further column is appended:
+
+| Column | Value | Meaning |
+|---|---|---|
+| `Origins` | an integer | How many times this ALT arose independently on the supplied phylogeny, by Fitch parsimony over the samples carrying it, counting only origins whose clade holds it in at least `--min-origin-support` samples. |
+| | `NA` | The allele has no per-sample carriers (an AF-only record, or a site where every genotype is a no-call), so its history is unknown, and **not** zero. |
+
+This is the row on which a single-allele convergent site states its case. Every other
+column reports *rpoB* S450L as one ordinary allele; `Origins` is where it says it arose
+twenty times over. Opt-in and appended last (after `Codon_Change` when both flags are
+given); in JSON it is the extra `origins` key (integer or `null`).
+
 ## Per-codon recurrence scan (`--codon-scan`) { #codon-scan }
 
 A per-gene pN/pS averages over hundreds of residues, so a single strongly selected
@@ -528,8 +544,21 @@ File: `<prefix>_codons.tsv` (or `.csv` / `.json`, with lowercase keys).
 | Gene_pN_pS | The parent gene's pN/pS, joined so a globally elevated gene is not misread as a codon-specific hit |
 | Gene_Q_BH | The parent gene's neutrality-test BH q-value (`NA` if the gene was not tested, e.g. dropped by `--min-snps`) |
 
-Rows are sorted by `P_Recurrence` ascending (`NA` last), then `Nonsyn_Alleles`
-descending, `Carriers_Max` descending, gene, and residue.
+With [`--tree`](#tree-origins), five further columns are appended. They are absent
+entirely without it, so a run with no tree writes exactly the table above:
+
+| Column | Description |
+|---|---|
+| Nonsyn_Origins | `E_c`: independent origins summed over the codon's missense alleles. Equals `Nonsyn_Alleles` when every allele arose once. `NA` when any of them has no per-sample carriers |
+| Max_Allele_Origins | The largest single allele's origin count. `Nonsyn_Alleles = 1` with `Max_Allele_Origins = 20` is the *rpoB* S450L shape: one allele, twenty independent origins |
+| Exp_Nonsyn_Origins | `A_c · λ`: origins expected here by chance. The effect-size anchor for `P_Origins` |
+| P_Origins | One-sided Poisson upper tail `P(E ≥ E_c)`. `NA` on the same grounds as `P_Recurrence`, plus when `E_c` is unknown |
+| Q_Origins | Benjamini-Hochberg q-value over the same whole-coding-genome family, corrected separately: these are two hypotheses, not one |
+
+Rows are sorted by the **better of the two p-values** ascending (`NA` last), then
+`Nonsyn_Origins` descending, `Nonsyn_Alleles` descending, `Carriers_Max` descending,
+gene, and residue. Without a tree `P_Origins` is `NA` everywhere and this is exactly the
+old ordering: `P_Recurrence` ascending.
 
 ### When the test is not meaningful
 
@@ -571,7 +600,10 @@ and `Poss_Syn` are printed so you can see the arithmetic for yourself.
    the scan recovers *gyrA* D94 (`X = 6`, p ≈ 4e-13) and *embB* M306 (`X = 4`, p ≈ 8e-8)
    comfortably and *katG* S315 (`X = 3`) marginally, but it does **not** flag *rpoB*
    S450L or *rpsL* K43R: those are single-allele signals (`X = 2`, p ≈ 2e-4, hundreds
-   expected genome-wide by chance) whose evidence is carrier recurrence.
+   expected genome-wide by chance) whose evidence is carrier recurrence. Supplying a
+   phylogeny with [`--tree`](#tree-origins) closes exactly this gap, and nothing else
+   does: carrier counts cannot, because an ancestral mutation in an expanded clade has
+   the same shape as many independent origins.
 2. **Clonality.** Carrier counts are reported and never tested. Without a phylogeny, one
    old mutation in an expanded lineage is indistinguishable from many origins.
 3. **A mutational or mapping hotspot is indistinguishable from selection.** Simulated
@@ -604,6 +636,121 @@ The levers that matter here are the existing ones: `--min-af` sets what counts a
 real allele (and so sets `θ`), `--min-depth` and `--pass-only` keep artefactual alleles
 out of `X_c`, `--exclude-repetitive` controls the family, and `--fdr` sets the
 significance threshold reported in the summary.
+
+### Independent origins (`--tree`) { #tree-origins }
+
+`X_c` counts distinct alleles because, with no phylogeny, "one distinct allele is at
+minimum one mutational event" is the only recurrence claim that can be made. That is why
+the scan finds *gyrA* D94 and is blind to *rpoB* S450L: one allele is one allele whether
+it arose once and spread to two thousand isolates or arose fifty times independently.
+
+A tree makes the difference observable. Given which samples carry an allele (which
+eskaks already knows, from the [per-sample carrier sets](#same-codon-snps)), Fitch
+parsimony returns the minimum number of times that allele must have arisen on the tree.
+Summing that over a codon's missense alleles gives
+
+\[ E_c = \sum_a h_a, \qquad E_c \sim \mathrm{Poisson}(A_c \cdot \lambda), \qquad
+   \lambda = \frac{\sum_c E_c}{\sum_c A_c}, \qquad
+   P_\mathrm{Origins} = P(E \ge E_c) \]
+
+where `h_a` is allele `a`'s number of independent origins.
+
+**This is not a second feature.** When every allele arose once, `E_c` is exactly `X_c`:
+it is the same statistic with the "at minimum one event" lower bound replaced by the
+count. The null generalises the same way: Binomial(`A_c`, `θ`) becomes
+Poisson(`A_c·λ`), because `E_c` has no ceiling of 9 the way an allele count does. `λ` is
+pooled over the *same* whole-coding-genome family as `θ`, so it is directly comparable
+to it; both are printed in the run summary.
+
+At *M. tuberculosis* scale (~1.33e6 codons) `λ` lands around 0.006 to 0.013, so a codon
+with `A_c = 5` expects 0.03 to 0.07 origins and `E_c ≥ 4` clears a genome-wide BH
+threshold. **`--tree` therefore finds *rpoB* S450L decisively**: even 20 supported
+origins against an expectation of 0.03 gives p ≈ 6e-50. *rpsL* K43R follows.
+
+```bash
+eskaks vcf --ref H37Rv.fasta --gff H37Rv.gff3 --vcf-list samples.txt \
+  --genetic-code 11 --codon-scan --variants --exclude-repetitive \
+  --tree samples.nwk -o mtb_origins
+# → mtb_origins_codons.tsv, now also ranked by P_Origins
+# → mtb_origins_variants.tsv, with an Origins column per allele
+```
+
+`P_Recurrence` is untouched and stays correct within its own family. The two are **two
+nulls about one codon**: `P_Recurrence` asks whether this residue collected an unusual
+number of *distinct* alleles, `P_Origins` whether its alleles arose an unusual number of
+*times*. A hit in either is a candidate; neither replaces the other.
+
+#### `--min-origin-support`, and why its default is 2
+
+Raw parsimony is fragile here, and not marginally so. A genuine single-origin clade
+allele plus **three random false calls** scores four gains, which at genome scale is a
+BH-significant hit assembled out of sequencing error. Counting an origin only when the
+clade below it carries the allele in at least `--min-origin-support` samples removes that
+failure mode outright (a singleton false call can never subtend two carriers) and in
+simulation it also demotes a pure calling artefact *below* the real signals it otherwise
+outranks (a 92-origin artefact falls to 7 while a real 51-origin signal falls to 27).
+The same filter absorbs the origin inflation an unresolved (polytomous) tree produces.
+
+The threshold biases **conservative**: a mutation that genuinely arose once in one
+sampled genome goes uncounted. That is the right direction for a scan over a million
+codons. Use `--min-origin-support 1` only on a cohort whose calls you trust completely.
+
+#### Tip names must match the samples exactly
+
+eskaks identifies samples by **column position** everywhere else; a tree identifies them
+by name. The join is therefore strict, and any disagreement in either direction is a hard
+error naming the counts and examples. Silently dropping the unmatched side would change
+every origin count while changing nothing a reader can see.
+
+The naming rule is fixed, so a run is reproducible:
+
+| Input | Sample name |
+|---|---|
+| one VCF (multi-sample) | the sample column names of the `#CHROM` header, in column order |
+| many VCFs (`--vcf-list`, repeated `--vcf`) | the file's own single sample column when it has exactly one, else its basename with `.vcf` / `.vcf.gz` stripped (`data/ERR1234.vcf.gz` → `ERR1234`) |
+
+Prune the tree to the samples you are analysing, or rename them, before the run.
+
+Newick support: branch lengths, internal labels and bootstrap values (parsed and
+discarded, since parsimony uses neither), `[...]` comments including NHX annotations,
+quoted labels with `''` as the escape, polytomies, and gzipped files. Underscores in
+unquoted labels are kept **literal**, not read as spaces, so `ERR_1234` stays
+`ERR_1234`. A file holding more than one tree is an error rather than a guess.
+
+#### Limitations you must read before using the p-values { #origin-limitations }
+
+1. **Genotyping error inflates origins.** Mitigated but not eliminated by
+   `--min-origin-support`; without it, three false calls fake significance. Keep
+   `--pass-only`, `--min-depth` and `--min-af` doing their jobs.
+2. **Missing data is invisible.** A carrier set cannot distinguish REF from a no-call, so
+   a hole inside a carrier clade makes "1 gain + 1 loss" and "2 gains" tie under
+   parsimony. Heavy missingness inflates `E_c`.
+3. **Mutational and mapping hotspots are indistinguishable from selection**, the same
+   caveat the allele-count scan carries, and artefacts are top hits here by construction.
+   Pair with `--exclude-repetitive`.
+4. **Recombination reads as convergence.** Near-zero in *M. tuberculosis*; not in every
+   organism, and eskaks is not *M. tuberculosis*-only.
+5. **An unresolved tree inflates origins.** The support filter helps; a well-resolved
+   tree helps more.
+6. **`E_c` is a property of the sampling frame, not of nature.** A treatment-enriched
+   collection samples more independent resistance events, so absolute origin counts are
+   not portable between cohorts.
+7. **The p-values are not literally believable.** Poisson assumes homogeneous
+   mutability, which no genome has. The **ranking** is what is trustworthy, exactly as
+   the module documentation already says about `θ`.
+8. **A cohort with no evidence of convergence gets no hit, correctly.** If a collection
+   is dominated by one MDR clade, S450L may have 1–2 origins and 800 carriers, and
+   nothing here will flag it. eskaks reports what the cohort shows, not what the
+   literature knows.
+
+!!! note "If you have no tree"
+    There is deliberately no tree-free fallback. Dispersion-style statistics (how far
+    apart the carriers sit) were tested and rejected: simulated against a known number of
+    origins, an allele that arose **twice** scores 0.504 and one that arose **25 times**
+    scores 0.615, while a pure calling artefact tops the ranking at 0.98. Such a statistic
+    detects, but it does not measure, and it cannot carry a p-value that survives
+    genome-wide correction. A ranking that scores 2 origins the same as 25 would be read
+    as a convergence ranking no matter what the documentation said.
 
 ## Population diversity (`--diversity`)
 

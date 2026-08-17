@@ -120,6 +120,39 @@ fn run_shared_codons(prefix: &str, format: &str) {
     assert!(status.success(), "eskaks vcf --shared-codons ({format}) exited non-zero");
 }
 
+/// `--tree` appends the independent-origin columns to BOTH the per-codon scan and the
+/// per-variant table, so it gets its own invocation and its own golden pair for the same
+/// reason `--shared-codons` does: the tables written without it must not move.
+fn run_tree(prefix: &str, format: &str) {
+    let status = Command::new(bin())
+        .current_dir(manifest())
+        .args([
+            "vcf",
+            "--ref",
+            "examples/toy_genome/reference.fasta",
+            "--gff",
+            "examples/toy_genome/genes.gff3",
+            "--vcf",
+            "examples/toy_genome/variants_multisample.vcf",
+            "--genetic-code",
+            "11",
+            "--workers",
+            "1",
+            "--codon-scan",
+            "--variants",
+            "--tree",
+            "examples/toy_genome/samples.nwk",
+            "--format",
+            format,
+            "-o",
+            prefix,
+            "--quiet",
+        ])
+        .status()
+        .expect("failed to spawn eskaks");
+    assert!(status.success(), "eskaks vcf --tree ({format}) exited non-zero");
+}
+
 /// Two numbers are "equal" within cross-platform libm noise. Real value changes are
 /// orders of magnitude larger than this; last-bit differences from `exp`/`ln` are orders
 /// of magnitude smaller.
@@ -333,6 +366,47 @@ fn golden_shared_codons_matches() {
     assert!(
         mismatches.is_empty(),
         "the shared-codon marks drifted from the golden snapshot:\n{}\n\
+         If the change is intended, regenerate with `BLESS=1 cargo test --test golden` \
+         and review the diff before committing.",
+        mismatches.join("\n")
+    );
+}
+
+#[test]
+fn golden_tree_origins_match() {
+    let bless = std::env::var_os("BLESS").is_some();
+    let prefix = std::env::temp_dir().join("eskaks_golden_tree");
+    let prefix = prefix.to_str().expect("temp path is valid UTF-8");
+    let golden_dir = PathBuf::from(manifest()).join("tests/golden");
+
+    let mut mismatches = Vec::new();
+    for (format, ext) in [("tsv", "tsv"), ("json", "json")] {
+        run_tree(prefix, format);
+        for (table, golden_name) in
+            [("codons", "toy_codons_tree"), ("variants", "toy_variants_tree")]
+        {
+            let produced = std::fs::read_to_string(format!("{prefix}_{table}.{ext}"))
+                .unwrap_or_else(|e| panic!("cannot read produced {table}.{ext}: {e}"));
+            let golden_path = golden_dir.join(format!("{golden_name}.{ext}"));
+            if bless {
+                std::fs::write(&golden_path, &produced).expect("write golden");
+                continue;
+            }
+            let golden = std::fs::read_to_string(&golden_path).unwrap_or_else(|_| {
+                panic!(
+                    "missing golden {}; run `BLESS=1 cargo test --test golden` to create it",
+                    golden_path.display()
+                )
+            });
+            if let Err(reason) = compare_tolerant(&produced, &golden) {
+                mismatches.push(format!("{golden_name}.{ext}: {reason}"));
+            }
+        }
+    }
+
+    assert!(
+        mismatches.is_empty(),
+        "the independent-origin columns drifted from the golden snapshot:\n{}\n\
          If the change is intended, regenerate with `BLESS=1 cargo test --test golden` \
          and review the diff before committing.",
         mismatches.join("\n")

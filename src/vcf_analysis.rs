@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 mod codons;
 mod mnv;
 mod neutrality;
+mod origins;
 mod output;
 mod plots;
 mod pnps;
@@ -24,6 +25,7 @@ mod tests;
 
 // Public API (re-exported so callers keep using `vcf_analysis::…`).
 pub use codons::{compute_codon_scan, CodonRow, CodonScan};
+pub use origins::{cohort_sample_names, AlleleOrigins};
 pub use neutrality::{apply_genomic_control, apply_multiple_testing, genomic_inflation_lambda};
 pub use output::{
     genome_wide_diversity, write_codon_scan, write_diversity, write_mk_results, write_results,
@@ -216,6 +218,17 @@ pub struct Variant {
     /// Written as the `Codon_Shared` column under `--variants --shared-codons`. Kept out
     /// of the default table so the existing one stays byte-identical for its parsers.
     pub codon_shared: Option<bool>,
+    /// How many times this ALT arose independently on the phylogeny supplied with
+    /// `--tree`, by Fitch parsimony over the samples carrying it, counting only origins
+    /// whose clade carries it in at least `--min-origin-support` samples (see
+    /// [`crate::tree`]).
+    ///
+    /// `None` without `--tree`, and also for an allele with no per-sample carriers,
+    /// which is `NA` rather than zero. This is the one column in which *rpoB* S450L is
+    /// visible for what it is: one allele that arose many times over.
+    ///
+    /// Written as the `Origins` column under `--variants --tree`.
+    pub origins: Option<u32>,
 }
 
 /// Number of allele-frequency bins for the site-frequency-spectrum panel.

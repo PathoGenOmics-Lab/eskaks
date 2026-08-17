@@ -385,6 +385,11 @@ pub fn compute_pn_ps(
                     // Filled in below, once every SNP of the gene is known and
                     // the codons can be grouped.
                     codon_shared: None,
+                    // Filled in by `AlleleOrigins::attach` when a tree was supplied.
+                    // Keyed back to the SNP records rather than plumbed through here, so
+                    // an allele shared by two overlapping genes costs one carrier bitset
+                    // and not one per row.
+                    origins: None,
                 });
                 variant_carriers.push(p.carriers);
 
