@@ -17,6 +17,7 @@
      tracks whatever the newest published release is without anyone touching this file.
      There is still deliberately no bioconda or crates.io badge, because eskaks is on
      neither. -->
+<a href="https://doi.org/10.5281/zenodo.21992153"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21992153-%230f80c1?style=flat-square&labelColor=21262d"><img alt="DOI" src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21992153-%230f80c1?style=flat-square"></picture></a>
 <a href="https://github.com/PathoGenOmics-Lab/eskaks/releases/latest"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/github/v/release/PathoGenOmics-Lab/eskaks?style=flat-square&color=%232ea043&labelColor=21262d"><img alt="Latest release" src="https://img.shields.io/github/v/release/PathoGenOmics-Lab/eskaks?style=flat-square&color=%232ea043"></picture></a>
 <a href="https://pathogenomics-lab.github.io/eskaks/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/docs-online-%230a7ea4?style=flat-square&labelColor=21262d"><img alt="Documentation" src="https://img.shields.io/badge/docs-online-%230a7ea4?style=flat-square"></picture></a>
 <a href="https://github.com/PathoGenOmics-Lab/eskaks/actions/workflows/ci.yml"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/github/actions/workflow/status/PathoGenOmics-Lab/eskaks/ci.yml?branch=main&style=flat-square&label=CI&labelColor=21262d"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/PathoGenOmics-Lab/eskaks/ci.yml?branch=main&style=flat-square&label=CI"></picture></a>
@@ -133,18 +134,26 @@ the diagrams, formulas and cross-links work.
 
 If you use eskaks in your research, please cite:
 
-> Ruiz-Rodriguez P, Coscollá M. **eskaks: fast pairwise dN/dS and per-gene pN/pS from sequences or VCFs.** https://github.com/PathoGenOmics-Lab/eskaks
+> Ruiz-Rodriguez P, Coscollá M. **eskaks: fast pairwise dN/dS and per-gene pN/pS from sequences or VCFs.** Zenodo, 2026. https://doi.org/10.5281/zenodo.21992154
 
 ```bibtex
 @software{ruiz-rodriguez_eskaks_2026,
-  title   = {eskaks: fast pairwise dN/dS and per-gene pN/pS from sequences or VCFs},
-  author  = {Ruiz-Rodriguez, Paula and Coscoll{\'a}, Mireia},
-  year    = {2026},
-  url     = {https://github.com/PathoGenOmics-Lab/eskaks},
-  version = {0.1.0},
-  license = {GPL-3.0-only}
+  title     = {eskaks: fast pairwise dN/dS and per-gene pN/pS from sequences or VCFs},
+  author    = {Ruiz-Rodriguez, Paula and Coscoll{\'a}, Mireia},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.21992154},
+  url       = {https://github.com/PathoGenOmics-Lab/eskaks},
+  version   = {0.1.0},
+  license   = {GPL-3.0-only}
 }
 ```
+
+That DOI is the archive of **0.1.0** specifically, which is what a methods section
+should carry: it pins the reference to the version the results came from. To cite
+eskaks in general, use the concept DOI
+[10.5281/zenodo.21992153](https://doi.org/10.5281/zenodo.21992153), which always
+resolves to the newest version.
 
 ## License
 

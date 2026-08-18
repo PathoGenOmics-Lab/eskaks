@@ -120,5 +120,5 @@ faster than existing tools.
 | Parallel | :material-check: (rayon) | :material-close: | :material-close: | :material-close: |
 
 !!! quote "Citation"
-    Ruiz-Rodriguez P, Coscolla M (2026). *eskaks: fast pairwise dN/dS and per-gene pN/pS.*
-    <https://github.com/PathoGenOmics-Lab/eskaks>
+    Ruiz-Rodriguez P, Coscollá M (2026). *eskaks: fast pairwise dN/dS and per-gene pN/pS
+    from sequences or VCFs.* Zenodo. <https://doi.org/10.5281/zenodo.21992154>
