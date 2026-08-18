@@ -13,8 +13,11 @@
 <!-- Each badge is wrapped in <picture> so it gets a darker label segment under a dark
      theme, matching get_MNV. The CI and Discussions badges are live queries rather than
      hand-written text: a badge that has to be edited to stay true eventually stops being
-     edited, and then it lies. There is deliberately no bioconda or crates.io badge yet,
-     because eskaks is on neither, and no version badge, because no release is tagged. -->
+     edited, and then it lies. The release badge is one of those live queries, so it
+     tracks whatever the newest published release is without anyone touching this file.
+     There is still deliberately no bioconda or crates.io badge, because eskaks is on
+     neither. -->
+<a href="https://github.com/PathoGenOmics-Lab/eskaks/releases/latest"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/github/v/release/PathoGenOmics-Lab/eskaks?style=flat-square&color=%232ea043&labelColor=21262d"><img alt="Latest release" src="https://img.shields.io/github/v/release/PathoGenOmics-Lab/eskaks?style=flat-square&color=%232ea043"></picture></a>
 <a href="https://pathogenomics-lab.github.io/eskaks/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/docs-online-%230a7ea4?style=flat-square&labelColor=21262d"><img alt="Documentation" src="https://img.shields.io/badge/docs-online-%230a7ea4?style=flat-square"></picture></a>
 <a href="https://github.com/PathoGenOmics-Lab/eskaks/actions/workflows/ci.yml"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/github/actions/workflow/status/PathoGenOmics-Lab/eskaks/ci.yml?branch=main&style=flat-square&label=CI&labelColor=21262d"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/PathoGenOmics-Lab/eskaks/ci.yml?branch=main&style=flat-square&label=CI"></picture></a>
 <a href="LICENSE"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square&labelColor=21262d"><img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPL%20v3-%23af64d1?style=flat-square"></picture></a>
@@ -63,7 +66,16 @@ on the Li model).
 
 ## Install
 
-Build from source, which needs a [Rust](https://www.rust-lang.org/tools/install)
+Download a binary for your platform from the
+[latest release](https://github.com/PathoGenOmics-Lab/eskaks/releases/latest). Every
+release ships macOS (Apple silicon and Intel), Linux x86_64 and Windows x86_64 builds
+with a `SHA256SUMS` file and signed build provenance, which `gh` can check for you:
+
+```bash
+gh attestation verify eskaks-<version>-<platform>.tar.gz --owner PathoGenOmics-Lab
+```
+
+Or build from source, which needs a [Rust](https://www.rust-lang.org/tools/install)
 toolchain of 1.85 or newer:
 
 ```bash
@@ -71,8 +83,7 @@ git clone https://github.com/PathoGenOmics-Lab/eskaks.git
 cd eskaks && make release && cp target/release/eskaks ~/.local/bin/
 ```
 
-`cargo install eskaks`, pre-built binaries and a Bioconda recipe will arrive with the
-first tagged release. Until then this is the only route, and the
+`cargo install eskaks` and a Bioconda recipe are not available yet. The
 [installation guide](https://pathogenomics-lab.github.io/eskaks/installation/) has the
 details, including what `make release` does differently from a plain `cargo build`.
 

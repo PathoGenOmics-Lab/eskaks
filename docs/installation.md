@@ -6,9 +6,25 @@ description: >-
 
 # Installation
 
+## From a release
+
+Every tagged release attaches a binary for macOS (Apple silicon and Intel), Linux
+x86_64 and Windows x86_64. Take the one for your platform from the
+[latest release](https://github.com/PathoGenOmics-Lab/eskaks/releases/latest),
+unpack it, and put `eskaks` on your `PATH`.
+
+Each release also carries a `SHA256SUMS` file and a signed build provenance
+attestation, so you can check that the file you downloaded is the one the release
+workflow built, rather than trusting that the download went where you meant it to:
+
+```bash
+shasum -a 256 -c SHA256SUMS
+gh attestation verify eskaks-<version>-<platform>.tar.gz --owner PathoGenOmics-Lab
+```
+
 ## From source
 
-eskaks currently installs by building from source with a
+eskaks also builds from source with a
 [Rust](https://www.rust-lang.org/tools/install) toolchain (Rust ≥ 1.85):
 
 ```bash
@@ -23,10 +39,9 @@ The binary is written to `target/release/eskaks`. Put it on your `PATH`:
 cp target/release/eskaks ~/.local/bin/
 ```
 
-!!! info "Packages are coming"
-    `cargo install eskaks`, pre-built binaries, and a bioconda recipe
-    (`conda install -c bioconda eskaks`) will ship with the first tagged release.
-    Until then, build from source as above.
+!!! info "Package managers are not there yet"
+    `cargo install eskaks` and a bioconda recipe (`conda install -c bioconda eskaks`)
+    are not available. Use a release binary or build from source.
 
 ## Requirements
 
