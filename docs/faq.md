@@ -111,7 +111,13 @@ Each run ends with a short "Done" confirmation (counts, model, output files) on 
 
 ## How do I cite eskaks?
 
-See the [CITATION.cff](https://github.com/PathoGenOmics-Lab/eskaks/blob/main/CITATION.cff) file, or use GitHub's "Cite this repository" button.
+Cite the archived version you actually ran. Each release is deposited on Zenodo, and 0.1.0 is [10.5281/zenodo.21992154](https://doi.org/10.5281/zenodo.21992154):
+
+> Ruiz-Rodriguez P, Coscollá M. **eskaks: fast pairwise dN/dS and per-gene pN/pS from sequences or VCFs.** Zenodo, 2026. <https://doi.org/10.5281/zenodo.21992154>
+
+To refer to eskaks in general rather than to one version, use the concept DOI [10.5281/zenodo.21992153](https://doi.org/10.5281/zenodo.21992153), which always resolves to the newest release.
+
+The [CITATION.cff](https://github.com/PathoGenOmics-Lab/eskaks/blob/main/CITATION.cff) file carries the same metadata in machine-readable form, and GitHub's "Cite this repository" button reads it to hand you BibTeX or APA directly.
 
 ## What is the difference between dN/dS and pN/pS?
 

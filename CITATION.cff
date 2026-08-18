@@ -51,12 +51,21 @@ url: "https://pathogenomics-lab.github.io/eskaks/"
 version: "0.1.0"
 license: GPL-3.0-only
 
-# `date-released` is the day the 0.1.0 tag was cut. There is still no `doi`, and it
-# stays absent rather than becoming a placeholder: CFF treats it as optional exactly
-# so that unarchived software can be cited honestly, and a DOI that resolves to
-# nothing is worse in a bibliography than no DOI at all. Add it when the release is
-# archived, in the same commit that records the archive.
+# `date-released` is the day the 0.1.0 tag was cut.
 date-released: "2026-08-18"
+
+# Zenodo mints two DOIs and they are not interchangeable. `doi` here is the
+# VERSION DOI, which resolves to the 0.1.0 archive and nothing else, because this
+# file also declares `version: "0.1.0"` and a record that says 0.1.0 while pointing
+# at whatever is newest is a record that stops being true on the next release. The
+# concept DOI below resolves to the latest version instead, and is the one to cite
+# when the reference is to eskaks in general rather than to the version a result
+# was produced with.
+doi: "10.5281/zenodo.21992154"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.21992153"
+    description: Concept DOI, resolves to the most recent version of eskaks.
 
 keywords:
   - dN/dS
