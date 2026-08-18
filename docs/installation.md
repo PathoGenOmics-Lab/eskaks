@@ -46,6 +46,10 @@ cp target/release/eskaks ~/.local/bin/
 ## Requirements
 
 - [Rust](https://www.rust-lang.org/tools/install) ≥ 1.85.0, for the source build.
+- A C compiler, also for the source build. eskaks itself is Rust, but it reads
+  compressed input through `needletail`, which pulls `liblzma-sys` and `zstd-sys`,
+  and those build vendored C. A release binary needs neither: it links only the
+  platform C library.
 
 ## Performance tip
 
