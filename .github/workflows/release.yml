@@ -30,7 +30,7 @@ on:
 # one halfway leaves a draft release with some platforms attached and some not.
 # Queue instead of cancelling.
 concurrency:
-  group: release-${{ github.event.inputs.tag || github.ref }}
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 # Read-only by default. The two jobs that need to write to the release say so
@@ -125,7 +125,7 @@ jobs:
       # pushed without bumping Cargo.toml is an easy mistake and produces a
       # release whose contents disagree with its name, which is only ever found
       # by a confused user weeks later.
-      - name: The binary runs and reports a version
+      - name: The binary reports the version the tag claims
         shell: bash
         run: |
           set -euo pipefail
@@ -140,7 +140,15 @@ jobs:
             echo "cross-built for x86_64 on an arm64 runner, skipping execution"
             exit 0
           fi
-          "$bin" --version
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          want="${tag#v}"
+          # `eskaks --version` prints "eskaks <version> (<short sha>)".
+          got=$("$bin" --version | awk '{print $2}')
+          echo "the tag says $want, the binary says $got"
+          if [ "$want" != "$got" ]; then
+            echo "::error::tag $tag claims version $want but the binary reports $got" >&2
+            exit 1
+          fi
 
       - name: Attach to the draft release
         uses: softprops/action-gh-release@v3
@@ -196,7 +204,14 @@ jobs:
       - name: Attest the built binaries
         uses: actions/attest-build-provenance@v4
         with:
-          subject-path: release-assets/*.tar.gz release-assets/*.zip
+          # One glob per line. actions/attest splits this value on commas and
+          # newlines only, so a space-separated list survives as a single pattern
+          # containing a space, matches nothing, and the step dies with
+          # "Could not find subject at path". The patterns are globbed together
+          # and only a zero TOTAL is an error, so a missing platform leg is fine.
+          subject-path: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
 
       # Left as a draft on purpose. Publishing is the one step a person should
       # take after looking at what is attached, because it is the step that
