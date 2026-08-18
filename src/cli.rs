@@ -38,7 +38,7 @@ EXAMPLES:
   eskaks vcf --ref g.fa --gff g.gff3 --vcf v.vcf   # per-gene pN/pS from variants
 
 Run `eskaks help fasta` or `eskaks help vcf` for all options and more examples.
-Docs & guide: https://github.com/PathoGenOmics-Lab/eskaks";
+Docs & guide: https://pathogenomics-lab.github.io/eskaks/";
 
 /// Calculates dN/dS for sequences using Nei-Gojobori or Li (1993) models.
 #[derive(Parser, Debug)]

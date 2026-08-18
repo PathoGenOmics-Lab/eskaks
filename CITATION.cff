@@ -51,11 +51,12 @@ url: "https://pathogenomics-lab.github.io/eskaks/"
 version: "0.1.0"
 license: GPL-3.0-only
 
-# No `date-released` and no `doi` on purpose. Nothing has been released or archived
-# yet, and CFF treats both fields as optional precisely so that unreleased software
-# can still be cited honestly. Inventing a release date or a placeholder DOI here
-# would put a claim into every generated bibliography that nothing can resolve.
-# Add both in the same commit that cuts the first tagged release.
+# `date-released` is the day the 0.1.0 tag was cut. There is still no `doi`, and it
+# stays absent rather than becoming a placeholder: CFF treats it as optional exactly
+# so that unarchived software can be cited honestly, and a DOI that resolves to
+# nothing is worse in a bibliography than no DOI at all. Add it when the release is
+# archived, in the same commit that records the archive.
+date-released: "2026-08-18"
 
 keywords:
   - dN/dS
