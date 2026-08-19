@@ -27,7 +27,7 @@
 <a href="https://github.com/PathoGenOmics-Lab"><picture><source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/PathoGenOmics-lab-%23E52421?style=flat-square&labelColor=21262d"><img alt="PGO" src="https://img.shields.io/badge/PathoGenOmics-lab-%23E52421?style=flat-square"></picture></a>
 
 **Pairwise dN/dS (Ka/Ks) and per-gene pN/pS from codon-aligned sequences or VCF files.**
-**Pure Rust · no C dependencies · self-contained interactive HTML reports.**
+**Written in Rust · one binary, no runtime dependencies · self-contained interactive HTML reports.**
 
 ### 📖 [Read the documentation](https://pathogenomics-lab.github.io/eskaks/)
 
@@ -53,8 +53,8 @@ on protein-coding genes. Two modes:
 - **`eskaks vcf`**: per-gene pN/pS from a VCF + reference + GFF3, with a genome-wide
   neutrality scan and a self-contained interactive HTML report.
 
-Pure Rust, no C dependencies, up to **2,641× faster** than KaKs_Calculator (R² = 1.0
-on the Li model).
+Written in Rust, and the binary runs with nothing installed alongside it. Up to
+**2,641× faster** than KaKs_Calculator (R² = 1.0 on the Li model).
 
 | Feature | Description |
 |---|---|
