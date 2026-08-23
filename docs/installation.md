@@ -6,6 +6,23 @@ description: >-
 
 # Installation
 
+## With conda
+
+```bash
+conda install -c bioconda eskaks
+```
+
+Bioconda publishes `linux-64` and `osx-64`. There is no `osx-arm64` build yet, so a
+plain install on Apple silicon fails with `PackagesNotFoundError`. Either run the
+Intel build under Rosetta:
+
+```bash
+CONDA_SUBDIR=osx-64 conda install -c bioconda eskaks
+```
+
+or take the native `macos-aarch64` binary from the release below, which has no such
+gap.
+
 ## From a release
 
 Every tagged release attaches a binary for macOS (Apple silicon and Intel), Linux
@@ -39,9 +56,9 @@ The binary is written to `target/release/eskaks`. Put it on your `PATH`:
 cp target/release/eskaks ~/.local/bin/
 ```
 
-!!! info "Package managers are not there yet"
-    `cargo install eskaks` and a bioconda recipe (`conda install -c bioconda eskaks`)
-    are not available. Use a release binary or build from source.
+!!! info "Not on crates.io"
+    `cargo install eskaks` is not available. Use conda, a release binary, or a source
+    build.
 
 ## Requirements
 
